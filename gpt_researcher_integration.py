@@ -89,17 +89,12 @@ async def main():
     safe_query = query.replace(" ", "_")[:50]
     output_file = OUTPUT_DIR / f"{depth}_{safe_query}_report.md"
     
-    researcher = GPTResearcher(
-        query=query,
-        report_type=report_type,
-        config_path="/opt/data/deep_research_outputs/gpt_researcher/config.json",
-        report_format="markdown",
-        tone=Tone.Objective,
-        verbose=True,
-    )
-
     # Opt-in tracing (RUN_TRACE_DIR set): same artifacts as run_research.py.
     # Unset = byte-identical behavior to before.
+    # Recording must wrap the class BEFORE GPTResearcher.__init__ runs:
+    # __init__ calls get_retrievers() (agent.py:176), which resolves
+    # "custom" via deferred import and keeps the class reference. Rebinding
+    # afterwards would have no effect on this run.
     tracer = None
     uninstall_probes = None
     uninstall_recording = None
@@ -108,6 +103,14 @@ async def main():
         tracer = run_trace.RunTracer(query, report_type, trace_root)
         uninstall_probes = run_trace.install_probe_wrapping(tracer)
         uninstall_recording = run_trace.install_custom_recording(tracer)
+    researcher = GPTResearcher(
+        query=query,
+        report_type=report_type,
+        config_path="/opt/data/deep_research_outputs/gpt_researcher/config.json",
+        report_format="markdown",
+        tone=Tone.Objective,
+        verbose=True,
+    )
 
     await researcher.conduct_research()
     report = await researcher.write_report(custom_prompt=EVIDENCE_PROMPT)
