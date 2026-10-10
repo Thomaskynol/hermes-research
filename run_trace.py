@@ -203,12 +203,21 @@ def record_library_state(tracer: RunTracer, researcher) -> object:
     Read-only: touches nothing on the researcher object.
     """
     context = researcher.get_research_context()
+    # get_research_context() returns researcher.context, which is a LIST in
+    # the deep-research path but a single STRING in the quick path
+    # (conduct_research returns self.context either way). Normalize.
+    if isinstance(context, str):
+        items = [{"chars": len(context), "text": context}]
+    else:
+        items = [{"chars": len(str(c)), "text": str(c)} for c in context]
     tracer.record("context.json", {
         "what": "researcher.context after conduct_research(); passed as "
                 "ext_context to write_report() (agent.py:451-493). "
-                "Generation input material, not the final prompt text.",
-        "count": len(context),
-        "items": [{"chars": len(str(c)), "text": str(c)} for c in context],
+                "Generation input material, not the final prompt text. "
+                "Shape: " + ("single string" if isinstance(context, str)
+                             else f"list of {len(context)}"),
+        "count": len(items),
+        "items": items,
     })
     try:
         sources = researcher.get_research_sources()
