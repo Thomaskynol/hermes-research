@@ -248,6 +248,55 @@ def record_library_state(tracer: RunTracer, researcher) -> object:
     return costs
 
 
+def install_custom_recording(tracer: RunTracer):
+    """Record what the custom retriever delivers per sub-query.
+
+    Rebinds `gpt_researcher.retrievers.CustomRetriever` to a subclass that
+    logs every response (sub-query, per-item url/source/raw_chars, whether a
+    `[transcript ...]` section is present) and then delegates unchanged.
+    Same reversible pattern as retriever_timeout.py; no site-packages edits.
+    This is the ONLY way to see the custom payloads: the library keeps them
+    in transient `prefetched_content`, never persisted.
+    Returns an uninstall callable (restores the previous binding).
+    """
+    import gpt_researcher.retrievers as retrievers
+
+    previous = retrievers.CustomRetriever
+    responses: list[dict] = []
+
+    class RecordingRetriever(previous):  # type: ignore[valid-type, misc]
+        def search(self, max_results: int = 5):  # type: ignore[no-untyped-def]
+            payload = super().search(max_results=max_results)
+            items = []
+            for it in payload if isinstance(payload, list) else []:
+                raw = (it.get("raw_content") or "") if isinstance(it, dict) else ""
+                items.append({
+                    "url": it.get("url", "") if isinstance(it, dict) else "",
+                    "source": it.get("source", "") if isinstance(it, dict) else "",
+                    "raw_chars": len(raw),
+                    "has_transcript_section": "[transcript" in raw,
+                })
+            responses.append({
+                "sub_query": getattr(self, "query", ""),
+                "items": items,
+            })
+            return payload
+
+    retrievers.CustomRetriever = RecordingRetriever
+
+    def uninstall():
+        retrievers.CustomRetriever = previous
+        tracer.write("custom_responses.json", {
+            "what": "payloads delivered by the custom retriever per "
+                    "sub-query (transient prefetched_content, otherwise "
+                    "unobservable). Compare has_transcript_section here "
+                    "against generation input to locate the loss.",
+            "responses": responses,
+        })
+
+    return uninstall
+
+
 def trace_select_hits(tracer: RunTracer, hits: list) -> list:
     """Snapshot corpus before/after the REAL _select_hits; log verdicts."""
     import vast_local_retriever as vast

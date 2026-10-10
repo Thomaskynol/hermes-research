@@ -102,10 +102,12 @@ async def main():
     # Unset = byte-identical behavior to before.
     tracer = None
     uninstall_probes = None
+    uninstall_recording = None
     trace_root = os.environ.get(run_trace.RUNS_ENV, "")
     if trace_root:
         tracer = run_trace.RunTracer(query, report_type, trace_root)
         uninstall_probes = run_trace.install_probe_wrapping(tracer)
+        uninstall_recording = run_trace.install_custom_recording(tracer)
 
     await researcher.conduct_research()
     report = await researcher.write_report(custom_prompt=EVIDENCE_PROMPT)
@@ -132,6 +134,8 @@ async def main():
         })
         if uninstall_probes is not None:
             uninstall_probes()  # flushes retrievers.json
+        if uninstall_recording is not None:
+            uninstall_recording()  # flushes custom_responses.json
     
     word_count = len(report.split())
     print(f"\n[SUCCESS] Report saved: {output_file}")
