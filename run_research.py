@@ -62,20 +62,18 @@ async def research(query, report_type, tracer=None):
     out.write_text(report)
     print(f"[RUN] report written: {out}", file=sys.stderr)
     context = researcher.get_research_context()
+    costs: object = "tracing_off"
     if tracer is not None:
-        # The accessible integration seam: what the library exposes back.
-        # Stages inside site-packages (EmbeddingsFilter k=20/threshold,
-        # max_results cut, generation context) are NOT captured here.
-        tracer.record("context.json", {
-            "source_urls": researcher.get_source_urls(),
-            "context_items": [
-                {"chars": len(str(c)), "text": str(c)} for c in context
-            ],
-        })
+        # The accessible integration seam: library state after research.
+        # context.json = researcher.context, the exact list later passed as
+        # ext_context to write_report() (agent.py:451-493). Generation input
+        # material — NOT the final prompt text (prompt assembly inside
+        # skills/researcher.py is not captured).
+        costs = run_trace.record_library_state(tracer, researcher)
         tracer.record("report.md", report)
         if uninstall_probes is not None:
             uninstall_probes()  # flushes retrievers.json
-    return {
+    stats = {
         "total_urls": len(researcher.get_source_urls()),
         "scraped_data_success": sum(1 for c in context if str(c).strip()),
         "scraped_data_total": len(context),
@@ -83,6 +81,8 @@ async def research(query, report_type, tracer=None):
         "citations": len(CITATION.findall(report)),
         "research_gaps": list(getattr(researcher, "research_gaps", None) or []),
     }
+    stats["token_usage"] = costs  # "tracing_off" or get_costs()/get_step_costs()
+    return stats
 
 
 def main():
@@ -129,7 +129,8 @@ def main():
     found = stats["total_urls"] > 0 and stats["scraped_data_success"] > 0
     stats["status"] = "ok" if found else "NO SOURCES"
     if tracer is not None:
-        stats["token_usage"] = "not_exposed"
+        # token_usage already set in research() from get_costs()/get_step_costs()
+        # ("not_exposed" when the library does not offer it).
         stats["not_instrumented"] = {
             "chunk_selection": "EmbeddingsFilter in site-packages "
                                "(context/compression.py:135, k defaults to 20 "

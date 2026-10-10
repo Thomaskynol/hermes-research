@@ -10,13 +10,22 @@ What it records (see `new_run` / `RunTracer`):
   selection.json, context.json, report.md, stats.json
 
 What it does NOT record (limitation, not an oversight):
-  the chunk stages inside site-packages — EmbeddingsFilter
+  the prompt finally assembled around each context item inside
+  skills/researcher.py (report_generator.write_report receives
+  ext_context=self.context and wraps it in prompts we do not capture),
+  the per-chunk EmbeddingsFilter decisions
   (context/compression.py:135, k defaults to 20 from langchain_classic),
-  max_results=10 (skills/context_manager.py:63), generation-time context
-  assembly, and the searx/duckduckgo/arxiv retrievers (they run inside the
-  library; only our `custom` retriever's vast side is wrapped here).
+  and the searx/duckduckgo/arxiv retrievers (they run inside the library;
+  only our `custom` retriever's vast side is wrapped here).
   Those stages are marked "not_instrumented" in stats.json with file:line
   reasons instead of being simulated.
+
+What context.json IS (read agent.py:451-493 before redefining it):
+  researcher.context AFTER conduct_research() — the exact list passed as
+  ext_context to write_report() when no external context is given. This is
+  the generation input material: every string the report prompt is built
+  from. It is NOT the final prompt text (prompt assembly inside
+  skills/researcher.py is not captured).
 """
 
 import functools
@@ -180,6 +189,46 @@ def install_probe_wrapping(tracer: RunTracer):
         })
 
     return uninstall
+
+
+def record_library_state(tracer: RunTracer, researcher) -> object:
+    """Capture what the library exposes after conduct_research().
+
+    - context.json: researcher.context — the exact list later passed as
+      ext_context to write_report() (agent.py:451-493). Generation input
+      material, NOT the final prompt text.
+    - library_sources.json: researcher.research_sources — scraped sources
+      (title/content/images) as the library saw them, pre-compression.
+    - costs: get_costs()/get_step_costs() when available, else "not_exposed".
+    Read-only: touches nothing on the researcher object.
+    """
+    context = researcher.get_research_context()
+    tracer.record("context.json", {
+        "what": "researcher.context after conduct_research(); passed as "
+                "ext_context to write_report() (agent.py:451-493). "
+                "Generation input material, not the final prompt text.",
+        "count": len(context),
+        "items": [{"chars": len(str(c)), "text": str(c)} for c in context],
+    })
+    try:
+        sources = researcher.get_research_sources()
+    except Exception:
+        sources = "not_exposed"
+    tracer.record("library_sources.json", {
+        "what": "researcher.research_sources (agent.py:151,678-686): "
+                "scraped sources as the library saw them, pre-compression.",
+        "value": sources if isinstance(sources, str) else [
+            {k: (v if k != "content" else str(v)) for k, v in
+             (s.items() if isinstance(s, dict) else {"item": str(s)}.items())}
+            for s in sources
+        ],
+    })
+    try:
+        costs: object = {"total": researcher.get_costs(),
+                         "steps": researcher.get_step_costs()}
+    except Exception:
+        costs = "not_exposed"
+    return costs
 
 
 def trace_select_hits(tracer: RunTracer, hits: list) -> list:

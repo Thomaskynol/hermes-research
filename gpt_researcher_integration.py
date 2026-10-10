@@ -33,6 +33,7 @@ sys.path.insert(0, "/opt/data/deep_research_outputs/gpt_researcher")
 import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
+import run_trace
 sync_config.sync()
 # Before GPTResearcher builds a Config: install() exports REASONING_EFFORT, which
 # Config reads in its constructor. After sync_config.sync(), which sets SMART_LLM.
@@ -75,10 +76,41 @@ async def main():
         tone=Tone.Objective,
         verbose=True,
     )
-    
+
+    # Opt-in tracing (RUN_TRACE_DIR set): same artifacts as run_research.py.
+    # Unset = byte-identical behavior to before.
+    tracer = None
+    uninstall_probes = None
+    trace_root = os.environ.get(run_trace.RUNS_ENV, "")
+    if trace_root:
+        tracer = run_trace.RunTracer(query, report_type, trace_root)
+        uninstall_probes = run_trace.install_probe_wrapping(tracer)
+
     await researcher.conduct_research()
     report = await researcher.write_report()
     output_file.write_text(report)
+
+    if tracer is not None:
+        costs = run_trace.record_library_state(tracer, researcher)
+        tracer.record("report.md", report)
+        tracer.record("stats.json", {
+            "query": query, "depth": depth, "report_type": report_type,
+            "report_file": str(output_file),
+            "total_urls": len(researcher.get_source_urls()),
+            "token_usage": costs,
+            "not_instrumented": {
+                "chunk_selection": "EmbeddingsFilter in site-packages "
+                                   "(context/compression.py:135)",
+                "context_cut": "max_results cut in site-packages "
+                               "(skills/context_manager.py:63)",
+                "generation_context": "prompt assembly inside "
+                                      "skills/researcher.py not captured",
+                "non_custom_retrievers": "searx/duckduckgo/arxiv run inside "
+                                         "the library",
+            },
+        })
+        if uninstall_probes is not None:
+            uninstall_probes()  # flushes retrievers.json
     
     word_count = len(report.split())
     print(f"\n[SUCCESS] Report saved: {output_file}")
