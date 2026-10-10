@@ -21,6 +21,7 @@ from pathlib import Path
 import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
+import run_trace
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import ReportType, Tone
 
@@ -35,12 +36,15 @@ def report_path(query, report_type):
     return OUTPUT_DIR / f"{report_type}_{slug}_report.md"
 
 
-async def research(query, report_type):
+async def research(query, report_type, tracer=None):
     """Run the research, return the numbers that say what happened."""
     # Before GPTResearcher builds a Config: install() exports REASONING_EFFORT,
     # which Config reads in its constructor. Idempotent, and placed here rather
     # than in main() so every path into research() gets it.
     reasoning_effort.install()
+    uninstall_probes = None
+    if tracer is not None:
+        uninstall_probes = run_trace.install_probe_wrapping(tracer)
     researcher = GPTResearcher(
         query=query,
         report_type=report_type,
@@ -58,6 +62,19 @@ async def research(query, report_type):
     out.write_text(report)
     print(f"[RUN] report written: {out}", file=sys.stderr)
     context = researcher.get_research_context()
+    if tracer is not None:
+        # The accessible integration seam: what the library exposes back.
+        # Stages inside site-packages (EmbeddingsFilter k=20/threshold,
+        # max_results cut, generation context) are NOT captured here.
+        tracer.record("context.json", {
+            "source_urls": researcher.get_source_urls(),
+            "context_items": [
+                {"chars": len(str(c)), "text": str(c)} for c in context
+            ],
+        })
+        tracer.record("report.md", report)
+        if uninstall_probes is not None:
+            uninstall_probes()  # flushes retrievers.json
     return {
         "total_urls": len(researcher.get_source_urls()),
         "scraped_data_success": sum(1 for c in context if str(c).strip()),
@@ -98,7 +115,11 @@ def main():
         sys.stderr.flush()
 
         start = time.monotonic()
-        stats = asyncio.run(research(args.query, args.report_type))
+        tracer = None
+        trace_root = os.environ.get(run_trace.RUNS_ENV, "")
+        if trace_root:
+            tracer = run_trace.RunTracer(args.query, args.report_type, trace_root)
+        stats = asyncio.run(research(args.query, args.report_type, tracer))
         stats["elapsed_seconds"] = round(time.monotonic() - start, 1)
 
     stats["model"] = model
@@ -107,6 +128,20 @@ def main():
     stats["report_file"] = str(report_path(args.query, args.report_type))
     found = stats["total_urls"] > 0 and stats["scraped_data_success"] > 0
     stats["status"] = "ok" if found else "NO SOURCES"
+    if tracer is not None:
+        stats["token_usage"] = "not_exposed"
+        stats["not_instrumented"] = {
+            "chunk_selection": "EmbeddingsFilter in site-packages "
+                               "(context/compression.py:135, k defaults to 20 "
+                               "from langchain_classic, threshold 0.42)",
+            "context_cut": "max_results cut in site-packages "
+                           "(skills/context_manager.py:63)",
+            "generation_context": "assembled inside write_report(); "
+                                  "only the returned text is observable",
+            "non_custom_retrievers": "searx/duckduckgo/arxiv run inside the "
+                                     "library; only the vast side is wrapped",
+        }
+        tracer.record("stats.json", stats)
 
     if args.as_json:
         print(json.dumps(stats, indent=2))
