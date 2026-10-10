@@ -9,6 +9,7 @@ Exit 0 = all checks pass. Exit 1 = any check fails. Every line printed is
 `PASS|FAIL name: objective evidence`.
 """
 
+import ast
 import asyncio
 import hashlib
 import inspect
@@ -19,6 +20,16 @@ from pathlib import Path
 
 WORKDIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(WORKDIR))
+
+# Hermetic execution: the harness may run this binary with another venv
+# leaked into sys.path (observed: /opt/hermes/.venv 3.14 paths shadowing
+# this 3.13 interpreter -> mixed-version imports). Drop foreign venv paths
+# so the gate always tests the project venv it was written for.
+_foreign = [p for p in sys.path if "/.venv/" in p]
+for p in _foreign:
+    sys.path.remove(p)
+if _foreign:
+    print(f"INFO path_cleanup: removed foreign venv paths={_foreign}")
 
 FIXTURE = WORKDIR / "fixtures" / "transcript_replay.json"
 FAILURES: list[str] = []
@@ -47,23 +58,33 @@ def find_spoken_evidence(output: str, probe: str) -> tuple[bool, bool]:
 
 
 def main() -> int:
-    # ---- A. current code shape ----
-    import vast_local_retriever as vast
-    fields = set(getattr(vast.Hit, "__dataclass_fields__", {}))
+    # ---- A. current code shape (AST: no import, so the gate never drags
+    # fastapi/uvicorn import side effects into the check process) ----
+    vast_src = (WORKDIR / "vast_local_retriever.py").read_text(encoding="utf-8")
+    tree = ast.parse(vast_src)
+    hit_fields: set[str] = set()
+    defs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Hit":
+            hit_fields = {t.target.id for t in node.body
+                          if isinstance(t, ast.AnnAssign)
+                          and isinstance(t.target, ast.Name)}
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs.add(node.name)
     check("A1_hit_transcript_fields",
           {"transcript_origin", "transcript_lang", "transcript_automatic",
-           "transcript_chars", "transcript_status"} <= fields,
-          f"Hit fields={sorted(fields)}")
-    has_peek = callable(getattr(vast, "_peek_transcript", None))
-    check("A2_peek_transcript_exists", has_peek,
-          "vast._peek_transcript (cache-only alias) present"
-          if has_peek else "MISSING")
+           "transcript_chars", "transcript_status"} <= hit_fields,
+          f"Hit fields={sorted(hit_fields)}")
+    check("A2_peek_transcript_exists",
+          "_peek_transcript" in vast_src
+          and "from youtube_transcript import" in vast_src,
+          "vast imports peek as _peek_transcript (cache-only alias)")
     for fn_name in ("_apply_transcript", "_format_transcript_section"):
-        check(f"A2_{fn_name}_exists", callable(getattr(vast, fn_name, None)),
-              "present in vast_local_retriever" if callable(
-                  getattr(vast, fn_name, None)) else "MISSING")
+        check(f"A2_{fn_name}_exists", fn_name in defs,
+              "defined in vast_local_retriever" if fn_name in defs
+              else "MISSING")
     check("A2_transcript_status_consts",
-          all(hasattr(vast, n) for n in
+          all(n in vast_src for n in
               ("TRANSCRIPT_OK", "TRANSCRIPT_CACHE", "TRANSCRIPT_ABSENT",
                "TRANSCRIPT_ERROR")),
           "status constants present")
