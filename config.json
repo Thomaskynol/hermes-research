@@ -1,0 +1,17 @@
+{
+    "RETRIEVER": "custom,searx,duckduckgo,arxiv",
+    "EMBEDDING": "custom:harrier-oss-v1-0.6b",
+    "SMART_LLM": "openrouter:stealth/space-bunny-alpha",
+    "FAST_LLM": "openrouter:stealth/space-bunny-alpha",
+    "REPORT_SOURCE": "web",
+    "TOTAL_WORDS": 1200,
+    "REPORT_FORMAT": "apa",
+    "MAX_ITERATIONS": 3,
+    "DEEP_RESEARCH_BREADTH": 3,
+    "DEEP_RESEARCH_DEPTH": 2,
+    "DEEP_RESEARCH_CONCURRENCY": 4,
+    "LANGUAGE": "english",
+    "SIMILARITY_THRESHOLD": 0.42,
+    "CURATE_SOURCES": false,
+    "STRATEGIC_LLM": "openrouter:stealth/space-bunny-alpha"
+}

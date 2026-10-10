@@ -1,0 +1,14 @@
+RETRIEVER: duckduckgo
+EMBEDDING: ollama
+SMART_LLM: openrouter:inclusionai/ling-3.0-flash-vl:free
+FAST_LLM: openrouter:inclusionai/ling-3.0-flash-vl:free
+REPORT_SOURCE: web
+TOTAL_WORDS: 1200
+REPORT_FORMAT: apa
+MAX_ITERATIONS: 3
+DEEP_RESEARCH_BREADTH: 3
+DEEP_RESEARCH_DEPTH: 2
+DEEP_RESEARCH_CONCURRENCY: 4
+LANGUAGE: english
+SIMILARITY_THRESHOLD: 0.42
+CURATE_SOURCES: false
