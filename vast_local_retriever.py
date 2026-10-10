@@ -252,8 +252,10 @@ except Exception as exc:  # noqa: BLE001 - ver acima
 try:
     from youtube_transcript import METHOD_CACHE as _YT_METHOD_CACHE
     from youtube_transcript import fetch_transcript as _fetch_transcript
+    from youtube_transcript import peek_transcript as _peek_transcript
 except Exception as exc:  # noqa: BLE001 - ver acima
     _fetch_transcript = None
+    _peek_transcript = None
     _YT_METHOD_CACHE = "cache"
     logger.warning(
         "youtube_transcript indisponivel (%s: %s); video volta a ser so descricao",
@@ -276,12 +278,31 @@ class SourceBlocked(SourceError):
 
 @dataclass(slots=True)
 class Hit:
-    """Um resultado ja no formato do contrato, antes do truncamento final."""
+    """Um resultado ja no formato do contrato, antes do truncamento final.
+
+    Os campos transcript_* nascem defaultados (descricao como fallback) e o
+    enriquecimento os preenche sem mexer em titulo, descricao-base ou URL: a
+    transcricao e ADICAO rotulada, nunca substituicao. Sao eles -- e nao o
+    tamanho do raw_content -- que dizem no trace se o video chegou a geracao
+    com fala transcrita ou so com a isca.
+    """
 
     url: str
     title: str
     raw_content: str
     source: str
+    # Origem da transcricao ("cache"/"live") ou "" quando nao ha nenhuma.
+    transcript_origin: str = ""
+    # Idioma da legenda ("en", ...) ou "" quando nao ha nenhuma.
+    transcript_lang: str = ""
+    # True/False quando a origem e conhecida, None (unknown) em caso contrario.
+    transcript_automatic: bool | None = None
+    # Chars de transcricao aproveitados, ou 0 quando nao ha nenhuma.
+    transcript_chars: int = 0
+    # Status da transcricao neste hit. Sempre preenchido em video do YouTube:
+    # um dos transcript_* abaixo (ok/cache), ou transcript_absent/
+    # transcript_error quando ficou so a descricao.
+    transcript_status: str = ""
 
     def as_contract_item(self) -> dict[str, str]:
         """Reduz ao que o GPT Researcher le, na ordem e nos nomes que ele espera."""
@@ -994,28 +1015,100 @@ async def _read_yt_pool(
         gate.done.set()
 
 
+# Rótulos explicitos de status de transcricao no Hit. transcript_ok e
+# transcript_cache sao separados pelo mesmo motivo de yt_ok/yt_cache: um "ok"
+# que nao saiu na rede e a mesma mentira de um relatorio que contou cache como
+# enriquecimento. transcript_absent (sem legenda, motivo honesto) e
+# transcript_error (timeout/orcamento/erro) dizem por que ficou so a descricao.
+TRANSCRIPT_OK: Final[str] = "transcript_ok"
+TRANSCRIPT_CACHE: Final[str] = "transcript_cache"
+TRANSCRIPT_ABSENT: Final[str] = "transcript_absent"
+TRANSCRIPT_ERROR: Final[str] = "transcript_error"
+
+
+def _auto_label(value: bool | None) -> str:
+    """Rotula automatic para o trace: True/False/unknown, nunca vazio."""
+    if value is True:
+        return "True"
+    if value is False:
+        return "False"
+    return "unknown"
+
+
+def _format_transcript_section(result: Any, limit: int) -> tuple[str, str]:
+    """Monta a secao rotulada de transcricao e diz se ela foi cortada.
+
+    Devolve (secao, status_extra): a secao e o bloco "[transcript ...]..." pronto
+    para colar depois da descricao, e o status_extra e "" ou
+    `transcript_truncated_at_N` quando o texto estourou o `limit`. O corte aqui e
+    PRE-truncamento: garante que a secao caiba no RAW_CONTENT_LIMIT sem comer a
+    descricao nem a URL, antes do corte final do as_contract_item().
+    """
+    text = result.text
+    truncated_at: int | None = None
+    if len(text) > limit:
+        text = text[:limit]
+        truncated_at = limit
+    section = (
+        f"\n\n[transcript origin={result.method} lang={result.lang} "
+        f"automatic={_auto_label(result.automatic)} chars={result.chars}]\n{text}"
+    )
+    extra = f"transcript_truncated_at_{truncated_at}" if truncated_at is not None else ""
+    return section, extra
+
+
+def _apply_transcript(hit: Hit, result: Any) -> None:
+    """Cola a transcricao no hit como secao rotulada, sem tocar no resto.
+
+    Titulo, descricao-base e URL ficam intactos: a transcricao e ADICAO com o
+    cabecalho [transcript ...], de modo que e evidente onde a descricao termina
+    e onde comeca o conteudo falado. Os campos transcript_* do hit registram
+    origem/idioma/automatic/chars/status para o trace e para a geracao.
+    """
+    section, extra = _format_transcript_section(result, RAW_CONTENT_LIMIT)
+    hit.raw_content = f"{hit.raw_content}{section}"
+    hit.transcript_origin = result.method
+    hit.transcript_lang = result.lang
+    hit.transcript_automatic = result.automatic
+    hit.transcript_chars = result.chars
+    status = TRANSCRIPT_CACHE if result.method == _YT_METHOD_CACHE else TRANSCRIPT_OK
+    hit.transcript_status = f"{status}+{extra}" if extra else status
+
+
 async def _read_transcript(
     hit: Hit,
     deadline: float,
     stats: Counter[str],
     gate: _YtGate | None = None,
 ) -> None:
-    """Troca a descricao do video pela transcricao. Nunca levanta excecao.
+    """Enriquece o video com a transcricao como secao ADICIONADA. Nunca levanta.
 
-    A descricao (`YouTube: {titulo}\\n{descricao[:400]}`) e a isca: no video
-    medido ela tinha 128 chars contra 18.527 da transcricao, 145x mais. Quando a
-    transcricao nao vem, a descricao fica como estava.
+    A descricao-base (`YouTube: {titulo}\\n{descricao[:400]}`) e a isca: no video
+    medido ela tinha 128 chars contra 18.527 da transcricao, 145x mais. A
+    transcricao entra como secao rotulada DEPOIS dela (_apply_transcript), nunca
+    no lugar -- o caminho antigo trocava e apagava a fronteira entre descricao
+    e fala. Quando a transcricao nao vem, a descricao fica como estava, e o hit
+    ganha o transcript_status explicito (absent/error) em vez de silencio.
     """
     if _fetch_transcript is None:
+        return
+    if hit.transcript_chars > 0:
+        # Fase A (cache-first em enrich_results) ja resolveu este video: refetch
+        # seria um yt-dlp inteiro por um texto que ja esta no hit.
         return
     result = await _try_read(
         hit, deadline, stats, call=_fetch_transcript, timeout=YT_FETCH_TIMEOUT_S,
         miss="yt_miss", label="transcricao",
     )
     if result is None:
+        # _try_read ja contou yt_miss (timeout/orcamento/erro): o status diz o
+        # mesmo no hit, para o trace nao depender de juntar dois contadores.
+        hit.transcript_status = TRANSCRIPT_ERROR
+        logger.info("transcricao erro em %s; descricao mantida", hit.url)
         return
     if result.chars <= 0:
         stats["yt_miss"] += 1
+        hit.transcript_status = TRANSCRIPT_ABSENT
         logger.info("transcricao ausente em %s: %s; descricao mantida", hit.url, result.reason)
         return
 
@@ -1026,14 +1119,16 @@ async def _read_transcript(
         stats["yt_cache"] += 1
     else:
         stats["yt_ok"] += 1
-    hit.raw_content = result.text
+    _apply_transcript(hit, result)
     stats["chars"] += result.chars
     if gate is not None:
         # Avisa o pool de paginas: este video ja tem conteudo de verdade, e a
         # pagina HTML dele nao precisa ser lida.
         gate.urls.add(hit.url)
     logger.info(
-        "transcricao %s %s: %d chars, %d segmentos", result.method, hit.url, result.chars, result.segments,
+        "transcricao %s %s: %d chars, %d segmentos lang=%s automatic=%s status=%s",
+        result.method, hit.url, result.chars, result.segments,
+        result.lang, _auto_label(result.automatic), hit.transcript_status,
     )
 
 
@@ -1063,6 +1158,15 @@ async def _read_page(
         await _read_repo_readme(hit, deadline, stats)
         return
 
+    # A transcricao ganha da pagina, sempre e sem depender do gate: o gate so
+    # existe quando ha transcricao live em voo (fase B), mas a fase A (cache)
+    # resolve antes dele nascer -- sem este guarda, a pagina HTML Sobrescreveria
+    # o transcript que o cache ja colocou no hit. Video com fala transcrita
+    # nunca volta a ser pagina.
+    if hit.source == "youtube" and hit.transcript_chars > 0:
+        stats["skipped"] += 1
+        logger.info("pagina nao lida em %s: a transcricao ja cobre este video", hit.url)
+        return
     if gate is not None and hit.source == "youtube":
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(
@@ -1156,7 +1260,14 @@ async def _read_page(
     # termina e e descartada): isso e uma leitura parcial aceita, nao
     # corrupcao, porque quem nao termina volta com o snippet e nao com texto
     # pela metade.
-    hit.raw_content = text
+    #
+    # Transcricao nunca e sobrescrita pela pagina: o guarda no topo desta
+    # funcao ja pula video com transcript_chars > 0, e esta segunda checagem
+    # cobre qualquer caminho futuro que chegue aqui sem passar por ele. Pagina
+    # HTML do YouTube e 429/antibot medidos contra fala transcrita -- nao ha
+    # empate a desempatar.
+    if hit.source != "youtube" or hit.transcript_chars <= 0:
+        hit.raw_content = text
 
 
 async def _read_group(
@@ -1207,11 +1318,54 @@ async def enrich_results(hits: list[Hit], query: str) -> None:
         repo_hits = repo_hits[:README_MAX]
     page_plan = [hit for hit in plan if not _is_repo_page(hit.url)]
 
-    # Transcricao: no maximo YT_ENRICH_MAX videos, na ordem em que a busca
-    # devolveu. VAST_YT_ENRICH=0 desliga so esta rota (a pagina continua).
+    # Transcricao em DUAS fases, sobre o `selected` (pos-selecao), e nao sobre o
+    # corpus inteiro:
+    #
+    # Fase A (cache-first, SEM limite): todo video do YouTube no selected passa
+    # pelo peek_transcript, que e so leitura de SQLite -- sem rede, sem yt-dlp,
+    # sem orcamento. E isto que corrige a causa (c): antes, o slice
+    # [:YT_ENRICH_MAX] aplicado no corpus pre-selecao deixava a maioria dos
+    # videos fora do yt_hits, e os que a selecao mantinha chegavam a geracao
+    # com titulo+descricao apenas. Agora, o que ja esta em disco entra em todo
+    # video selecionado, independente da posicao.
+    #
+    # Fase B (live, teto YT_ENRICH_MAX inalterado): so os videos que o cache nao
+    # resolveu disputam os 3 slots de rede, na ordem do selected. O teto, o
+    # orcamento e a concorrencia nao mudam -- continua cabendo no endpoint sem
+    # virar uma busca de legenda.
+    #
+    # VAST_YT_ENRICH=0 desliga as duas fases (a pagina continua).
     yt_hits: list[Hit] = []
     if YT_ENRICH_ENABLED and _fetch_transcript is not None:
-        yt_hits = [hit for hit in hits if hit.source == "youtube"][:YT_ENRICH_MAX]
+        yt_all = [hit for hit in hits if hit.source == "youtube"]
+        if _peek_transcript is not None:
+            for hit in yt_all:
+                try:
+                    cached = _peek_transcript(hit.url)
+                except Exception as exc:  # noqa: BLE001 - peek nunca derruba o enrich
+                    logger.debug("peek de transcricao falhou em %s: %s: %s",
+                                 hit.url, type(exc).__name__, exc)
+                    cached = None
+                if cached is not None and cached.chars > 0:
+                    _apply_transcript(hit, cached)
+                    stats["yt_cache"] += 1
+                    stats["chars"] += cached.chars
+                    logger.info(
+                        "transcricao %s %s: %d chars lang=%s automatic=%s status=%s (fase A)",
+                        cached.method, hit.url, cached.chars,
+                        cached.lang, _auto_label(cached.automatic), hit.transcript_status,
+                    )
+        unresolved = [hit for hit in yt_all if hit.transcript_chars <= 0]
+        yt_hits = unresolved[:YT_ENRICH_MAX]
+        for hit in unresolved[YT_ENRICH_MAX:]:
+            # Fora do teto live E sem cache: ficou a descricao, dito em voz
+            # alta no hit. Nao conta yt_miss (nada foi tentado); o status no
+            # hit e a evidencia.
+            hit.transcript_status = TRANSCRIPT_ABSENT
+            logger.info(
+                "transcricao acima do teto live de %d por request: %s; descricao mantida",
+                YT_ENRICH_MAX, hit.url,
+            )
 
     tasks: list[asyncio.Task[None]] = []
     gate: _YtGate | None = None

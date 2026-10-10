@@ -130,6 +130,14 @@ def hit_to_record(hit, verdict: str | None = None) -> dict:
         "title": getattr(hit, "title", ""),
         "chars": len(getattr(hit, "raw_content", "") or ""),
         "raw_content": getattr(hit, "raw_content", "") or "",
+        # Campos de transcricao do Hit (vast_local_retriever): origem/idioma/
+        # automatic/chars/status por video, para o trace dizer quem chegou a
+        # geracao com fala transcrita e quem ficou so na descricao.
+        "transcript_origin": getattr(hit, "transcript_origin", ""),
+        "transcript_lang": getattr(hit, "transcript_lang", ""),
+        "transcript_automatic": getattr(hit, "transcript_automatic", None),
+        "transcript_chars": getattr(hit, "transcript_chars", 0),
+        "transcript_status": getattr(hit, "transcript_status", ""),
     }
     if verdict is not None:
         rec["selection_verdict"] = verdict

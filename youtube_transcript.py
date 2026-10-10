@@ -153,6 +153,16 @@ class TranscriptResult:
 
     `method` distingue "veio do cache" de "veio da rede" e `reason` preenchido
     significa que `text` esta vazio -- nunca os dois ao mesmo tempo com texto.
+
+    `automatic` diz se a legenda e gerada por maquina: True/False quando da para
+    saber, None quando nao da (unknown). Hoje e sempre None, e isso e honesto e
+    nao provisório: o argv pede manual E automatica juntas (`--write-subs` +
+    `--write-auto-subs`) e o VTT que o yt-dlp grava nao carrega marcador de
+    origem -- `yt.en.vtt` e o mesmo nome nos dois casos. Descobrir de verdade
+    custaria uma segunda chamada (`--list-subs`) por video, ou seja, dobrar o
+    orcamento de rede da transcricao para rotular o que o prompt trata do mesmo
+    jeito (spoken-content-only, ver o EVIDENCE_PROMPT nos runners). Se um dia
+    existir sinal barato, e aqui que ele entra.
     """
 
     text: str
@@ -162,6 +172,7 @@ class TranscriptResult:
     dupes_removed: int
     method: str
     reason: str | None
+    automatic: bool | None = None
 
 
 def clean_vtt(raw: str) -> tuple[str, int, int]:
@@ -496,6 +507,49 @@ def _miss(lang: str, reason: str) -> TranscriptResult:
     )
 
 
+def _detect_automatic(vtt_raw: str) -> bool | None:
+    """Diz se o VTT e legenda automatica. Hoje: sempre unknown (None).
+
+    Nao ha sinal barato e confiavel: o argv pede manual E automatica juntas
+    (`--write-subs` + `--write-auto-subs`, com a manual vencendo quando existe)
+    e o arquivo que o yt-dlp grava (`yt.en.vtt`) tem o mesmo nome e o mesmo
+    formato nos dois casos -- o stderr diz so "Downloading subtitles: en".
+    Saber de verdade custaria uma segunda chamada (`--list-subs`) por video,
+    dobrando o orcamento de rede da transcricao para rotular o que o prompt de
+    evidencia trata do mesmo jeito (spoken-content-only). Chutar pela presenca
+    de cabecalho `Kind:` seria adivinhar, e a regra 1 do modulo proibe isso.
+    A deteccao foi feita (sobre o VTT ja em memoria, custo zero) e o resultado
+    honesto e unknown. Se um dia existir marcador barato, e aqui que ele entra.
+    """
+    _ = vtt_raw
+    return None
+
+
+def peek_transcript(url: str) -> TranscriptResult | None:
+    """Somente-cache: devolve a transcricao se vigente, None se miss/expirada.
+
+    Existe para a fase A do vast (`enrich_results`): todos os videos do
+    `selected` passam por aqui sem gastar rede nem orcamento live. Nunca toca
+    em rede nem em cookie -- disco cheio ou cache corrompido viram None, e quem
+    chama segue para a rede como se fosse um miss comum.
+    """
+    if not url or not url.strip():
+        return None
+    try:
+        cached = _cache_get_sync(_normalize_url(url))
+    except Exception as exc:  # noqa: BLE001 - ver fetch_transcript: cache nao derruba busca
+        logger.debug("peek de cache indisponivel (%s: %s)", type(exc).__name__, exc)
+        return None
+    if cached is None:
+        return None
+    text, stored_lang, chars, segments, age = cached
+    logger.debug("peek acertou %s: %d chars (idade %ds)", url, chars, int(age))
+    return TranscriptResult(
+        text=text, lang=stored_lang, chars=chars, segments=segments, dupes_removed=0,
+        method=METHOD_CACHE, reason=None, automatic=None,
+    )
+
+
 async def _fetch_live(url: str, key_url: str, lang: str, timeout: float) -> TranscriptResult:
     """Caminho do yt-dlp, sem cache. Devolve texto ou motivo, nunca raise."""
     with tempfile.TemporaryDirectory(prefix="vast-yt-") as tmpdir:
@@ -532,7 +586,7 @@ async def _fetch_live(url: str, key_url: str, lang: str, timeout: float) -> Tran
     )
     return TranscriptResult(
         text=text, lang=lang, chars=len(text), segments=segments, dupes_removed=dupes,
-        method=METHOD_LIVE, reason=None,
+        method=METHOD_LIVE, reason=None, automatic=_detect_automatic(raw),
     )
 
 
@@ -562,7 +616,7 @@ async def fetch_transcript(url: str, *, lang: str = "en", timeout: float = DEFAU
         logger.info("transcricao do cache %s: %d chars (idade %ds)", key_url, chars, int(age))
         return TranscriptResult(
             text=text, lang=stored_lang, chars=chars, segments=segments, dupes_removed=0,
-            method=METHOD_CACHE, reason=None,
+            method=METHOD_CACHE, reason=None, automatic=None,
         )
 
     if not os.path.exists(YT_COOKIE_FILE):
