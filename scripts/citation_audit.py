@@ -130,6 +130,48 @@ def validate_messages(manifest: dict, messages_text: str) -> list[dict]:
     return findings
 
 
+def audit_report(report: str, messages_text: str) -> dict:
+    """Post-write hook for the skill path: manifest from what the writer
+    received + mechanical validation of the report. Returns
+    {manifest, message_findings, report_findings}."""
+    manifest = build_manifest_from_messages(messages_text)
+    return {"manifest": manifest,
+            "message_findings": validate_messages(manifest, messages_text),
+            "report_findings": validate(report, manifest)}
+
+
+def build_manifest_from_messages(messages_text: str) -> dict:
+    """Manifest whose entries are the Source sections the writer received."""
+    man = {}
+    for sec in re.split(r"(?=Source: )", messages_text):
+        m = re.match(r"Source:\s*(\S+)", sec)
+        if not m:
+            continue
+        url = m.group(1).strip("`")
+        nu = normalize_url(url)
+        if not nu:
+            continue
+        body = sec
+        has_spoken = bool(re.search(r"\[spoken \d+/\d+\]", body))
+        man[nu] = {
+            "url": url,
+            "evidence_types": ((["transcript"] if has_spoken else [])
+                               + (["description"] if "[description]" in body
+                                  else [])),
+            "segments_total": None,
+            "segments_consistent": True,
+            "content_chars": len(body),
+            "content_bearing": len(body.strip()) > 200,
+            "provenance": "write-messages",
+        }
+        totals = {t for _, t in re.findall(r"\[spoken (\d+)/(\d+)\]", body)}
+        if len(totals) == 1:
+            man[nu]["segments_total"] = int(next(iter(totals)))
+        else:
+            man[nu]["segments_consistent"] = False
+    return man
+
+
 def validate(report: str, manifest: dict) -> list[dict]:
     """Mechanical check: identity, presence, linkage. Returns findings."""
     findings = []
