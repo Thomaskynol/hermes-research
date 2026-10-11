@@ -4,13 +4,16 @@
 Usage:
     python3 gpt_researcher_integration.py "your research query" [depth]
 
-Depth options: quick, standard, detailed, deep
+Depth options: light, medium, hard, deep
+  (aliases: quick==light, standard==medium, detailed==hard, deep==deep)
+Per-run overrides via env: DEPTH_OVERRIDES_JSON='{"TOTAL_WORDS": 800}'
 Example:
     python3 gpt_researcher_integration.py "AI trends in 2026" detailed
 """
 import asyncio
 import sys
 import os
+import json
 from pathlib import Path
 
 # Load API keys from .env (maps OPENROUTER_API_KEY → OPENAI_API_KEY)
@@ -41,6 +44,7 @@ reasoning_effort.install()
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
+import depth_profiles
 
 DEPTH_MAP = {
     "quick": "quick",
@@ -48,6 +52,7 @@ DEPTH_MAP = {
     "detailed": "detailed_report",
     "deep": "deep",
 }
+CONFIG_PATH = "/opt/data/deep_research_outputs/gpt_researcher/config.json"
 OUTPUT_DIR = Path("/opt/data/deep_research_outputs/gpt_researcher/output")
 
 # Paragrafo de evidencia para videos do YouTube (brief YT_ENRICH_FIX_BRIEF.md).
@@ -114,17 +119,41 @@ def run_provenance_audit(report: str, messages: str, output_file) -> dict:
 async def main():
     if len(sys.argv) < 2:
         print("Usage: python3 gpt_researcher_integration.py \"query\" [depth]")
-        print("Depth: quick (default), standard, detailed, deep")
+        print("Depth: light (default), medium, hard, deep "
+              "(aliases: quick, standard, detailed, deep)")
         return
-    
+
     query = sys.argv[1]
-    depth = sys.argv[2] if len(sys.argv) > 2 else "quick"
-    report_type = DEPTH_MAP.get(depth, "quick")
-    
+    depth = sys.argv[2] if len(sys.argv) > 2 else "light"
+    # Overrides JSON (optional, validated keys only).
+    try:
+        cli_overrides = json.loads(
+            os.environ.get("DEPTH_OVERRIDES_JSON", "") or "{}")
+    except json.JSONDecodeError as _e:
+        print(f"[DEPTH] invalid DEPTH_OVERRIDES_JSON: {_e}")
+        return
+    try:
+        resolved = depth_profiles.resolve(depth, cli_overrides)
+    except ValueError as _e:
+        print(f"[DEPTH] {_e}")
+        print("Depth: light, medium, hard, deep "
+              "(aliases: quick, standard, detailed, deep)")
+        return
+    report_type = resolved["report_type"]
+    # AFTER sync_config.sync() (which ran at import and rewrote config.json):
+    # apply the profile's numeric settings to the config the library reads.
+    depth_profiles.apply_profile(CONFIG_PATH, resolved)
+
     print(f"[GPT RESEARCHER] Query: {query}")
-    print(f"[GPT RESEARCHER] Depth: {depth} ({report_type})")
+    print(f"[GPT RESEARCHER] Depth: {depth} "
+          f"(profile={resolved['profile']}, report_type={report_type})")
     print(f"[GPT RESEARCHER] Model: {os.environ.get('SMART_LLM', 'N/A')}")
-    
+    print(f"[GPT RESEARCHER] Profile: iterations={resolved['MAX_ITERATIONS']} "
+          f"breadth={resolved['DEEP_RESEARCH_BREADTH']} "
+          f"depth={resolved['DEEP_RESEARCH_DEPTH']} "
+          f"words={resolved['TOTAL_WORDS']} vast_max={resolved['vast_max']} "
+          f"yt_live={resolved['yt_live']}")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     safe_query = query.replace(" ", "_")[:50]
     output_file = OUTPUT_DIR / f"{depth}_{safe_query}_report.md"
@@ -146,7 +175,7 @@ async def main():
     researcher = GPTResearcher(
         query=query,
         report_type=report_type,
-        config_path="/opt/data/deep_research_outputs/gpt_researcher/config.json",
+        config_path=CONFIG_PATH,
         report_format="markdown",
         tone=Tone.Objective,
         verbose=True,
@@ -158,6 +187,30 @@ async def main():
     _ctx = researcher.context if isinstance(
         getattr(researcher, "context", ""), str) else ""
     run_provenance_audit(report, _ctx, output_file)
+
+    # Per-run depth record: resolved config + stop reason, next to the report.
+    _gaps = list(getattr(researcher, "research_gaps", None) or [])
+    try:
+        _stop = depth_profiles.decide_stop(
+            aspects_covered=1.0 if not _gaps else 0.5,
+            novelty_last_rounds=0.0,
+            blocked=False, gaps=_gaps)
+    except Exception:
+        _stop = {"stop": True, "stop_reason": "coverage", "partial": False}
+    _depth_record = {
+        "profile": resolved["profile"],
+        "depth_arg": depth,
+        "resolved": resolved,
+        "stop_reason": _stop.get("stop_reason", "coverage"),
+        "partial": bool(_stop.get("partial", False)),
+        "research_gaps": _gaps,
+    }
+    _depth_file = output_file.with_name(output_file.stem + "_depth.json")
+    _depth_file.write_text(
+        json.dumps(_depth_record, ensure_ascii=False, indent=1),
+        encoding="utf-8")
+    print(f"[DEPTH] resolved config + stop_reason={_depth_record['stop_reason']} "
+          f"-> {_depth_file.name}")
 
     if tracer is not None:
         costs = run_trace.record_library_state(tracer, researcher)
