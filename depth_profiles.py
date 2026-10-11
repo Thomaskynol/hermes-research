@@ -191,6 +191,10 @@ def apply_profile(config_path: str | Path, resolved: dict) -> dict:
     path.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
     os.environ["VAST_DOCS_CAP"] = str(int(resolved["vast_max"]))
     os.environ["VAST_YT_LIVE_CAP"] = str(int(resolved["yt_live"]))
+    # Effective path: CustomRetriever forwards RETRIEVER_ARG_* as query
+    # params; the endpoint clamps them to server maxima (12/3).
+    os.environ["RETRIEVER_ARG_MAX_RESULTS"] = str(int(resolved["vast_max"]))
+    os.environ["RETRIEVER_ARG_YT_LIVE"] = str(int(resolved["yt_live"]))
     return resolved
 
 

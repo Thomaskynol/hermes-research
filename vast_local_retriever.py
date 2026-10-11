@@ -750,13 +750,17 @@ async def search_all(query: str) -> list[Hit]:
     return hits
 
 
-def _select_hits(hits: list[Hit]) -> list[Hit]:
+def _select_hits(hits: list[Hit], cap: int | None = None) -> list[Hit]:
     """Dedup por url e corta em MAX_RESULTS, antes de qualquer leitura de pagina.
 
     O corte vem antes do enriquecimento de proposito: 12 e o contrato, e gastar
     leitura numa pagina de um item que depois seria descartado e orcamento jogado
     fora. Devolve os proprios objetos Hit, que o enriquecimento mexe in place.
+
+    `cap` (opcional, via query param `max_results`): reduz o corte para perfis
+    leves, sempre clampado a [1, MAX_RESULTS] -- nunca amplia o contrato.
     """
+    limit = MAX_RESULTS if cap is None else max(1, min(MAX_RESULTS, int(cap)))
     selected: list[Hit] = []
     seen: set[str] = set()
     for hit in hits:
@@ -764,7 +768,7 @@ def _select_hits(hits: list[Hit]) -> list[Hit]:
             continue
         seen.add(hit.url)
         selected.append(hit)
-        if len(selected) >= MAX_RESULTS:
+        if len(selected) >= limit:
             break
     return selected
 
@@ -1319,7 +1323,8 @@ async def _read_group(
         await _read_page(hit, deadline, stats, gate)
 
 
-async def enrich_results(hits: list[Hit], query: str) -> None:
+async def enrich_results(hits: list[Hit], query: str,
+                         yt_live: int | None = None) -> None:
     """Le as paginas do plano em paralelo por dominio, dentro de um orcamento.
 
     Tres rotas, cada uma com o seu orcamento e o seu teto, todas em paralelo:
@@ -1387,15 +1392,17 @@ async def enrich_results(hits: list[Hit], query: str) -> None:
                         cached.lang, _auto_label(cached.automatic), hit.transcript_status,
                     )
         unresolved = [hit for hit in yt_all if hit.transcript_chars <= 0]
-        yt_hits = unresolved[:YT_ENRICH_MAX]
-        for hit in unresolved[YT_ENRICH_MAX:]:
+        live_cap = YT_ENRICH_MAX if yt_live is None else max(
+            0, min(YT_ENRICH_MAX, int(yt_live)))
+        yt_hits = unresolved[:live_cap]
+        for hit in unresolved[live_cap:]:
             # Fora do teto live E sem cache: ficou a descricao, dito em voz
             # alta no hit. Nao conta yt_miss (nada foi tentado); o status no
             # hit e a evidencia.
             hit.transcript_status = TRANSCRIPT_ABSENT
             logger.info(
                 "transcricao acima do teto live de %d por request: %s; descricao mantida",
-                YT_ENRICH_MAX, hit.url,
+                live_cap, hit.url,
             )
 
     tasks: list[asyncio.Task[None]] = []
@@ -1484,7 +1491,16 @@ async def enrich_results(hits: list[Hit], query: str) -> None:
 
 
 @app.get("/")
-async def search(query: str = Query(..., description="Search query")) -> JSONResponse:
+async def search(query: str = Query(..., description="Search query"),
+                 max_results: int | None = Query(
+                     default=None,
+                     description="Reduz o corte de selecao para perfis leves; "
+                                 "clampado a [1, 12], nunca amplia o contrato."),
+                 yt_live: int | None = Query(
+                     default=None,
+                     description="Reduz o teto live de transcricoes; "
+                                 "clampado a [0, 3]. Cache-first (fase A) "
+                                 "nao tem limite e nao e afetado.")) -> JSONResponse:
     """Endpoint do GPT Researcher CustomRetriever: GET /?query=... -> lista de ate 12.
 
     O contrato (url, title, raw_content, source; no maximo MAX_RESULTS) e o que
@@ -1495,12 +1511,12 @@ async def search(query: str = Query(..., description="Search query")) -> JSONRes
         return JSONResponse([])
 
     hits = await search_all(query)
-    selected = _select_hits(hits)
+    selected = _select_hits(hits, cap=max_results)
     # Sem try/except em volta do enriquecimento, de proposito: cada pagina
     # engole o proprio erro e mantem o snippet, entao nao ha caminho em que
     # isto levante para dentro do endpoint. Um guard aqui seria ruido
     # escondendo bug.
-    await enrich_results(selected, query)
+    await enrich_results(selected, query, yt_live=yt_live)
 
     items = [hit.as_contract_item() for hit in selected]
 
