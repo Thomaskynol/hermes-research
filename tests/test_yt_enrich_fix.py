@@ -75,8 +75,12 @@ def test_apply_transcript_keeps_title_desc_url():
     hit = make_hit("https://www.youtube.com/watch?v=CCCCCCCCCCC")
     before = hit.raw_content
     vast._apply_transcript(hit, make_result(hit.url, chars=1000, method="live"))
-    assert hit.raw_content.startswith(before)  # descricao-base intacta
-    assert "[transcript origin=live lang=en automatic=unknown chars=1000]" in hit.raw_content
+    # descricao-base intacta, agora com rotulo [description]; fala em
+    # segmentos rotulados [spoken i/M] sob cabecalho com segments=M.
+    assert hit.raw_content.startswith("[description]\n" + before)
+    assert "[transcript origin=live lang=en automatic=unknown chars=1000 segments=2]" in hit.raw_content
+    assert "[spoken 1/2]" in hit.raw_content
+    assert "[spoken 2/2]" in hit.raw_content
     assert "fala transcrita" in hit.raw_content
     assert hit.title == "Titulo"
     assert hit.url == "https://www.youtube.com/watch?v=CCCCCCCCCCC"
@@ -85,6 +89,16 @@ def test_apply_transcript_keeps_title_desc_url():
     assert hit.transcript_automatic is None
     assert hit.transcript_chars == 1000
     assert hit.transcript_status == vast.TRANSCRIPT_OK
+
+
+def test_segment_spoken_labels_every_window():
+    # Qualquer janela de 1000 chars (o chunk downstream) contem >=1 rotulo.
+    text = "palavra falada " * 1500  # ~22500 chars -> ~25 segmentos
+    segs = vast._segment_spoken(text)
+    assert all(len(s) <= 900 for s in segs)
+    joined = "\n".join(f"[spoken {i}/{len(segs)}]\n{s}" for i, s in enumerate(segs, 1))
+    for start in range(0, len(joined) - 1000, 500):
+        assert "[spoken " in joined[start:start + 1000]
 
 
 def test_apply_transcript_cache_status():
@@ -113,8 +127,9 @@ def test_read_transcript_success_appends(monkeypatch):
     hit = make_hit("https://www.youtube.com/watch?v=FFFFFFFFFFF")
     base = hit.raw_content
     run(vast._read_transcript(hit, 9999999999.0, __import__("collections").Counter()))
-    assert hit.raw_content.startswith(base)
+    assert hit.raw_content.startswith("[description]\n" + base)
     assert "[transcript origin=live" in hit.raw_content
+    assert "[spoken 1/" in hit.raw_content
     assert hit.transcript_status == vast.TRANSCRIPT_OK
 
 

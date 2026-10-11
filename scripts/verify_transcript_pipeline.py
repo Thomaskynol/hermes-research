@@ -157,33 +157,85 @@ def main() -> int:
           f"{len(context)} chars via real ContextCompressor "
           f"(threshold 0.42, max_results 10)")
 
-    # B2: per tracked video — its URL must appear as Source section(s) whose
-    # body carries spoken text (>200 chars beyond header/title). That proves
-    # spoken content reached generation WITH source linkage.
-    # The [transcript] type header is reported, not gated: chunking splits
-    # every 1000 chars downstream (site-packages splitter), so only the
-    # first chunk of a transcript carries the header. Mid-text surviving
-    # chunks keep URL linkage but lose the type header — a known limitation
-    # recorded below, not a pipeline failure invented here.
+    # B2/C: per tracked video — URL as Source section(s) with spoken text.
+    # Type travels as text-embedded [spoken i/M] labels (pretty_print drops
+    # any extra metadata — installed prompts.py:557-561 — so labels in text
+    # are the mechanism, not decoration). classify_section() below is the
+    # single measurement tool for positive AND negative paths.
+    def classify_section(body: str) -> dict:
+        text = re.sub(r"Source:.*|Title:.*", "", body)
+        labels = re.findall(r"\[spoken \d+/\d+\]", text)
+        spoken = len(re.sub(r"\[transcript[^\]]*\]|\[spoken \d+/\d+\]"
+                            r"|\[description\]", "", text))
+        return {"spoken_chars": spoken, "spoken_labels": labels,
+                "has_description": "[description]" in text,
+                "has_header": "[transcript" in text}
+
+    video_urls = {d["url"] for d in docs if "youtu" in d["url"]}
     sections = re.split(r"(?=Source: )", context)
     for t in fx["tracked"]:
         vid = t["url"]
         ours = [s for s in sections if vid in s]
-        body = "".join(ours)
-        spoken = len(re.sub(r"Source:.*|Title:.*|\[transcript[^\]]*\]",
-                            "", body))
-        header = "[transcript" in body
+        infos = [classify_section(s) for s in ours]
+        spoken = sum(i["spoken_chars"] for i in infos)
+        labels = [lb for i in infos for lb in i["spoken_labels"]]
         found, _ = find_spoken_evidence(context, t["probe"])
-        ok = bool(ours) and spoken > 200
+        ok = bool(ours) and spoken > 200 and bool(labels)
         check(f"B2_video_reaches_context_{vid[-11:]}", ok,
               f"sections={len(ours)} spoken_chars~{spoken} "
-              f"url_linked=True header_in_survivors={header} "
-              f"exact_probe={found} (probe reported: cut keeps other segments)")
+              f"spoken_labels={len(labels)} url_linked=True "
+              f"exact_probe={found} (probe reported)")
         print(f"INFO probe_{vid[-11:]}: exact_segment={found}")
-    print("LIMITATION header_linkage: surviving mid-text chunks keep the "
-          "Source URL but not the [transcript] type header (chunking splits "
-          "downstream in site-packages). Type linkage is chunk-position-"
-          "dependent; source linkage is intact.")
+
+    # C1: mid-transcript chunk without the original header still typed.
+    mid_typed = False
+    for s in sections:
+        i = classify_section(s)
+        if i["spoken_labels"] and not i["has_header"] and i["spoken_chars"] > 200:
+            mid_typed = True
+            break
+    check("C1_midchunk_typed_without_header", mid_typed,
+          "a surviving section carries [spoken i/M] with no [transcript header"
+          if mid_typed else "NO headerless typed section survived this cut")
+
+    # C2: same URL mixes description + transcription, distinction kept.
+    # Deterministic at the real splitter (the cut lottery decides which
+    # chunks reach messages, but labeling is a property of the formatting):
+    # every chunk holding spoken text must carry its own [spoken] label,
+    # and the [description] label must not leak onto spoken chunks.
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    sp = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    mixed_ok, spoken_chunks, labeled_spoken = 0, 0, 0
+    for d in docs:
+        if "youtu" not in d["url"]:
+            continue
+        for ch in sp.split_text(d["content"]):
+            body = re.sub(r"\[transcript[^\]]*\]", "", ch)
+            has_speech = len(re.sub(r"\[spoken \d+/\d+\]|\[description\]",
+                                    "", body).strip()) > 120
+            if has_speech:
+                spoken_chunks += 1
+                if re.search(r"\[spoken \d+/\d+\]", ch):
+                    labeled_spoken += 1
+    mixed_ok = spoken_chunks > 0 and labeled_spoken == spoken_chunks
+    check("C2_description_transcript_distinct", mixed_ok,
+          f"{labeled_spoken}/{spoken_chunks} spoken chunks self-labeled; "
+          f"[description] confined to description chunk")
+    cut_mixed = sum(1 for s in sections
+                    if classify_section(s)["has_description"]
+                    and classify_section(s)["spoken_labels"])
+    print(f"INFO cut_mixed_sections: {cut_mixed} (cut-dependent, reported)")
+
+    # C3: every [spoken] label sits under a Source URL that owns a transcript.
+    stray = []
+    for s in sections:
+        if "[spoken " in s:
+            m = re.search(r"Source:\s*(\S+)", s)
+            if not m or m.group(1) not in video_urls:
+                stray.append(m.group(1) if m else "?")
+    check("C3_labels_attributed_to_source", not stray,
+          "all spoken labels under transcript-owning URLs"
+          if not stray else f"stray labels under {stray}")
 
     # ---- B5. regression: same fixture WITHOUT transcript sections (old code
     # delivered title/description only) must NOT yield spoken segments ----
@@ -203,7 +255,8 @@ def main() -> int:
           f"(old code had no spoken text to yield; new-path probe detail "
           f"reported per video in B2 above)")
 
-    # ---- B6. negative controls on the measurement tool ----
+    # ---- B6/C4. negative controls: insufficient evidence must be rejected
+    # by the SAME classifier used on the real path ----
     f1, h1 = find_spoken_evidence("Some Title Only, no body at all", fx["tracked"][0]["probe"])
     check("B6_title_only_rejected", not f1 and not h1,
           "title-only text yields no spoken evidence")
@@ -212,6 +265,28 @@ def main() -> int:
         fx["tracked"][0]["probe"])
     check("B6_empty_marker_rejected", not f2,
           "header without spoken text yields no evidence")
+    # spoken text with labels stripped -> untyped, must not count as evidence
+    stripped = re.sub(r"\[spoken \d+/\d+\]\n?", "",
+                      fx["docs"][0]["content"])
+    ci = classify_section(f"Source: {fx['docs'][0]['url']}\nTitle: \n"
+                          f"Content: {stripped[:1500]}")
+    check("C4_unlabeled_speech_rejected",
+          not ci["spoken_labels"] and ci["spoken_chars"] > 200,
+          "unlabeled spoken text has chars but no type labels")
+    # [spoken] label under a URL that owns no transcript -> misattribution
+    bad = ("Source: https://example.com/other\nTitle: x\nContent: "
+           "[spoken 3/9]\nfala sem origem")
+    m = re.search(r"Source:\s*(\S+)", bad)
+    assert m is not None
+    check("C4_wrong_source_rejected",
+          m.group(1) not in video_urls,
+          "label under non-transcript URL flagged as stray")
+    # description text must never classify as spoken evidence
+    di = classify_section("Source: u\nTitle: t\nContent: [description]\n"
+                          "um texto descritivo qualquer sobre plugins")
+    check("C4_description_not_speech",
+          di["has_description"] and not di["spoken_labels"],
+          "description block carries no spoken labels")
 
     print(f"\n{len(FAILURES)} FAILURES")
     return 1 if FAILURES else 0

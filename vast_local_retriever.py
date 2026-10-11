@@ -1035,6 +1035,31 @@ def _auto_label(value: bool | None) -> str:
     return "unknown"
 
 
+def _segment_spoken(text: str, width: int = 900) -> list[str]:
+    """Corta o texto falado em segmentos de ate `width` chars sem partir palavra.
+
+    Cada segmento sobrevivente carrega o proprio rotulo de tipo: o chunking
+    downstream (RecursiveCharacterTextSplitter 1000/100, site-packages) parte
+    o texto em janelas arbitrarias e so o 1o chunk herda o cabecalho
+    `[transcript ...]`. Com segmentos de ~900 chars, qualquer janela de 1000
+    chars contem ao menos um rotulo `[spoken i/M]` -- o tipo viaja no texto,
+    nao depende de metadado que o pretty_print descarta (so source/title
+    chegam as mensagens, verificado no installed prompts.py:557-561).
+    """
+    words = text.split()
+    segs, cur = [], ""
+    for w in words:
+        add = (w if not cur else " " + w)
+        if len(cur) + len(add) > width and cur:
+            segs.append(cur)
+            cur = w
+        else:
+            cur += add
+    if cur:
+        segs.append(cur)
+    return segs
+
+
 def _format_transcript_section(result: Any, limit: int) -> tuple[str, str]:
     """Monta a secao rotulada de transcricao e diz se ela foi cortada.
 
@@ -1043,15 +1068,21 @@ def _format_transcript_section(result: Any, limit: int) -> tuple[str, str]:
     `transcript_truncated_at_N` quando o texto estourou o `limit`. O corte aqui e
     PRE-truncamento: garante que a secao caiba no RAW_CONTENT_LIMIT sem comer a
     descricao nem a URL, antes do corte final do as_contract_item().
+    O texto falado sai em segmentos rotulados `[spoken i/M]`: cada chunk
+    sobrevivente ao chunking downstream carrega o tipo no proprio texto.
     """
     text = result.text
     truncated_at: int | None = None
     if len(text) > limit:
         text = text[:limit]
         truncated_at = limit
+    segs = _segment_spoken(text)
+    n = len(segs)
+    labeled = "\n".join(f"[spoken {i}/{n}]\n{s}" for i, s in enumerate(segs, 1))
     section = (
         f"\n\n[transcript origin={result.method} lang={result.lang} "
-        f"automatic={_auto_label(result.automatic)} chars={result.chars}]\n{text}"
+        f"automatic={_auto_label(result.automatic)} chars={result.chars} "
+        f"segments={n}]\n{labeled}"
     )
     extra = f"transcript_truncated_at_{truncated_at}" if truncated_at is not None else ""
     return section, extra
@@ -1066,7 +1097,7 @@ def _apply_transcript(hit: Hit, result: Any) -> None:
     origem/idioma/automatic/chars/status para o trace e para a geracao.
     """
     section, extra = _format_transcript_section(result, RAW_CONTENT_LIMIT)
-    hit.raw_content = f"{hit.raw_content}{section}"
+    hit.raw_content = f"[description]\n{hit.raw_content}{section}"
     hit.transcript_origin = result.method
     hit.transcript_lang = result.lang
     hit.transcript_automatic = result.automatic
