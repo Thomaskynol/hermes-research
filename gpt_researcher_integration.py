@@ -242,6 +242,27 @@ async def main():
         getattr(researcher, "context", ""), str) else ""
     run_provenance_audit(report, _ctx, output_file)
     _t_audit_done = time.monotonic()
+    # Semantic review: the mechanical URL audit proves a citation EXISTS, never
+    # that it says what the report claims. Run 20261012-184601 passed provenance
+    # with 0 findings while calling five plugins "free" when one was SUL-1.0 and
+    # three needed paid API keys. Opt-in via SEMANTIC_REVIEW=1 so the default
+    # path is unchanged; when on, a report with unsupported claims is NOT
+    # declared accepted.
+    _semantic = {"enabled": False}
+    if os.environ.get("SEMANTIC_REVIEW", "").strip() == "1":
+        import semantic_review as _sr
+        _evidence = _sr.build_evidence(_ctx)
+        _semantic = _sr.review_report(report, _evidence, enabled=True)
+        _s = _semantic.get("summary", {})
+        print(f"[SEMANTIC] {_semantic.get('claims', 0)} claims -> {_s}"
+              f" | accepted={_semantic.get('accepted')}")
+        if _semantic.get("verdicts"):
+            for _v in _semantic["verdicts"]:
+                if _v["verdict"] in ("unsupported", "gap", "partial"):
+                    print(f"[SEMANTIC] {_v['verdict'].upper()}: "
+                          f"{_v['claim'][:110]}")
+                    if _v.get("correction"):
+                        print(f"[SEMANTIC]   correção: {_v['correction'][:140]}")
     # Final-transport trace: dump every LLM call's parameters + any provider
     # error body (sanitized). Off unless RUN_CALL_TRACE names a path, so normal
     # runs pay nothing.
@@ -291,6 +312,15 @@ async def main():
         "partial": bool(_stop.get("partial", False)),
         "research_gaps": _gaps,
         "budget": _budget_snap,
+        # Semantic review of the report's claims. Distinct from the mechanical
+        # URL audit: a citation can be real and the claim about it still false.
+        # ``accepted`` is the only verdict that should close a report.
+        "semantic": {
+            "enabled": _semantic.get("enabled", False),
+            "claims": _semantic.get("claims", 0),
+            "summary": _semantic.get("summary", {}),
+            "accepted": _semantic.get("accepted"),
+        },
         # Phase timings: budget time_s is measured from install() (before the
         # research starts) and therefore covers the WHOLE run -- research,
         # write and audit. The vast's own ledger starts at its first request,
