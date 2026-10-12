@@ -115,6 +115,30 @@ NOVELTY_FLOOR = 0.15  # novelty_last_rounds <= this counts as "low"
 _URL_RE = re.compile(r"https?://[^\s`)\]]+")
 
 
+def fetch_remote_budget(run_id: str, endpoint: str | None = None,
+                        timeout: float = 5.0) -> dict | None:
+    """Read the run's REAL consumption from the vast (who actually spends).
+
+    The client's own counters stay at zero by design: fetching and transcripts
+    happen in the vast process, so only its ledger knows the truth. Returns
+    None when the endpoint is unreachable or the run is unknown, and the caller
+    must then record the cost as unknown rather than as zero.
+    """
+    import urllib.request
+    import urllib.parse
+    base = (endpoint or os.environ.get("RETRIEVER_ENDPOINT")
+            or "http://127.0.0.1:8001/").rstrip("/")
+    url = f"{base}/budget?" + urllib.parse.urlencode({"run_id": run_id})
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001 - cost reporting must never break a run
+        return None
+    if not data.get("known"):
+        return None
+    return data
+
+
 def _run_budget_module():
     """Lazy import to avoid a hard dependency at import time."""
     import run_budget as rb

@@ -229,6 +229,19 @@ async def main():
     # Per-run depth record: resolved config + stop reason, next to the report.
     _gaps = list(getattr(researcher, "research_gaps", None) or [])
     _budget_snap = run_budget.snapshot()
+    # The client's counters are zero by design (the vast does the spending):
+    # ask the vast for the REAL consumption. Unreachable/unknown -> record it
+    # as unknown, never as zero (a zero would read as "spent nothing").
+    _remote = depth_profiles.fetch_remote_budget(run_id)
+    if _remote:
+        _budget_snap["used"] = _remote.get("used", {})
+        _budget_snap["remote_stop_reason"] = _remote.get("stop_reason")
+        _budget_snap["consumption_source"] = "vast:/budget"
+        if _remote.get("stop_reason"):
+            _budget_snap["stop_reason"] = _remote["stop_reason"]
+    else:
+        _budget_snap["used"] = "unknown (vast /budget unreachable)"
+        _budget_snap["consumption_source"] = "unknown"
     _budget_stop = _budget_snap.get("stop_reason")
     if _budget_stop:
         # An exhausted budget is the effective stop condition: say so instead of

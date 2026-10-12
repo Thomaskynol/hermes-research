@@ -745,7 +745,10 @@ class _Ledger:
         self.used = {k: 0 for k in self.limits}
         self.started = time.monotonic()
         self.stop_reason: str | None = None
-        self.lock = threading.Lock()
+        # RLock, not Lock: snapshot() holds the lock and calls exhausted(),
+        # which locks again. With a plain Lock that is a self-deadlock (it hung
+        # /budget for real before this was fixed).
+        self.lock = threading.RLock()
 
     def elapsed(self) -> float:
         return time.monotonic() - self.started
@@ -1724,6 +1727,25 @@ def _overall_status(sources: list[SourceHealth]) -> str:
     if dead:
         return STATE_DEGRADED
     return STATE_WORKING
+
+
+@app.get("/budget")
+async def budget_status(run_id: str = Query(..., description="Run id")) -> JSONResponse:
+    """Consumo AGREGADO do run, do lado de quem de fato gasta.
+
+    O cliente nao ve o gasto: quem faz fetch/transcricao e este processo. Sem
+    este endpoint o cliente registraria `used: 0` para tudo e o artefato
+    mentiria por omissao. Aqui o numero e o real, com o mesmo lock do ledger.
+    """
+    with _LEDGERS_LOCK:
+        led = _LEDGERS.get(run_id)
+    if led is None:
+        return JSONResponse({"run_id": run_id, "known": False,
+                             "limits": {}, "used": {}, "elapsed_s": 0.0,
+                             "stop_reason": None})
+    snap = led.snapshot()
+    snap.update({"run_id": run_id, "known": True})
+    return JSONResponse(snap)
 
 
 @app.get("/health")
