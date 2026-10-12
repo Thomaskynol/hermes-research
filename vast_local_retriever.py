@@ -1623,6 +1623,12 @@ async def search(query: str = Query(..., description="Search query"),
                      default=None, description="Teto de fetches live de transcricao do run."),
                  budget_time_s: int | None = Query(
                      default=None, description="Teto de tempo do run em segundos."),
+                 checkpoint_dir: str | None = Query(
+                     default=None,
+                     description="Diretorio da run: quando dado, o servico grava "
+                                 "os hits no checkpoint.jsonl DURANTE a coleta "
+                                 "(o vast e processo separado, entao o wrapper "
+                                 "in-process do cliente nunca ve os hits)."),
                  ) -> JSONResponse:
     """Endpoint do GPT Researcher CustomRetriever: GET /?query=... -> lista de ate 12.
 
@@ -1654,6 +1660,24 @@ async def search(query: str = Query(..., description="Search query"),
     await enrich_results(selected, query, yt_live=yt_live, ledger=ledger)
 
     items = [hit.as_contract_item() for hit in selected]
+
+    if checkpoint_dir:
+        # The vast runs as its own process: the client's in-process probe
+        # wrapper never sees these hits, so the service writes the checkpoint
+        # itself. Best-effort — a checkpoint failure must never break a search.
+        try:
+            import run_checkpoint as _rc
+            _ck = _rc.Checkpoint(checkpoint_dir)
+            for hit in selected:
+                _ck.note_source(
+                    hit.url, source=hit.source, title=hit.title,
+                    content=hit.raw_content or "",
+                    evidence_type=("transcript" if hit.transcript_chars else ""),
+                    chars=hit.transcript_chars or None)
+            _ck.note_query_done(query, n_sources=len(selected))
+        except Exception as exc:  # noqa: BLE001 - checkpoint is best-effort
+            logger.warning("checkpoint_dir=%r falhou: %s: %s",
+                           checkpoint_dir, type(exc).__name__, exc)
 
     logger.info("query=%r devolveu %d itens de %d resultados brutos", query, len(items), len(hits))
     return JSONResponse(items)

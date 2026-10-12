@@ -195,6 +195,10 @@ async def main():
         # ~10.5h of collection to a crash before this existed). Wired into the
         # probe wrapper so it records DURING collection, not only at the end.
         ckpt = run_checkpoint.Checkpoint(tracer.dir)
+        # The vast is a separate process: hand it the run dir so IT writes the
+        # crash-safe checkpoint during collection (the client's in-process
+        # probe wrapper never sees the vast's hits).
+        os.environ["RETRIEVER_ARG_CHECKPOINT_DIR"] = str(tracer.dir)
         _resume = run_checkpoint.resume_plan(ckpt, [query])
         if _resume["already_have_urls"]:
             print(f"[CHECKPOINT] resuming: {len(_resume['already_have_urls'])} "
