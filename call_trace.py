@@ -131,13 +131,27 @@ def install() -> bool:
         return result
 
     llm_utils.create_chat_completion = observed
-    # The two call sites hold their own reference; rebind them too.
-    try:
-        from gpt_researcher.actions import query_processing, report_generation
-        query_processing.create_chat_completion = observed
-        report_generation.create_chat_completion = observed
-    except Exception:
-        pass
+    # Call sites that hold their OWN reference at import time keep calling the
+    # unwrapped function unless rebound. agent_creator (agent_selection) and
+    # tool_selector were exactly that: they imported the symbol before this
+    # wrapper existed, which is why a run showed 3 billed steps but only 2
+    # traced calls. Rebind every known holder.
+    for mod_path, attr in (
+        ("gpt_researcher.actions.query_processing", "create_chat_completion"),
+        ("gpt_researcher.actions.report_generation", "create_chat_completion"),
+        ("gpt_researcher.actions.agent_creator", "create_chat_completion"),
+        ("gpt_researcher.utils.tools", "create_chat_completion"),
+        ("gpt_researcher.skills.deep_research", "create_chat_completion"),
+        ("gpt_researcher.skills.curator", "create_chat_completion"),
+        ("gpt_researcher.mcp.tool_selector", "create_chat_completion"),
+    ):
+        try:
+            import importlib
+            m = importlib.import_module(mod_path)
+            if hasattr(m, attr):
+                setattr(m, attr, observed)
+        except Exception:
+            pass
     _installed = True
     return True
 
