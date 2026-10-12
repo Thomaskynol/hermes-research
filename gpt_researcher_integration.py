@@ -13,6 +13,7 @@ Example:
 import asyncio
 import sys
 import os
+import time
 import json
 from pathlib import Path
 
@@ -39,12 +40,16 @@ import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, vi
 import deep_research_fix  # noqa: F401  guards the upstream zero-query branch, via install()
 import run_budget  # global per-run aggregate budget (rounds/branches)
 import run_checkpoint  # crash-safe resume of collected work
+import call_trace  # final-transport instrumentation (opt-in via RUN_CALL_TRACE)
 import run_trace
 sync_config.sync()
 # Before GPTResearcher builds a Config: install() exports REASONING_EFFORT, which
 # Config reads in its constructor. After sync_config.sync(), which sets SMART_LLM.
 reasoning_effort.install()
 deep_research_fix.install()
+# Final-transport trace: only when asked, so the default path is untouched.
+if os.environ.get("RUN_CALL_TRACE", "").strip():
+    call_trace.install()
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
@@ -150,6 +155,7 @@ async def main():
     # Global run budget: aggregate ceiling across rounds/branches (the
     # per-request caps alone cannot stop a runaway run — measured ~10.5h).
     budget = run_budget.install(resolved["profile"], resolved.get("budget"))
+    _t_start = time.monotonic()
     print(f"[GPT RESEARCHER] Budget: {budget.limits} "
           f"(unenforced: {budget.snapshot()['unenforced']})")
     # Share the budget with the vast service: CustomRetriever forwards every
@@ -216,7 +222,17 @@ async def main():
     )
 
     await researcher.conduct_research()
+    _t_research_done = time.monotonic()
+    # Finalisation reserve: the budget's time limit governs NEW collection, not
+    # the write/audit that turns what we already have into a report. Without
+    # this, a run that spent its whole allowance collecting would be cut off
+    # before writing anything -- which is how a 941-word report became a
+    # 46-word "no sources" notice on an earlier attempt.
+    print(f"[BUDGET] collection ended at {round(_t_research_done - _t_start, 1)}s "
+          f"(limit {budget.limits.get('time_s', 0)}s); "
+          f"write+audit reserved")
     report = await researcher.write_report(custom_prompt=EVIDENCE_PROMPT)
+    _t_write_done = time.monotonic()
     output_file.write_text(report)
     if ckpt is not None:
         ckpt.note_query_done(query, n_sources=len(researcher.get_source_urls()))
@@ -225,6 +241,16 @@ async def main():
     _ctx = researcher.context if isinstance(
         getattr(researcher, "context", ""), str) else ""
     run_provenance_audit(report, _ctx, output_file)
+    _t_audit_done = time.monotonic()
+    # Final-transport trace: dump every LLM call's parameters + any provider
+    # error body (sanitized). Off unless RUN_CALL_TRACE names a path, so normal
+    # runs pay nothing.
+    _trace_path = os.environ.get("RUN_CALL_TRACE", "").strip()
+    if _trace_path:
+        call_trace.dump(_trace_path)
+        _bad = call_trace.violations()
+        print(f"[CALLTRACE] {len(call_trace.RECORDS)} calls -> {_trace_path}"
+              f"{f'; {len(_bad)} below provider minimum!' if _bad else ''}")
 
     # Per-run depth record: resolved config + stop reason, next to the report.
     _gaps = list(getattr(researcher, "research_gaps", None) or [])
@@ -265,6 +291,20 @@ async def main():
         "partial": bool(_stop.get("partial", False)),
         "research_gaps": _gaps,
         "budget": _budget_snap,
+        # Phase timings: budget time_s is measured from install() (before the
+        # research starts) and therefore covers the WHOLE run -- research,
+        # write and audit. The vast's own ledger starts at its first request,
+        # so the two clocks legitimately disagree (observed: client 1875s vs
+        # vast ~900s on the same run). Reported separately so neither number
+        # has to be guessed.
+        "phases": {
+            "research_s": round(_t_research_done - _t_start, 1),
+            "write_s": round(_t_write_done - _t_research_done, 1),
+            "audit_s": round(_t_audit_done - _t_write_done, 1),
+            "total_s": round(_t_audit_done - _t_start, 1),
+            "clock_scope": "install->audit (whole run)",
+            "vast_clock_scope": "first vast request -> last (collection only)",
+        },
     }
     _depth_file = output_file.with_name(output_file.stem + "_depth.json")
     _depth_file.write_text(
