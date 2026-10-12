@@ -122,6 +122,22 @@ def get_hermes_model():
     return model_str, base_url, api_key
 
 
+def _usable_key(value: str | None) -> bool:
+    """True only for a value that can actually authenticate.
+
+    Rejects empty, whitespace, the literal placeholder ``***`` and the
+    redacted form ``sk-or-...`` that appears in docs/.env examples. A value
+    like that is worse than none: it reaches the provider as a real header and
+    comes back 401, hiding the real cause.
+    """
+    if not value:
+        return False
+    v = value.strip()
+    if v in ("***", "sk-or-...", "sk-or-...ebe2") or "..." in v:
+        return False
+    return len(v) >= 20
+
+
 def load_api_keys():
     """Load API keys from .env and map to what GPT Researcher needs."""
     keys = {}
@@ -137,16 +153,22 @@ def load_api_keys():
                 continue
             keys[key] = value
     
-    # Map OPENROUTER_API_KEY → OPENAI_API_KEY (OpenRouter uses OpenAI-compatible auth)
-    if "OPENROUTER_API_KEY" in keys and "OPENAI_API_KEY" not in os.environ:
+    # Map OPENROUTER_API_KEY → OPENAI_API_KEY (OpenRouter uses OpenAI-compatible
+    # auth). Only install a key that can actually authenticate: a masked value
+    # already sitting in the environment must be REPLACED by the real one, not
+    # kept because "the variable exists".
+    if _usable_key(keys.get("OPENROUTER_API_KEY")) and not _usable_key(
+            os.environ.get("OPENAI_API_KEY")):
         os.environ["OPENAI_API_KEY"] = keys["OPENROUTER_API_KEY"]
-    
-    if "OPENAI_API_KEY" in keys and "OPENAI_API_KEY" not in os.environ:
+
+    if _usable_key(keys.get("OPENAI_API_KEY")) and not _usable_key(
+            os.environ.get("OPENAI_API_KEY")):
         os.environ["OPENAI_API_KEY"] = keys["OPENAI_API_KEY"]
-    
-    if "OPENROUTER_API_KEY" in keys and "OPENROUTER_API_KEY" not in os.environ:
+
+    if _usable_key(keys.get("OPENROUTER_API_KEY")) and not _usable_key(
+            os.environ.get("OPENROUTER_API_KEY")):
         os.environ["OPENROUTER_API_KEY"] = keys["OPENROUTER_API_KEY"]
-    
+
     return keys
 
 
@@ -263,10 +285,10 @@ def sync():
     # load_api_keys() had already exported -- every library call then went out
     # with the literal "***" and the provider answered 401. Only set it when we
     # actually have a key to set.
-    if api_key:
+    if _usable_key(api_key):
         os.environ["OPENAI_API_KEY"] = api_key
-    elif not os.environ.get("OPENAI_API_KEY") or os.environ["OPENAI_API_KEY"] == "***":
-        # No real key anywhere: keep the explicit placeholder so the failure is
+    elif not _usable_key(os.environ.get("OPENAI_API_KEY")):
+        # No usable key anywhere: keep the explicit placeholder so the failure is
         # loud at the provider instead of an empty header.
         os.environ["OPENAI_API_KEY"] = "***"
     os.environ["SMART_LLM"] = model
