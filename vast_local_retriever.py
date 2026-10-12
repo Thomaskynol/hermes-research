@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
@@ -725,6 +726,90 @@ SOURCE_PROBES: dict[str, SourceProbe] = {
 }
 
 
+class _Ledger:
+    """Contador agregado por run_id, compartilhado entre requisicoes concorrentes.
+
+    Os caps por request (max_results, yt_live) limitam UMA chamada. Uma run deep
+    faz dezenas de chamadas em rodadas e branches paralelos, entao sem um teto
+    agregado nada impede uma run de rodar por horas (medido: ~10,5h). Este
+    ledger e o teto agregado: guardado por run_id no processo do servico, com
+    lock para que branches concorrentes nao gastem em dobro.
+
+    Os limites chegam pela query (o cliente manda o que resolveu do perfil);
+    o servico so impoe. Nunca inventa limite: sem run_id ou sem limites, o
+    comportamento e o de antes.
+    """
+
+    def __init__(self, limits: dict[str, int]):
+        self.limits = {k: int(v or 0) for k, v in limits.items()}
+        self.used = {k: 0 for k in self.limits}
+        self.started = time.monotonic()
+        self.stop_reason: str | None = None
+        self.lock = threading.Lock()
+
+    def elapsed(self) -> float:
+        return time.monotonic() - self.started
+
+    def exhausted(self) -> str | None:
+        with self.lock:
+            if self.stop_reason:
+                return self.stop_reason
+            for k, used in self.used.items():
+                limit = self.limits.get(k, 0)
+                if limit and used >= limit:
+                    return f"budget:{k}"
+            tlimit = self.limits.get("time_s", 0)
+            if tlimit and self.elapsed() >= tlimit:
+                return "budget:time_s"
+        return None
+
+    def spend(self, counter: str, n: int = 1) -> bool:
+        with self.lock:
+            if counter not in self.used:
+                return True
+            limit = self.limits.get(counter, 0)
+            if limit and self.used[counter] + n > limit:
+                if self.stop_reason is None:
+                    self.stop_reason = f"budget:{counter}"
+                return False
+            self.used[counter] += n
+            return True
+
+    def remaining(self, counter: str) -> int:
+        """Unidades restantes do contador (sentinela grande se ilimitado)."""
+        with self.lock:
+            limit = self.limits.get(counter, 0)
+            if not limit:
+                return 10**9
+            return max(0, limit - self.used.get(counter, 0))
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return {"limits": dict(self.limits), "used": dict(self.used),
+                    "elapsed_s": round(self.elapsed(), 1),
+                    "stop_reason": self.exhausted()}
+
+
+_LEDGERS: dict[str, _Ledger] = {}
+_LEDGERS_LOCK = threading.Lock()
+# Teto duro de ledgers vivos: sem isto, run_ids distintos (um por run) acumulam
+# para sempre no processo de longa duracao do servico.
+_LEDGERS_MAX = 64
+
+
+def _ledger(run_id: str, limits: dict) -> _Ledger:
+    """Recupera/cria o ledger do run, com teto de entradas (FIFO)."""
+    with _LEDGERS_LOCK:
+        led = _LEDGERS.get(run_id)
+        if led is None:
+            if len(_LEDGERS) >= _LEDGERS_MAX:
+                oldest = next(iter(_LEDGERS))
+                _LEDGERS.pop(oldest, None)
+            led = _Ledger({k: v for k, v in limits.items() if v is not None})
+            _LEDGERS[run_id] = led
+        return led
+
+
 async def search_all(query: str) -> list[Hit]:
     """Dispara as 4 fontes em paralelo e recolhe o que respondeu.
 
@@ -1324,7 +1409,8 @@ async def _read_group(
 
 
 async def enrich_results(hits: list[Hit], query: str,
-                         yt_live: int | None = None) -> None:
+                         yt_live: int | None = None,
+                         ledger: "_Ledger | None" = None) -> None:
     """Le as paginas do plano em paralelo por dominio, dentro de um orcamento.
 
     Tres rotas, cada uma com o seu orcamento e o seu teto, todas em paralelo:
@@ -1394,7 +1480,13 @@ async def enrich_results(hits: list[Hit], query: str,
         unresolved = [hit for hit in yt_all if hit.transcript_chars <= 0]
         live_cap = YT_ENRICH_MAX if yt_live is None else max(
             0, min(YT_ENRICH_MAX, int(yt_live)))
+        if ledger is not None:
+            # Teto agregado do run manda: nunca mais que o que resta do orcamento
+            # global, mesmo que o cap por request seja maior.
+            live_cap = min(live_cap, ledger.remaining("yt_live_fetches"))
         yt_hits = unresolved[:live_cap]
+        if ledger is not None and yt_hits:
+            ledger.spend("yt_live_fetches", len(yt_hits))
         for hit in unresolved[live_cap:]:
             # Fora do teto live E sem cache: ficou a descricao, dito em voz
             # alta no hit. Nao conta yt_miss (nada foi tentado); o status no
@@ -1415,6 +1507,22 @@ async def enrich_results(hits: list[Hit], query: str,
         gate = _YtGate(done=asyncio.Event(), urls=set())
 
     if page_plan and ENRICH_ENABLED and _cascade_fetch is not None:
+        # Aggregate budget FIRST: extractions are the expensive unit (one live
+        # fetch per page). When the run's allowance runs out, drop the tail of
+        # the plan before any task is created, so the run finishes with what it
+        # already has instead of starting work it cannot afford.
+        if ledger is not None:
+            allowed = ledger.remaining("extractions")
+            if allowed < len(page_plan):
+                dropped = page_plan[allowed:]
+                page_plan = page_plan[:allowed]
+                stats["skipped"] += len(dropped)
+                logger.info(
+                    "query=%r orcamento do run: %d extracoes restantes, %d "
+                    "paginas puladas por teto agregado",
+                    query, allowed, len(dropped))
+            if page_plan:
+                ledger.spend("extractions", len(page_plan))
         groups: dict[str, list[Hit]] = {}
         for hit in page_plan:
             host = (urlsplit(hit.url).hostname or "").lower() or "sem-host"
@@ -1500,7 +1608,22 @@ async def search(query: str = Query(..., description="Search query"),
                      default=None,
                      description="Reduz o teto live de transcricoes; "
                                  "clampado a [0, 3]. Cache-first (fase A) "
-                                 "nao tem limite e nao e afetado.")) -> JSONResponse:
+                                 "nao tem limite e nao e afetado."),
+                 run_id: str | None = Query(
+                     default=None,
+                     description="Orcamento agregado por run: com run_id, o "
+                                 "servico conta queries/extractions/yt_live "
+                                 "DESTE run entre todas as requisicoes "
+                                 "concorrentes e recusa quando estoura."),
+                 budget_queries: int | None = Query(
+                     default=None, description="Teto de queries do run (0=ilimitado)."),
+                 budget_extractions: int | None = Query(
+                     default=None, description="Teto de extracoes do run."),
+                 budget_yt_live: int | None = Query(
+                     default=None, description="Teto de fetches live de transcricao do run."),
+                 budget_time_s: int | None = Query(
+                     default=None, description="Teto de tempo do run em segundos."),
+                 ) -> JSONResponse:
     """Endpoint do GPT Researcher CustomRetriever: GET /?query=... -> lista de ate 12.
 
     O contrato (url, title, raw_content, source; no maximo MAX_RESULTS) e o que
@@ -1510,13 +1633,25 @@ async def search(query: str = Query(..., description="Search query"),
     if not query or not query.strip():
         return JSONResponse([])
 
+    ledger = None
+    if run_id:
+        ledger = _ledger(run_id, {
+            "queries": budget_queries, "extractions": budget_extractions,
+            "yt_live_fetches": budget_yt_live, "time_s": budget_time_s,
+        })
+        stop = ledger.exhausted()
+        if stop:
+            logger.warning("run=%s orcamento esgotado (%s): recusando query", run_id, stop)
+            return JSONResponse([])
+        ledger.spend("queries", 1)
+
     hits = await search_all(query)
     selected = _select_hits(hits, cap=max_results)
     # Sem try/except em volta do enriquecimento, de proposito: cada pagina
     # engole o proprio erro e mantem o snippet, entao nao ha caminho em que
     # isto levante para dentro do endpoint. Um guard aqui seria ruido
     # escondendo bug.
-    await enrich_results(selected, query, yt_live=yt_live)
+    await enrich_results(selected, query, yt_live=yt_live, ledger=ledger)
 
     items = [hit.as_contract_item() for hit in selected]
 

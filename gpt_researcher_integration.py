@@ -37,6 +37,8 @@ import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
 import deep_research_fix  # noqa: F401  guards the upstream zero-query branch, via install()
+import run_budget  # global per-run aggregate budget (rounds/branches)
+import run_checkpoint  # crash-safe resume of collected work
 import run_trace
 sync_config.sync()
 # Before GPTResearcher builds a Config: install() exports REASONING_EFFORT, which
@@ -145,6 +147,21 @@ async def main():
     # AFTER sync_config.sync() (which ran at import and rewrote config.json):
     # apply the profile's numeric settings to the config the library reads.
     depth_profiles.apply_profile(CONFIG_PATH, resolved)
+    # Global run budget: aggregate ceiling across rounds/branches (the
+    # per-request caps alone cannot stop a runaway run — measured ~10.5h).
+    budget = run_budget.install(resolved["profile"], resolved.get("budget"))
+    print(f"[GPT RESEARCHER] Budget: {budget.limits} "
+          f"(unenforced: {budget.snapshot()['unenforced']})")
+    # Share the budget with the vast service: CustomRetriever forwards every
+    # RETRIEVER_ARG_* env var as a query param, and the service counts the
+    # aggregate per run_id across all concurrent branches.
+    run_id = os.environ.get("RUN_ID") or run_trace.new_run_id(query)
+    os.environ["RUN_ID"] = run_id
+    os.environ["RETRIEVER_ARG_RUN_ID"] = run_id
+    os.environ["RETRIEVER_ARG_BUDGET_QUERIES"] = str(budget.limits.get("queries", 0))
+    os.environ["RETRIEVER_ARG_BUDGET_EXTRACTIONS"] = str(budget.limits.get("extractions", 0))
+    os.environ["RETRIEVER_ARG_BUDGET_YT_LIVE"] = str(budget.limits.get("yt_live_fetches", 0))
+    os.environ["RETRIEVER_ARG_BUDGET_TIME_S"] = str(budget.limits.get("time_s", 0))
 
     print(f"[GPT RESEARCHER] Query: {query}")
     print(f"[GPT RESEARCHER] Depth: {depth} "
@@ -169,11 +186,21 @@ async def main():
     tracer = None
     uninstall_probes = None
     uninstall_recording = None
+    ckpt = None
     trace_root = os.environ.get(run_trace.RUNS_ENV, "")
     if trace_root:
         tracer = run_trace.RunTracer(query, report_type, trace_root)
         uninstall_probes = run_trace.install_probe_wrapping(tracer)
         uninstall_recording = run_trace.install_custom_recording(tracer)
+        # Crash-safe checkpoint: what was collected survives a hard kill, so a
+        # retry resumes instead of re-fetching everything (a deep run lost
+        # ~10.5h of collection to a crash before this existed).
+        ckpt = run_checkpoint.Checkpoint(tracer.dir)
+        _resume = run_checkpoint.resume_plan(ckpt, [query])
+        if _resume["already_have_urls"]:
+            print(f"[CHECKPOINT] resuming: {len(_resume['already_have_urls'])} "
+                  f"sources already collected, {len(_resume['pending_queries'])} "
+                  f"queries pending")
     researcher = GPTResearcher(
         query=query,
         report_type=report_type,
@@ -186,26 +213,40 @@ async def main():
     await researcher.conduct_research()
     report = await researcher.write_report(custom_prompt=EVIDENCE_PROMPT)
     output_file.write_text(report)
+    if ckpt is not None:
+        ckpt.note_query_done(query, n_sources=len(researcher.get_source_urls()))
+        for _u in researcher.get_source_urls():
+            ckpt.note_source(_u, source="run", evidence_type="")
     _ctx = researcher.context if isinstance(
         getattr(researcher, "context", ""), str) else ""
     run_provenance_audit(report, _ctx, output_file)
 
     # Per-run depth record: resolved config + stop reason, next to the report.
     _gaps = list(getattr(researcher, "research_gaps", None) or [])
-    try:
-        _stop = depth_profiles.decide_stop(
-            aspects_covered=1.0 if not _gaps else 0.5,
-            novelty_last_rounds=0.0,
-            blocked=False, gaps=_gaps)
-    except Exception:
-        _stop = {"stop": True, "stop_reason": "coverage", "partial": False}
+    _budget_snap = run_budget.snapshot()
+    _budget_stop = _budget_snap.get("stop_reason")
+    if _budget_stop:
+        # An exhausted budget is the effective stop condition: say so instead of
+        # reporting "coverage", which would claim more than we measured.
+        _stop = {"stop": True, "stop_reason": _budget_stop,
+                 "partial": bool(_gaps) or _budget_stop.startswith("budget")}
+    else:
+        try:
+            _stop = depth_profiles.decide_stop(
+                aspects_covered=1.0 if not _gaps else 0.5,
+                novelty_last_rounds=0.0,
+                blocked=False, gaps=_gaps)
+        except Exception:
+            _stop = {"stop": True, "stop_reason": "coverage", "partial": False}
     _depth_record = {
         "profile": resolved["profile"],
         "depth_arg": depth,
+        "run_id": run_id,
         "resolved": resolved,
         "stop_reason": _stop.get("stop_reason", "coverage"),
         "partial": bool(_stop.get("partial", False)),
         "research_gaps": _gaps,
+        "budget": _budget_snap,
     }
     _depth_file = output_file.with_name(output_file.stem + "_depth.json")
     _depth_file.write_text(

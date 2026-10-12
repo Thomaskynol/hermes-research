@@ -161,83 +161,91 @@ def _http_ok(url: str, timeout: float = 2) -> bool:
         return False
 
 
+def get_model_pin() -> str | None:
+    """Modelo fixo para o GPT Researcher, se o usuário tiver pinado.
+
+    Lê ``GPT_MODEL_PIN`` do arquivo ``.env`` (formato: um modelo por linha,
+    ex. ``openrouter:meta/muse-spark-1.3-contributor``). Quando presente, o
+    ``sync()`` usa ESSE modelo nos 3 slots e ignora o auto-follow do chat —
+    o pin só é trocado quando o usuário o editar explicitamente. Retorna
+    ``None`` se não houver pin (comportamento auto-follow normal).
+    """
+    if not ENV_FILE.exists():
+        return None
+    for line in ENV_FILE.read_text(encoding="utf-8").split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == "GPT_MODEL_PIN":
+            value = value.strip().strip('"').strip("'").strip()
+            return value or None
+    return None
+
+
 def sync():
     model, base_url, api_key = get_hermes_model()
     keys = load_api_keys()
 
-    # ── Auto-follow: usa o modelo do CHAT atual se detectado no state.db ──
-    # (HERMES_SESSION_ID -> sessions.model/model_config). Fallback: config.yaml.
-    paid_remote = False
-    chat = get_chat_model()
-    if chat:
-        gr_provider = PROVIDER_MAP.get(chat["provider"], chat["provider"])
-        model = f"{gr_provider}:{chat['model']}"
-        # base_url tem de seguir o modelo: config.yaml aponta para o Ornith local
-        # (172.17.0.1:8080). Se o chat for remoto, usar o endpoint dele.
-        chat_base = chat.get("base_url") or ""
-        if chat_base and not _is_local_url(chat_base):
-            base_url = chat_base
-        elif gr_provider == "openrouter":
-            base_url = OPENROUTER_BASE_URL
-        # Pago? openrouter é sempre pago; outros providers remotos também.
-        paid_remote = chat["provider"] == "openrouter" or (
-            bool(chat["base_url"]) and not _is_local_url(chat["base_url"])
-        )
-        print(f"[SYNC] Chat model: {model} (sessão {chat['session_id']})")
-        if paid_remote:
-            print("[SYNC] ⚠️  MODELO REMOTO = PAGO — pedir permissão ao usuário ANTES de rodar qualquer pesquisa")
-        else:
-            print("[SYNC] Custo LLM: $0 (modelo local)")
+    # ── Pin explícito do usuário: vence o auto-follow do chat ──
+    # Se o usuário fixou um modelo para o pesquisador, respeitamos e não
+    # deixamos o sync reescrever para o modelo do chat a cada run.
+    pin = get_model_pin()
+    chat = None
+    if pin:
+        print(f"[SYNC] GPT_MODEL_PIN ativo: {pin} (auto-follow do chat desativado)")
     else:
-        print("[SYNC] Chat model não detectado — usando config.yaml")
+        chat = get_chat_model()
+        if chat:
+            gr_provider = PROVIDER_MAP.get(chat["provider"], chat["provider"])
+            model = f"{gr_provider}:{chat['model']}"
+            chat_base = chat.get("base_url") or ""
+            if chat_base and not _is_local_url(chat_base):
+                base_url = chat_base
+            elif gr_provider == "openrouter":
+                base_url = OPENROUTER_BASE_URL
+            print(f"[SYNC] Chat model: {model} (sessão {chat['session_id']})")
+        else:
+            print("[SYNC] Chat model não detectado — usando config.yaml")
 
     # ══ GATES: se falhar, a pesquisa NÃO pode rodar — usuário é quem subir ══
     errors = []
-
-    # GATE 1 — Embedding SEMPRE local (8082). SEM fallback (nem CPU, nem pago).
     EMBEDDING_SERVER_URL = "http://172.17.0.1:8082/v1"
     if not _http_ok(f"{EMBEDDING_SERVER_URL.replace('/v1', '')}/health"):
         errors.append(
             "[SYNC] ❌ EMBEDDING (172.17.0.1:8082) FORA DO AR — sem fallback. "
-            "PARE e peça ao usuário pra subir o servidor de embedding "
-            "(roda fora do container; NUNCA tente subir você)."
+            "PARE e peça ao usuário pra subir o servidor de embedding."
         )
-
-    # GATE 2 — Ornith (8080) SÓ importa se o LLM da pesquisa for LOCAL.
-    # Chat em outro modelo (ex.: openrouter) → nem checa a 8080.
-    if chat:
-        llm_is_local = chat["provider"] != "openrouter" and _is_local_url(
-            chat.get("base_url") or base_url
-        )
-        llm_endpoint = chat.get("base_url") or base_url
-    else:
-        llm_is_local = _is_local_url(base_url)
-        llm_endpoint = base_url
-    if llm_is_local:
-        health = (llm_endpoint or "").rstrip("/")
-        if health.endswith("/v1"):
-            health = health[:-3]
-        if not _http_ok(f"{health}/health"):
-            errors.append(
-                "[SYNC] ❌ ORNITH (LLM local) FORA DO AR — este chat usa o LLM local. "
-                "PARE e peça ao usuário pra subir o llama-server "
-                "(fora do container; NUNCA tente subir você)."
-            )
-    else:
-        print("[SYNC] LLM remoto — 8080 (Ornith) não precisa estar no ar, não cheque")
+    if not pin:
+        if chat:
+            llm_is_local = chat["provider"] != "openrouter" and _is_local_url(
+                chat.get("base_url") or base_url)
+            llm_endpoint = chat.get("base_url") or base_url
+        else:
+            llm_is_local = _is_local_url(base_url)
+            llm_endpoint = base_url
+        if llm_is_local:
+            health = (llm_endpoint or "").rstrip("/")
+            if health.endswith("/v1"):
+                health = health[:-3]
+            if not _http_ok(f"{health}/health"):
+                errors.append("[SYNC] ❌ ORNITH (LLM local) FORA DO AR.")
+        else:
+            print("[SYNC] LLM remoto — 8080 (Ornith) não precisa estar no ar")
 
     if errors:
         for e in errors:
             print(e)
         raise SystemExit(1)
 
+    if pin:
+        # provider do pin (antes do ':') decide o base_url quando OpenRouter
+        base_url = OPENROUTER_BASE_URL
+
     cfg = json.loads(GPT_CONFIG.read_text())
+    model = pin or model
     cfg["SMART_LLM"] = model
     cfg["FAST_LLM"] = model
-    # STRATEGIC_LLM omitted here meant the library default openai:gpt-5.4 won:
-    # actions/query_processing.py:118 plans every run with it, so sub-queries
-    # (the research scope) were being generated on OpenAI with the "***" key at
-    # sync_config.py:248, 401-ing silently into the except at line 128.
     cfg["STRATEGIC_LLM"] = model
 
     # Embedding: SEMPRE o servidor local 8082 (harrier GGUF na GPU) — gates acima

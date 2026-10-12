@@ -53,15 +53,26 @@ def install() -> bool:
         except UnboundLocalError as exc:
             if "all_learnings" not in str(exc):
                 raise
+            # Preserve what was already accumulated instead of throwing the
+            # run's work away: the caller passes learnings/citations/urls in,
+            # and they are still valid even though the descent stopped early.
+            learnings = list(kwargs.get("learnings") or [])
+            citations = dict(kwargs.get("citations") or {})
+            visited = set(kwargs.get("visited_urls") or ())
             logger.warning(
                 "deep_fix: zero-query descent hit the unbound branch; "
-                "returning empty collections instead of crashing")
+                "returning carried-over state (learnings=%d citations=%d urls=%d) "
+                "instead of crashing",
+                len(learnings), len(citations), len(visited))
             return {
-                "learnings": [],
-                "visited_urls": set(),
-                "citations": {},
+                "learnings": learnings,
+                "visited_urls": visited,
+                "citations": citations,
                 "context": [],
                 "sources": [],
+                # Explicit: this branch found no NEW evidence, so any caller
+                # must not read it as coverage.
+                "insufficient_evidence": True,
             }
 
     DeepResearchSkill.deep_research = guarded

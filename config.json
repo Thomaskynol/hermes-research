@@ -1,17 +1,17 @@
 {
     "RETRIEVER": "custom,searx,duckduckgo,arxiv",
     "EMBEDDING": "custom:harrier-oss-v1-0.6b",
-    "SMART_LLM": "openrouter:stealth/space-bunny-alpha",
-    "FAST_LLM": "openrouter:stealth/space-bunny-alpha",
+    "SMART_LLM": "openrouter:meta/muse-spark-1.3-contributor",
+    "FAST_LLM": "openrouter:meta/muse-spark-1.3-contributor",
+    "STRATEGIC_LLM": "openrouter:meta/muse-spark-1.3-contributor",
     "REPORT_SOURCE": "web",
-    "TOTAL_WORDS": 1200,
+    "TOTAL_WORDS": 4000,
     "REPORT_FORMAT": "apa",
-    "MAX_ITERATIONS": 3,
-    "DEEP_RESEARCH_BREADTH": 3,
+    "MAX_ITERATIONS": 5,
+    "DEEP_RESEARCH_BREADTH": 4,
     "DEEP_RESEARCH_DEPTH": 2,
     "DEEP_RESEARCH_CONCURRENCY": 4,
     "LANGUAGE": "english",
     "SIMILARITY_THRESHOLD": 0.42,
-    "CURATE_SOURCES": false,
-    "STRATEGIC_LLM": "openrouter:stealth/space-bunny-alpha"
+    "CURATE_SOURCES": false
 }

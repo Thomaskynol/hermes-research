@@ -100,6 +100,11 @@ ALLOWED_OVERRIDES = frozenset({
     "DEEP_RESEARCH_CONCURRENCY",
     "vast_max",
     "yt_live",
+    "budget_time_s",
+    "budget_queries",
+    "budget_unique_sources",
+    "budget_extractions",
+    "budget_yt_live_fetches",
 })
 
 # Stop-rule thresholds.
@@ -108,6 +113,12 @@ COVERAGE_OK = 0.60  # aspects decent enough for a novelty stop
 NOVELTY_FLOOR = 0.15  # novelty_last_rounds <= this counts as "low"
 
 _URL_RE = re.compile(r"https?://[^\s`)\]]+")
+
+
+def _run_budget_module():
+    """Lazy import to avoid a hard dependency at import time."""
+    import run_budget as rb
+    return rb
 
 
 def _citation_audit():
@@ -169,6 +180,18 @@ def resolve(profile: str, overrides: dict | None = None) -> dict:
     # Contract clamps: never exceed what the retriever enforces server-side.
     resolved["vast_max"] = min(resolved["vast_max"], VAST_MAX_RESULTS)
     resolved["yt_live"] = min(resolved["yt_live"], YT_LIVE_MAX)
+    # Aggregate run budget (run_budget.DEFAULT_LIMITS for the profile),
+    # overridable per run. TOTAL_WORDS stays a target, not a hard cap.
+    budget = dict(_run_budget_module().DEFAULT_LIMITS.get(canonical, {}))
+    for bkey in ("time_s", "queries", "unique_sources", "extractions",
+                 "yt_live_fetches"):
+        okey = f"budget_{bkey}"
+        if okey in ov:
+            try:
+                budget[bkey] = int(ov[okey])
+            except (TypeError, ValueError):
+                raise ValueError(f"override {okey}={ov[okey]!r} is not an integer")
+    resolved["budget"] = budget
     return resolved
 
 
