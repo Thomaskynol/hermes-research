@@ -190,17 +190,18 @@ async def main():
     trace_root = os.environ.get(run_trace.RUNS_ENV, "")
     if trace_root:
         tracer = run_trace.RunTracer(query, report_type, trace_root)
-        uninstall_probes = run_trace.install_probe_wrapping(tracer)
-        uninstall_recording = run_trace.install_custom_recording(tracer)
         # Crash-safe checkpoint: what was collected survives a hard kill, so a
         # retry resumes instead of re-fetching everything (a deep run lost
-        # ~10.5h of collection to a crash before this existed).
+        # ~10.5h of collection to a crash before this existed). Wired into the
+        # probe wrapper so it records DURING collection, not only at the end.
         ckpt = run_checkpoint.Checkpoint(tracer.dir)
         _resume = run_checkpoint.resume_plan(ckpt, [query])
         if _resume["already_have_urls"]:
             print(f"[CHECKPOINT] resuming: {len(_resume['already_have_urls'])} "
                   f"sources already collected, {len(_resume['pending_queries'])} "
                   f"queries pending")
+        uninstall_probes = run_trace.install_probe_wrapping(tracer, checkpoint=ckpt)
+        uninstall_recording = run_trace.install_custom_recording(tracer)
     researcher = GPTResearcher(
         query=query,
         report_type=report_type,

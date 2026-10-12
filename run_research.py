@@ -22,6 +22,7 @@ import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
 import deep_research_fix  # noqa: F401  guards the upstream zero-query branch, via install()
+import run_checkpoint  # crash-safe resume of collected work
 import run_trace
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import ReportType, Tone
@@ -67,7 +68,8 @@ async def research(query, report_type, tracer=None):
     deep_research_fix.install()
     uninstall_probes = None
     if tracer is not None:
-        uninstall_probes = run_trace.install_probe_wrapping(tracer)
+        _ckpt = run_checkpoint.Checkpoint(tracer.dir)
+        uninstall_probes = run_trace.install_probe_wrapping(tracer, checkpoint=_ckpt)
     researcher = GPTResearcher(
         query=query,
         report_type=report_type,

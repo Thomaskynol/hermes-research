@@ -144,7 +144,7 @@ def hit_to_record(hit, verdict: str | None = None) -> dict:
     return rec
 
 
-def install_probe_wrapping(tracer: RunTracer):
+def install_probe_wrapping(tracer: RunTracer, checkpoint=None):
     """Wrap OUR probe functions so per-retriever outcomes are logged.
 
     Runtime-only rebinding of `vast_local_retriever.SOURCE_PROBES` (same
@@ -153,6 +153,11 @@ def install_probe_wrapping(tracer: RunTracer):
     callable. Never touches site-packages: the searx/duckduckgo/arxiv
     retrievers run inside the library and are NOT covered — see module
     docstring.
+
+    When `checkpoint` is given, every source obtained is appended to the
+    crash-safe checkpoint DURING collection (not only at the end), so a run
+    killed mid-flight still leaves usable sources behind. A deep run lost
+    ~10.5h of collection to a crash before this existed.
     """
     import asyncio
     import vast_local_retriever as vast
@@ -172,6 +177,19 @@ def install_probe_wrapping(tracer: RunTracer):
                     "elapsed_s": round(time.monotonic() - started, 2),
                     "urls": [h.url for h in hits],
                 })
+                if checkpoint is not None:
+                    # Persist NOW: a kill after this line loses nothing.
+                    for h in hits:
+                        checkpoint.note_source(
+                            h.url, source=getattr(h, "source", ""),
+                            title=getattr(h, "title", ""),
+                            content=getattr(h, "raw_content", "") or "",
+                            evidence_type=("transcript"
+                                           if getattr(h, "transcript_chars", 0)
+                                           else ""),
+                            chars=getattr(h, "transcript_chars", 0) or None,
+                        )
+                    checkpoint.note_query_done(query, n_sources=len(hits))
                 return hits
             except Exception as exc:
                 outcomes.append({
