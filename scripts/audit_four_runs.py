@@ -43,6 +43,11 @@ def audit(profile: str) -> dict:
                 owner_rid = cand.name
                 break
     rid0 = owner_rid
+    # Prefer the run's OWN depth.json (persisted inside the run dir): the copy
+    # in output/ is overwritten by the next run of the same profile.
+    run_depth = load(WORKDIR / "runs" / rid0 / "depth.json") if rid0 else None
+    if run_depth:
+        depth = run_depth
     run_man = None
     if rid0:
         cand = WORKDIR / "runs" / rid0 / "citation_manifest.json"

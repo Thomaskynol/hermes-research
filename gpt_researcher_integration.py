@@ -270,6 +270,11 @@ async def main():
     _depth_file.write_text(
         json.dumps(_depth_record, ensure_ascii=False, indent=1),
         encoding="utf-8")
+    # Also persist INSIDE the run dir: output/<profile>_* is overwritten by the
+    # next run of the same profile, which silently loses this run's stop reason
+    # and budget (observed: run 145652's record was clobbered by a later one).
+    if tracer is not None:
+        tracer.record("depth.json", _depth_record)
     print(f"[DEPTH] resolved config + stop_reason={_depth_record['stop_reason']} "
           f"-> {_depth_file.name}")
 
