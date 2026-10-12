@@ -112,8 +112,40 @@ def audit(profile: str) -> dict:
     return rec
 
 
+def deep_run_history() -> list[dict]:
+    """Every deep run that produced a report, newest first.
+
+    A profile can be run several times; the delivered report is one of them and
+    the rest are still evidence. Listing them keeps the audit from implying a
+    single deep run exists when there were several.
+    """
+    hist = []
+    for cand in sorted((WORKDIR / "runs").iterdir(), reverse=True):
+        run = cand / "run.json"
+        rep = cand / "report.md"
+        if not (run.exists() and rep.exists()):
+            continue
+        meta = load(run, {}) or {}
+        if meta.get("depth") != "deep":
+            continue
+        md = rep.read_text(encoding="utf-8")
+        st = load(cand / "stats.json", {}) or {}
+        tu = st.get("token_usage") or {}
+        hist.append({
+            "run_id": cand.name,
+            "words": len(md.split()),
+            "videos_cited": len(set(re.findall(r"watch\?v=([\w-]{11})", md))),
+            "spoken_labels": len(re.findall(r"\[spoken \d+/\d+\]", md)),
+            "total_urls": st.get("total_urls"),
+            "cost_usd": round(tu.get("total", 0), 4) if tu else "unknown",
+            "model": (meta.get("config_sanitized") or {}).get("SMART_LLM"),
+        })
+    return hist
+
+
 def main() -> int:
     out = {"runs": [audit(p) for p in ("light", "medium", "hard", "deep")],
+           "deep_run_history": deep_run_history(),
            "legend": {
                "stop_reason": "condition actually reached (exit 0 != coverage)",
                "cost": "per-run when the library attributes it; 'unknown' otherwise",
@@ -127,6 +159,10 @@ def main() -> int:
               f"videos={r['videos_cited_n']} manifest={r['manifest_urls']} "
               f"cost={r['cost'] if isinstance(r['cost'], str) else r['cost']['total_usd']}")
         print(f"        verdict: {r['coverage_verdict']}")
+    print(f"\ndeep runs that produced a report: {len(out['deep_run_history'])}")
+    for h in out["deep_run_history"]:
+        print(f"  {h['run_id'][:24]}: {h['words']}w videos={h['videos_cited']} "
+              f"spoken={h['spoken_labels']} ${h['cost_usd']}")
     print(f"\nwritten: {OUT}")
     return 0
 
