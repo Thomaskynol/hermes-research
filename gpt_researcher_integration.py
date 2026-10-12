@@ -255,7 +255,7 @@ async def main():
         _semantic = _sr.review_report(report, _evidence, enabled=True)
         _s = _semantic.get("summary", {})
         print(f"[SEMANTIC] {_semantic.get('claims', 0)} claims -> {_s}"
-              f" | accepted={_semantic.get('accepted')}")
+              f" | estado={_semantic.get('verdict_state')}")
         if _semantic.get("verdicts"):
             for _v in _semantic["verdicts"]:
                 if _v["verdict"] in ("unsupported", "gap", "partial"):
@@ -319,6 +319,7 @@ async def main():
             "enabled": _semantic.get("enabled", False),
             "claims": _semantic.get("claims", 0),
             "summary": _semantic.get("summary", {}),
+            "verdict_state": _semantic.get("verdict_state"),
             "accepted": _semantic.get("accepted"),
         },
         # Phase timings: budget time_s is measured from install() (before the

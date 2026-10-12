@@ -150,6 +150,28 @@ async def _review_batch(items: list[dict], model: str,
     return out
 
 
+def _run_review(items: list[dict], model: str) -> list[dict]:
+    """Drive the review coroutine from sync OR async context.
+
+    ``review_report`` is called from the entry point, which is already inside
+    ``asyncio.run(main())`` -- a nested ``asyncio.run`` raises
+    "cannot be called from a running event loop". The replay path (plain
+    script) has no loop at all. Both must work, so run the coroutine on a
+    private loop when one is already running.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_review_batch(items, model))
+    # Already inside a loop: use a dedicated one in a worker thread and block
+    # on it, so the caller's loop is untouched.
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(
+            lambda: asyncio.new_event_loop().run_until_complete(
+                _review_batch(items, model))).result()
+
+
 def review_report(report: str, evidence: dict[str, str],
                   model: str = "meta/muse-spark-1.3-contributor",
                   enabled: bool = True) -> dict:
@@ -164,15 +186,18 @@ def review_report(report: str, evidence: dict[str, str],
     if not claims:
         return {"enabled": True, "claims": 0, "verdicts": [],
                 "summary": {"note": "nenhuma afirmação verificável extraída"}}
-    verdicts = asyncio.run(_review_batch(claims, model))
+    verdicts = _run_review(claims, model)
     by_id = {v.get("id"): v for v in verdicts}
     summary: dict[str, int] = {}
     for v in verdicts:
         summary[v.get("verdict", "?")] = summary.get(v.get("verdict", "?"), 0) + 1
-    # A report is only accepted when nothing is unsupported and every
-    # free-of-charge assertion was sustained or explicitly corrected.
-    blocking = [v for v in verdicts if v.get("verdict") in ("unsupported",)]
+    # A report is only accepted when nothing is unsupported. A ``gap`` means we
+    # lack evidence to confirm the claim -- it must NOT read as acceptance, so
+    # the report is accepted WITH qualification and the gaps are reported
+    # alongside. Only an explicit contradiction blocks outright.
+    blocking = [v for v in verdicts if v.get("verdict") == "unsupported"]
     gaps = [v for v in verdicts if v.get("verdict") == "gap"]
+    partials = [v for v in verdicts if v.get("verdict") == "partial"]
     return {
         "enabled": True,
         "claims": len(claims),
@@ -180,8 +205,18 @@ def review_report(report: str, evidence: dict[str, str],
                       "support": by_id.get(c["id"], {}).get("support", ""),
                       "correction": by_id.get(c["id"], {}).get("correction", "")}
                      for c in claims],
-        "summary": {**summary, "blocking": len(blocking), "gaps": len(gaps)},
+        "summary": {**summary,
+                    "blocking": len(blocking),
+                    "gaps": len(gaps),
+                    "partials": len(partials)},
+        # Verdict is a qualified state, not a boolean: 'aceito' | 'aceito com
+        # ressalvas' | 'reprovado'. 13 gaps is NOT the same as fully accepted.
+        "verdict_state": ("reprovado" if blocking else
+                          ("aceito com ressalvas" if (gaps or partials)
+                           else "aceito")),
         "accepted": not blocking,
+        "gaps": len(gaps),
+        "partials": len(partials),
     }
 
 
