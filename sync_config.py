@@ -257,8 +257,18 @@ def sync():
 
     # Write config to disk and set common env vars
     GPT_CONFIG.write_text(json.dumps(cfg, indent=4))
-    if api_key is not None:
-        os.environ["OPENAI_API_KEY"] = api_key if api_key else "***"
+    # NEVER overwrite a real key with the placeholder. config.yaml has no
+    # api_key, so get_hermes_model() returns "" and this used to set
+    # OPENAI_API_KEY="***" ON TOP of the real OpenRouter key that
+    # load_api_keys() had already exported -- every library call then went out
+    # with the literal "***" and the provider answered 401. Only set it when we
+    # actually have a key to set.
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+    elif not os.environ.get("OPENAI_API_KEY") or os.environ["OPENAI_API_KEY"] == "***":
+        # No real key anywhere: keep the explicit placeholder so the failure is
+        # loud at the provider instead of an empty header.
+        os.environ["OPENAI_API_KEY"] = "***"
     os.environ["SMART_LLM"] = model
     os.environ["FAST_LLM"] = model
     os.environ["STRATEGIC_LLM"] = model
