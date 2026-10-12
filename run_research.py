@@ -21,6 +21,7 @@ from pathlib import Path
 import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
+import deep_research_fix  # noqa: F401  guards the upstream zero-query branch, via install()
 import run_trace
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import ReportType, Tone
@@ -63,6 +64,7 @@ async def research(query, report_type, tracer=None):
     # which Config reads in its constructor. Idempotent, and placed here rather
     # than in main() so every path into research() gets it.
     reasoning_effort.install()
+    deep_research_fix.install()
     uninstall_probes = None
     if tracer is not None:
         uninstall_probes = run_trace.install_probe_wrapping(tracer)

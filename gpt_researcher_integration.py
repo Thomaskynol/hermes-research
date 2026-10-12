@@ -36,11 +36,13 @@ sys.path.insert(0, "/opt/data/deep_research_outputs/gpt_researcher")
 import sync_config
 import retriever_timeout  # noqa: F401  rebinds gpt_researcher.retrievers.CustomRetriever
 import reasoning_effort  # noqa: F401  opens the reasoning_effort allow-list, via install()
+import deep_research_fix  # noqa: F401  guards the upstream zero-query branch, via install()
 import run_trace
 sync_config.sync()
 # Before GPTResearcher builds a Config: install() exports REASONING_EFFORT, which
 # Config reads in its constructor. After sync_config.sync(), which sets SMART_LLM.
 reasoning_effort.install()
+deep_research_fix.install()
 
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
