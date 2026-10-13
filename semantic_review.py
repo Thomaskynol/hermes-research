@@ -55,6 +55,28 @@ _PKG_RE = re.compile(
     r"|wakatime|helicone)\b", re.I)
 _LIC_RE = re.compile(r"\b(MIT|Apache-2\.0|SUL-1\.0|BSD|GPL|ISC|NOASSERTION)\b", re.I)
 
+# Sentences that describe the audit's own process (dates of consultation, where
+# evidence came from, "consultada nesta auditoria") rather than a fact about a
+# package. They are provenance, not claims.
+# Price/figure tokens that identify a pricing page uniquely.
+_PRICE_TOKENS = re.compile(
+    r"(\$\d+(?:\.\d+)?(?:/1M|/100K|/GPU-?hr|/month|/hr)|"
+    r"\d+(?:[.,]\d+)?\s*(?:req|API credits|credits))", re.I)
+
+_AUDIT_META = re.compile(
+    r"(consult\w*\s+(inicial|nesta|posterior|fora)|revalida[çc][ãa]o|"
+    r"nesta auditoria|fora do material da run|data da consulta|"
+    r"fonte: api github|artefato: )", re.I)
+
+# Ordinal/editorial labels chosen by the report ("3º lugar", "6ª recomendação",
+# "recomendação principal"). No external source ranks these packages, so the
+# reviewer reports them unsupported -- correctly, and uselessly. They are the
+# report's own editorial structure and stay in the text without being audited.
+_ORDINAL = re.compile(
+    r"(\d+[ºo°]\s*(lugar|coloca|posi)|\b\d+[ªa]\s*recomenda|"
+    r"recomenda[çc][ãa]o\s+principal|lista\s+final|at[ée]\s+cinco|"
+    r"alternativa\s+(enxuta|equivalente))", re.I)
+
 
 def extract_claims(report: str, evidence: dict[str, str],
                    max_claims: int = 25) -> list[dict]:
@@ -85,6 +107,16 @@ def extract_claims(report: str, evidence: dict[str, str],
     prose = re.sub(r"^\|.*\|$",
                    lambda m: m.group(0).replace("|", " · ").strip(" ·"),
                    prose, flags=re.M)
+    # Hard-wrapped prose is one sentence split across lines. Joining on the
+    # newline makes the extractor emit a fragment ending mid-clause ("...o README
+    # do repo X aponta") whose object lives on the next line, and the reviewer
+    # then correctly reports it as truncated. A blank line, not a newline,
+    # separates paragraphs in Markdown. List items keep their bullet, but their
+    # continuation lines (indented by two spaces) still belong to the same
+    # sentence -- otherwise a bullet yields a headless tail like
+    # "pacote npm é diferente do nome do plugin** — ...".
+    prose = re.sub(r"(?<![.!?:;])\n(?=[ \t]*\S)", " ", prose)
+    prose = re.sub(r"[ \t]{2,}", " ", prose)
     sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
     seen: set[str] = set()
     for sent in sentences:
@@ -96,9 +128,80 @@ def extract_claims(report: str, evidence: dict[str, str],
         lics = _LIC_RE.findall(s)
         if not (pkgs or lics) or (not is_free and not pkgs):
             continue
+        # Provenance notes about the AUDIT itself are not claims about a package.
+        # Lines like "Consulta inicial em 2026-10-12; revalidação em 2026-10-13"
+        # describe when evidence was gathered; the reviewer cannot confirm a
+        # date-of-consultation from a source and reports it unsupported, which
+        # is noise, not a finding.
+        if _AUDIT_META.search(s):
+            continue
+        # A bare Markdown heading ("### 3.1 opencode-goal-plugin — recomendação
+        # principal") carries the report's own editorial label, not a checkable
+        # fact: the reviewer rejects "recomendação principal" because no source
+        # ranks packages, which is true and irrelevant.
+        if re.match(r"^#{1,6}\s", s):
+            continue
+        # Same for a heading that lost its hashes through line-joining but still
+        # starts a subsection ("3.1 pacote — recomendação principal").
+        if re.match(r"^\d+\.\d+\s+\S.*—\s*\S+$", s) and len(s) < 120:
+            continue
+        # Editorial ordering/ranking is the report's own structure, not a claim
+        # about the world. Keep it in the text; do not send it to the reviewer.
+        if _ORDINAL.search(s) and len(s) < 260:
+            continue
         # Anchor: find the evidence block that actually mentions this package.
+        # A claim that names a SOURCE URL directly is anchored to that source
+        # too -- otherwise "a página morphllm.com/pricing anuncia 200 req free"
+        # anchors to the plugin README (which mentions Morph but not its price)
+        # and the reviewer correctly rejects a price the pricing page does state.
+        # Every source that names the package is a candidate. They are then
+        # REORDERED by how much distinctive content they share with the
+        # sentence, because a sentence that merely mentions a package while
+        # making a claim about something else must anchor to the source that
+        # actually discusses that something else: "uso permitido ... relevante
+        # por analogia ao oh-my-opencode" is a claim about a video's description,
+        # and anchoring it only to the README makes the reviewer reject it for
+        # not mentioning Supabase/Stripe -- which the video description does.
         anchors = [u for p in pkgs for u, txt in evidence.items()
                    if p.lower() in txt.lower()]
+        _seen_dup = set()
+        anchors = [u for u in anchors
+                   if not (u in _seen_dup or _seen_dup.add(u))]
+        _stop = {"opencode", "plugin", "para", "como", "the", "and", "com",
+                 "que", "nao", "não", "compatível", "compatibility", "isso",
+                 "essa", "este", "para", "com", "sem", "sobre", "documented"}
+        _words = {w.lower() for w in
+                  re.findall(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_.+-]{3,}", s)} - _stop
+        anchors.sort(key=lambda u: -sum(
+            1 for w in _words if w in evidence[u].lower()))
+        # A claim can be ABOUT a source it never names. "uso permitido: mostra
+        # interesse da comunidade em skills para Supabase/Stripe/PDF/docs" is
+        # about a video description that names none of the report's packages, so
+        # the package-name pass finds nothing and the claim dies unsupported.
+        # Distinctive tokens (Supabase, Stripe) recover the right source.
+        if len(anchors) < 2:
+            for u, txt in evidence.items():
+                if u in anchors:
+                    continue
+                low = txt.lower()
+                hits = sum(1 for w in _words if len(w) > 5 and w in low)
+                if hits >= 3 and u not in anchors:
+                    anchors.append(u)
+        for u in evidence:
+            if u in s or u.replace("https://", "").replace("www.", "") in s:
+                if u not in anchors:
+                    anchors.insert(0, u)
+        # A price table cites figures, not URLs. Match on the figures: if the
+        # claim quotes "$0.80/100K" and only the pricing snapshot contains that
+        # exact string, the snapshot IS the evidence -- without this, the table
+        # anchors to the plugin README and the reviewer rejects prices that the
+        # pricing page states verbatim.
+        if not anchors:
+            for u, txt in evidence.items():
+                for tok in _PRICE_TOKENS.findall(s):
+                    if tok in txt:
+                        anchors.append(u)
+                        break
         key = " ".join(pkgs) + "|" + s[:60]
         if key in seen:
             continue

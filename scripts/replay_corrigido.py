@@ -62,10 +62,48 @@ API_METADATA = {
         "code-yeongyu/oh-my-opencode",
 }
 
+# Version metadata is snapshot to disk: the API is rate-limited to 60 req/hour
+# per IP, so a replay that re-fetches is not reproducible, and the values also
+# MOVE (oh-my-opencode went v5.1.31 -> v5.1.32 within a day). The snapshot is
+# the evidence; refresh it deliberately, not on every replay.
+CACHE = WORKDIR / "runs/replay_corrigido_evidence.json"
+CACHE_DATA: dict = {}
+
+
+def _load_cache() -> dict:
+    try:
+        return json.loads(CACHE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_cache(data: dict) -> None:
+    try:
+        CACHE.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                         encoding="utf-8")
+    except Exception:
+        pass
+
+# Snapshots live under runs/pricing_snapshots/, NOT /tmp: the scratch dir is
+# pruned, which silently left the pricing claims without evidence. The Morph page
+# is JS-rendered and rate-limits plain curl (429), so its snapshot may legitimately
+# lack the price table -- see the MISSING note below rather than pretending.
 PRICING = {
-    "https://www.morphllm.com/pricing": "/tmp/morph_p.html",
-    "https://tavily.com/pricing": "/tmp/tavily_pricing.html",
-    "https://www.daytona.io/pricing": "/tmp/daytona_pricing.html",
+    # Morph is JS-rendered and rate-limits curl, so its evidence is the text
+    # dumped from a real browser render, not an HTML fetch.
+    "https://www.morphllm.com/pricing":
+        "runs/pricing_snapshots/morph_pricing.txt",
+    "https://tavily.com/pricing":
+        "runs/pricing_snapshots/tavily_pricing.html",
+    "https://www.daytona.io/pricing":
+        "runs/pricing_snapshots/daytona_pricing.html",
+}
+# Tokens that must appear in a pricing snapshot for it to count as evidence of
+# the prices the report cites. A snapshot missing them is reported, not used.
+PRICING_REQUIRED = {
+    "https://www.morphllm.com/pricing": ("morph-v3-fast", "200 req", "$9.06"),
+    "https://tavily.com/pricing": ("1,000 API credits", "Pay As You Go"),
+    "https://www.daytona.io/pricing": ("Start for free", "0.0504"),
 }
 
 
@@ -79,6 +117,8 @@ def fetch(url: str, timeout: int = 25) -> str:
 
 
 def build_extra_evidence() -> dict[str, str]:
+    global CACHE_DATA
+    CACHE_DATA = _load_cache()
     ev: dict[str, str] = {}
     for base, (repo, br) in REPOS.items():
         readme = fetch(f"https://raw.githubusercontent.com/{repo}/{br}/README.md")
@@ -97,9 +137,25 @@ def build_extra_evidence() -> dict[str, str]:
         if txt:
             ev[base] = txt[:8000]
     for url, repo in API_METADATA.items():
-        meta = fetch(f"https://api.github.com/repos/{repo}")
-        tags = fetch(f"https://api.github.com/repos/{repo}/tags?per_page=1")
-        head = fetch(f"https://api.github.com/repos/{repo}/commits")
+        cached = CACHE_DATA.get(url)
+        if cached:
+            meta, tags, head = cached["meta"], cached["tags"], cached["head"]
+        else:
+            meta = fetch(f"https://api.github.com/repos/{repo}")
+            tags = fetch(f"https://api.github.com/repos/{repo}/tags?per_page=1")
+            head = fetch(f"https://api.github.com/repos/{repo}/commits")
+            if meta and '"message"' not in meta[:60]:
+                CACHE_DATA[url] = {"meta": meta, "tags": tags, "head": head}
+        # Unauthenticated api.github.com allows 60 requests/hour for the whole
+        # IP. Running the replay a few times exhausts it, and the endpoints then
+        # answer with a rate-limit body -- which made the reviewer reject the
+        # §3.2.1 version table as "no evidence" for data that WAS sourced.
+        # Detect that and say so explicitly instead of feeding an error page in
+        # as evidence.
+        if '"rate limit' in meta.lower() or '"message": "API rate limit' in meta:
+            print(f"  ! api.github.com rate-limited; §3.2.1 values not "
+                  f"re-verifiable this run for {repo}", flush=True)
+            meta = ""
         if meta:
             # Keep only the fields the report cites, so the reviewer can match
             # tag/branch/commit/date without the payload noise.
@@ -124,13 +180,30 @@ def build_extra_evidence() -> dict[str, str]:
             for base, (r2, _br) in REPOS.items():
                 if r2 == repo:
                     ev[base] = ev.get(base, "") + "\n\n" + ev[url]
+    _save_cache(CACHE_DATA)
     for url, local in PRICING.items():
+        lp = WORKDIR / local if not local.startswith("/") else Path(local)
         txt = ""
-        lp = Path(local)
         if lp.exists() and lp.stat().st_size > 1000:
             txt = lp.read_text(encoding="utf-8", errors="ignore")
+        else:
+            # Prefer the rendered-text snapshot; fall back to the HTML fetch.
+            alt = lp.with_suffix(".html")
+            if alt.exists() and alt.stat().st_size > 1000:
+                txt = alt.read_text(encoding="utf-8", errors="ignore")
         if not txt:
             txt = fetch(url)
+        # Only count a snapshot as evidence if it actually contains the figures
+        # the report quotes. A 429 page or a JS shell must not be passed off as
+        # proof of a price.
+        need = PRICING_REQUIRED.get(url, ())
+        have = [tok for tok in need if tok in txt]
+        if need and len(have) < len(need):
+            missing = [tok for tok in need if tok not in txt]
+            print(f"  ! {url}: snapshot missing {missing} -- preços desta "
+                  f"página NÃO revalidados neste replay", flush=True)
+            if not have:
+                continue
         if txt:
             ev[url] = txt[:8000]
     return ev
