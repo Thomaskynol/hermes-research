@@ -71,7 +71,21 @@ def extract_claims(report: str, evidence: dict[str, str],
     recommendations are ranked first so they survive the cap.
     """
     claims: list[dict] = []
-    sentences = re.split(r"(?<=[.!?])\s+|\n", report)
+    # Fenced code blocks are quoted evidence, not assertions. Feeding them to
+    # the reviewer makes it "refute" a shell command or a JSON path that the
+    # report merely quotes, which is how a corrected report kept 2 unsupported
+    # verdicts for lines like ``npm install -g opencode-ai`` and the
+    # ``instructions/[...]`` path. Strip them before splitting into sentences.
+    prose = re.sub(r"```.*?```", " ", report, flags=re.S)
+    # Markdown table rows are also not sentences: splitting on newlines turns
+    # one row into several fragments ("| 4 | `opencode-morph-fast-apply` | MIT
+    # |"), and the reviewer then refutes a bare column cell that carries no
+    # assertion. Keep a row whole by turning its pipes into separators, so the
+    # whole row is reviewed as one claim with its subject still attached.
+    prose = re.sub(r"^\|.*\|$",
+                   lambda m: m.group(0).replace("|", " · ").strip(" ·"),
+                   prose, flags=re.M)
+    sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
     seen: set[str] = set()
     for sent in sentences:
         s = sent.strip()
@@ -99,7 +113,7 @@ def extract_claims(report: str, evidence: dict[str, str],
             "priority": (2 if is_free else 0) + (1 if len(pkgs) >= 2 else 0),
             "anchors": anchors[:3],
             "evidence": "\n\n".join(
-                evidence[u][:1500] for u in anchors[:2]) or "(sem evidência)",
+                evidence[u][:9000] for u in anchors[:2]) or "(sem evidência)",
         })
     claims.sort(key=lambda c: -c["priority"])
     for i, c in enumerate(claims):
@@ -174,12 +188,21 @@ def _run_review(items: list[dict], model: str) -> list[dict]:
 
 def review_report(report: str, evidence: dict[str, str],
                   model: str = "meta/muse-spark-1.3-contributor",
-                  enabled: bool = True) -> dict:
+                  enabled: bool = True,
+                  extra_evidence: dict[str, str] | None = None) -> dict:
     """Audit the claims of a finished report. Returns verdicts + a summary.
 
     ``enabled=False`` (default off) keeps the normal path untouched: the
     caller decides when a report needs semantic review.
+
+    ``extra_evidence`` maps source-URL -> text for material consulted AFTER the
+    run (maintainer READMEs, licence files, pricing pages). Without it, a
+    corrected report reads as unsupported: the claim "MIT" is anchored to the
+    run's ecosystem page, which lists names and one-line descriptions but no
+    licence and no price. Merging both maps is what makes a corrected report
+    reviewable against the evidence that actually supports it.
     """
+    evidence = {**(evidence or {}), **(extra_evidence or {})}
     if not enabled:
         return {"enabled": False, "claims": 0, "verdicts": [], "summary": {}}
     claims = extract_claims(report, evidence)
