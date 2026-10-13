@@ -59,6 +59,16 @@ _LIC_RE = re.compile(r"\b(MIT|Apache-2\.0|SUL-1\.0|BSD|GPL|ISC|NOASSERTION)\b", 
 # evidence came from, "consultada nesta auditoria") rather than a fact about a
 # package. They are provenance, not claims.
 # Price/figure tokens that identify a pricing page uniquely.
+def _claim_words(sentence: str) -> set[str]:
+    """Distinctive lowercase words of a claim, for content-based anchoring."""
+    stop = {"opencode", "plugin", "para", "como", "the", "and", "com", "que",
+            "nao", "não", "isso", "essa", "este", "uma", "mais", "seus", "suas",
+            "documented", "compatibility", "compatível", "about", "with", "from"}
+    words = {w.lower() for w in
+             re.findall(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_.+-]{3,}", sentence)}
+    return words - stop
+
+
 _PRICE_TOKENS = re.compile(
     r"(\$\d+(?:\.\d+)?(?:/1M|/100K|/GPU-?hr|/month|/hr)|"
     r"\d+(?:[.,]\d+)?\s*(?:req|API credits|credits))", re.I)
@@ -76,6 +86,43 @@ _ORDINAL = re.compile(
     r"(\d+[ºo°]\s*(lugar|coloca|posi)|\b\d+[ªa]\s*recomenda|"
     r"recomenda[çc][ãa]o\s+principal|lista\s+final|at[ée]\s+cinco|"
     r"alternativa\s+(enxuta|equivalente))", re.I)
+
+
+
+def _refs_hint(refs: list[str]) -> list[str]:
+    return list(refs or [])
+
+
+def _evidence_window(anchors: list[str], refs: list[str],
+                     budget: int = 9000) -> str:
+    """Evidence text for a claim, centred on the segments it cites."""
+    parts: list[str] = []
+    for u in anchors[:2]:
+        txt = evidence_text(u)
+        if not txt:
+            continue
+        idx = -1
+        for r in refs:
+            idx = txt.find(r)
+            if idx >= 0:
+                break
+        if idx < 0:
+            parts.append(txt[:budget])
+            continue
+        # Take the segment line plus surrounding context.
+        start = max(0, idx - 1200)
+        end = min(len(txt), idx + budget - 1200)
+        window = ("…" if start > 0 else "") + txt[start:end] + \
+                 ("…" if end < len(txt) else "")
+        parts.append(window)
+    return "\n\n".join(parts) or "(sem evidência)"
+
+
+_EVIDENCE_STORE: dict[str, str] = {}
+
+
+def evidence_text(url: str) -> str:
+    return _EVIDENCE_STORE.get(url, "")
 
 
 def extract_claims(report: str, evidence: dict[str, str],
@@ -119,8 +166,26 @@ def extract_claims(report: str, evidence: dict[str, str],
     prose = re.sub(r"[ \t]{2,}", " ", prose)
     sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
     seen: set[str] = set()
+    # A bullet can SUMMARISE evidence listed in the bullets just above it
+    # ("Uso permitido: mostra interesse ... Supabase/Stripe/PDF") while itself
+    # naming no `[spoken]`. Carry the last-seen spoken refs forward so the
+    # summary is ranked as transcript-backed and anchored to that video's
+    # evidence instead of losing the cap to generic one-liners.
+    _last_spoken: list[str] = []
+    # The evidence window helper needs the full source texts; expose them for
+    # the duration of this call.
+    _EVIDENCE_STORE.clear()
+    _EVIDENCE_STORE.update(evidence)
     for sent in sentences:
         s = sent.strip()
+        # Track the most recent `[spoken]` refs BEFORE any filter can `continue`
+        # past this sentence. A summary bullet ("Uso permitido: ... Supabase")
+        # inherits the refs from the bullet above it; updating after the filters
+        # meant every intervening filtered line reset the inheritance.
+        _spoken = re.findall(r"\[spoken\s[^\]]*\]", s)
+        if _spoken:
+            _last_spoken = _spoken[-3:]
+        _has_spoken = bool(_spoken) or bool(_last_spoken)
         if len(s) < 25 or len(s) > 600:
             continue
         pkgs = [p for tup in _PKG_RE.findall(s) for p in tup if p]
@@ -162,18 +227,56 @@ def extract_claims(report: str, evidence: dict[str, str],
         # por analogia ao oh-my-opencode" is a claim about a video's description,
         # and anchoring it only to the README makes the reviewer reject it for
         # not mentioning Supabase/Stripe -- which the video description does.
+        # Anchoring must not REQUIRE the package name in the evidence. A claim
+        # about a video's transcript names a package only by analogy
+        # ("relevante por analogia ao oh-my-opencode") while the evidence it
+        # rests on is the transcript, which never says that name. Requiring the
+        # name anchored such claims to the README and the reviewer then rejected
+        # them for missing facts the transcript does state.
         anchors = [u for p in pkgs for u, txt in evidence.items()
                    if p.lower() in txt.lower()]
+        # Locate the source that holds the cited segments, even when it shares
+        # no package name with the claim. Without this the evidence for a
+        # transcript-backed claim was whichever README happened to match a
+        # package word, and the reviewer rejected facts the transcript states.
+        if _has_spoken:
+            _refs = _spoken or _last_spoken
+            for u, txt in evidence.items():
+                if any(r in txt for r in _refs) and u not in anchors:
+                    anchors.insert(0, u)
+        if not anchors:
+            # Rank by content overlap instead of taking the first hit, so the
+            # best-matching source wins rather than whichever the dict yielded.
+            _scored = []
+            for u, txt in evidence.items():
+                low = txt.lower()
+                hits = sum(1 for w in _claim_words(s) if w in low)
+                if hits >= 2:
+                    _scored.append((hits, u))
+            anchors = [u for _hits, u in sorted(_scored, reverse=True)]
         _seen_dup = set()
         anchors = [u for u in anchors
                    if not (u in _seen_dup or _seen_dup.add(u))]
-        _stop = {"opencode", "plugin", "para", "como", "the", "and", "com",
-                 "que", "nao", "não", "compatível", "compatibility", "isso",
-                 "essa", "este", "para", "com", "sem", "sobre", "documented"}
-        _words = {w.lower() for w in
-                  re.findall(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9_.+-]{3,}", s)} - _stop
-        anchors.sort(key=lambda u: -sum(
-            1 for w in _words if w in evidence[u].lower()))
+        # A transcript-backed claim must anchor to the TRANSCRIPT, not to a
+        # repo that merely happens to share the package name. "Uso permitido:
+        # mostra interesse ... Supabase/Stripe/PDF" rests on `[spoken 11/14]`;
+        # the oh-my-opencode README (which names the package) contains none of
+        # those words, so the reviewer rejected facts the transcript does state.
+        # Promote a transcript source ahead of a name-only match.
+        if _has_spoken:
+            _refs = _spoken or _last_spoken
+            # Best evidence is the source that CONTAINS the very segments the
+            # claim cites -- not merely any transcript.
+            _exact = [u for u in anchors
+                      if any(r in evidence[u] for r in _refs)]
+            _transcripts = [u for u in anchors
+                            if "[spoken" in evidence[u] and u not in _exact]
+            _others = [u for u in anchors if u not in _exact
+                       and u not in _transcripts]
+            anchors = (_exact or []) + (_transcripts or []) + (_others or [])
+        else:
+            anchors.sort(key=lambda u: -sum(
+                1 for w in _claim_words(s) if w in evidence[u].lower()))
         # A claim can be ABOUT a source it never names. "uso permitido: mostra
         # interesse da comunidade em skills para Supabase/Stripe/PDF/docs" is
         # about a video description that names none of the report's packages, so
@@ -184,7 +287,8 @@ def extract_claims(report: str, evidence: dict[str, str],
                 if u in anchors:
                     continue
                 low = txt.lower()
-                hits = sum(1 for w in _words if len(w) > 5 and w in low)
+                hits = sum(1 for w in _claim_words(s)
+                           if len(w) > 5 and w in low)
                 if hits >= 3 and u not in anchors:
                     anchors.append(u)
         for u in evidence:
@@ -212,11 +316,21 @@ def extract_claims(report: str, evidence: dict[str, str],
             "packages": pkgs,
             "licences": lics,
             "free_assertion": is_free,
-            # Rank: gratuidade primeiro, depois recomendações multi-pacote.
-            "priority": (2 if is_free else 0) + (1 if len(pkgs) >= 2 else 0),
+            # Rank: free-of-charge assertions and multi-package recommendations
+            # first, then claims backed by a TRANSCRIPT -- those carry quotable
+            # `[spoken]` evidence and were being pushed past the cap by generic
+            # one-liners, which silently dropped the most checkable material.
+            "priority": ((2 if is_free else 0) + (1 if len(pkgs) >= 2 else 0) +
+                         (2 if _has_spoken else 0)),
             "anchors": anchors[:3],
-            "evidence": "\n\n".join(
-                evidence[u][:9000] for u in anchors[:2]) or "(sem evidência)",
+            # Prefer the WINDOW around the cited segments over a blind head cut:
+            # a 9k head-slice of a long transcript dropped the very lines the
+            # claim quotes (`[spoken 11/14]` sits past 9k), so the reviewer was
+            # handed evidence that did not contain the facts it had to check.
+            "evidence": _evidence_window(anchors, _refs_hint(_spoken or _last_spoken)),
+            # The spoken refs this claim rests on, so the reviewer can locate
+            # them inside the (long) transcript it is given.
+            "spoken_refs": (_spoken or _last_spoken),
         })
     claims.sort(key=lambda c: -c["priority"])
     for i, c in enumerate(claims):
@@ -230,8 +344,9 @@ def _load_key() -> str:
         "OPENAI_API_KEY", "")
 
 
-async def _review_batch(items: list[dict], model: str,
-                        batch_size: int = 12) -> list[dict]:
+async def _review_pass(items: list[dict], model: str,
+                       batch_size: int = 12) -> list[dict]:
+    """One full pass over the claims. See _review_batch for why votes exist."""
     key = _load_key()
     if not key:
         return [{"id": it["id"], "verdict": "gap",
@@ -267,7 +382,63 @@ async def _review_batch(items: list[dict], model: str,
     return out
 
 
-def _run_review(items: list[dict], model: str) -> list[dict]:
+# Ties are broken in this order. `gap` loses to anything concrete: the reviewer
+# alternated between calling a claim a gap and calling it sustained, and
+# defaulting the tie to `gap` silently softened real findings.
+_TIE_ORDER = {"sustained": 0, "partial": 1, "unsupported": 2, "gap": 3}
+
+
+async def _review_batch(items: list[dict], model: str,
+                        votes: int = 3) -> list[dict]:
+    """Review the claims, electing the majority verdict per claim.
+
+    A single pass is not reproducible: `temperature=0` still varies, and four
+    runs over the same report gave 1, 1, 2, 2 `unsupported` with ten claims
+    moving between `gap` and `partial`. That makes the aggregate -- and the
+    accept/reject decision built on it -- untrustworthy.
+
+    Running `votes` passes and taking the per-claim majority makes the
+    AGGREGATE deterministic while keeping the evidence honest: a claim is only
+    `unsupported` if the majority of independent reviews says so. Each vote also
+    keeps its own tally in `vote_tally`, so the disagreement stays visible
+    instead of being averaged away.
+    """
+    runs = [await _review_pass(items, model) for _ in range(max(1, votes))]
+    by_id: dict[int, list[dict]] = {}
+    for run in runs:
+        for v in run:
+            if isinstance(v, dict) and isinstance(v.get("id"), int):
+                by_id.setdefault(v["id"], []).append(v)
+
+    out: list[dict] = []
+    for it in items:
+        cands = by_id.get(it["id"], [])
+        if not cands:
+            out.append({"id": it["id"], "verdict": "gap", "support": "",
+                        "correction": "revisão não retornou este id",
+                        "vote_tally": {}})
+            continue
+        tally: dict[str, int] = {}
+        for c in cands:
+            vd = c.get("verdict", "gap")
+            tally[vd] = tally.get(vd, 0) + 1
+        # Majority; ties broken by _TIE_ORDER (deterministic, no dict-order luck).
+        winner = min(tally.items(),
+                     key=lambda kv: (-kv[1], _TIE_ORDER.get(kv[0], 9)))[0]
+        # Prefer a correction/support from a vote that AGREES with the winner,
+        # so the quoted evidence matches the elected verdict.
+        chosen = next((c for c in cands if c.get("verdict") == winner), cands[0])
+        out.append({
+            "id": it["id"],
+            "verdict": winner,
+            "support": chosen.get("support", ""),
+            "correction": chosen.get("correction", ""),
+            "vote_tally": tally,
+        })
+    return out
+
+
+def _run_review(items: list[dict], model: str, votes: int = 3) -> list[dict]:
     """Drive the review coroutine from sync OR async context.
 
     ``review_report`` is called from the entry point, which is already inside
@@ -279,20 +450,21 @@ def _run_review(items: list[dict], model: str) -> list[dict]:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(_review_batch(items, model))
+        return asyncio.run(_review_batch(items, model, votes=votes))
     # Already inside a loop: use a dedicated one in a worker thread and block
     # on it, so the caller's loop is untouched.
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(
             lambda: asyncio.new_event_loop().run_until_complete(
-                _review_batch(items, model))).result()
+                _review_batch(items, model, votes=votes))).result()
 
 
 def review_report(report: str, evidence: dict[str, str],
                   model: str = "meta/muse-spark-1.3-contributor",
                   enabled: bool = True,
-                  extra_evidence: dict[str, str] | None = None) -> dict:
+                  extra_evidence: dict[str, str] | None = None,
+                  votes: int = 3) -> dict:
     """Audit the claims of a finished report. Returns verdicts + a summary.
 
     ``enabled=False`` (default off) keeps the normal path untouched: the
@@ -312,7 +484,7 @@ def review_report(report: str, evidence: dict[str, str],
     if not claims:
         return {"enabled": True, "claims": 0, "verdicts": [],
                 "summary": {"note": "nenhuma afirmação verificável extraída"}}
-    verdicts = _run_review(claims, model)
+    verdicts = _run_review(claims, model, votes=votes)
     by_id = {v.get("id"): v for v in verdicts}
     summary: dict[str, int] = {}
     for v in verdicts:
@@ -327,14 +499,25 @@ def review_report(report: str, evidence: dict[str, str],
     return {
         "enabled": True,
         "claims": len(claims),
-        "verdicts": [{**c, "verdict": by_id.get(c["id"], {}).get("verdict", "gap"),
+        # Rebuild each claim with its elected verdict AND the per-claim vote
+        # tally. Dropping `vote_tally` here made it silently disappear from the
+        # artifact, so a reader could not tell a unanimous verdict from a 2-1
+        # split -- exactly the distinction that justifies the voting.
+        "verdicts": [{**c,
+                      "verdict": by_id.get(c["id"], {}).get("verdict", "gap"),
                       "support": by_id.get(c["id"], {}).get("support", ""),
-                      "correction": by_id.get(c["id"], {}).get("correction", "")}
+                      "correction": by_id.get(c["id"], {}).get("correction", ""),
+                      "vote_tally": by_id.get(c["id"], {}).get("vote_tally", {})}
                      for c in claims],
         "summary": {**summary,
                     "blocking": len(blocking),
                     "gaps": len(gaps),
-                    "partials": len(partials)},
+                    "partials": len(partials),
+                    "votes": max(1, votes),
+                    # Claims where the passes did not agree: the honest measure
+                    # of how much of this verdict is model noise.
+                    "disputed": sum(
+                        1 for v in verdicts if len(v.get("vote_tally", {})) > 1)},
         # Verdict is a qualified state, not a boolean: 'aceito' | 'aceito com
         # ressalvas' | 'reprovado'. 13 gaps is NOT the same as fully accepted.
         "verdict_state": ("reprovado" if blocking else

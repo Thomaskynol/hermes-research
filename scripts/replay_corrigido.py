@@ -11,6 +11,7 @@ Offline retrieval: raw.githubusercontent.com + local copies of the pricing
 pages already fetched. No new research.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -209,6 +210,13 @@ def build_extra_evidence() -> dict[str, str]:
     return ev
 
 
+# Two knobs, both off by default so behaviour only changes when asked:
+#   REPLAY_VOTES  - majority votes per claim (1 = old single-pass behaviour)
+#   REPLAY_SEED   - set to make the replay deterministic
+VOTES = int(os.environ.get("REPLAY_VOTES", "3"))
+SEED = os.environ.get("REPLAY_SEED", "").strip()
+
+
 def main() -> int:
     # Load the credential the same way the entry point does: sync_config
     # exports OPENROUTER_API_KEY/OPENAI_API_KEY from /opt/data/.env. Without it
@@ -230,6 +238,7 @@ def main() -> int:
 
     print(f"evidencia da run: {len(base_ev)} fontes | "
           f"evidencia complementar: {len(extra)} fontes", flush=True)
+    print(f"votos por claim: {VOTES} | seed: {SEED or '(sem seed)'}", flush=True)
 
     # The corrected file carries an audit appendix (§7-§9) that QUOTES the
     # evidence as prose. Feeding it to the reviewer makes it re-audit its own
@@ -244,7 +253,7 @@ def main() -> int:
     results = {}
     for label, text in (("ORIGINAL", original), ("CORRIGIDO", body)):
         res = sr.review_report(text, base_ev, enabled=True,
-                               extra_evidence=extra)
+                               extra_evidence=extra, votes=VOTES)
         results[label] = res
         print(f"\n=== {label} ===")
         print("summary:", res["summary"])
