@@ -38,7 +38,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKDIR = Path("/opt/data/deep_research_outputs/gpt_researcher")
-sys.path.insert(0, str(WORKDIR))
+# No sys.path side effect on import (explicit bootstrap adds paths when the
+# caller runs in the correct environment).
+# shortcut: import seguro offline; bootstrap explícito no runtime.
 
 RUNS_ENV = "RUN_TRACE_DIR"
 
