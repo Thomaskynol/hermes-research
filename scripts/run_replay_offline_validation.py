@@ -9,18 +9,17 @@ import time
 
 
 def main():
+    root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser()
-    parser.add_argument("--frozen-report", type=Path, default=Path(
-        "/opt/data/deep_research_outputs/gpt_researcher/output/RELATORIO_CORRIGIDO_184601.md"))
-    parser.add_argument("--frozen-evidence", type=Path, default=Path(
-        "/opt/data/deep_research_outputs/gpt_researcher/runs/replay_corrigido_evidence.json"))
+    parser.add_argument("--frozen-report", type=Path, default=root / "fixtures" / "RELATORIO_CORRIGIDO_184601.md")
+    parser.add_argument("--frozen-evidence", type=Path, default=root / "fixtures" / "replay_corrigido_evidence.json")
+    parser.add_argument("--output-dir", type=Path, default=root / "validation")
     args = parser.parse_args()
     for fixture in (args.frozen_report, args.frozen_evidence):
         if not fixture.is_file():
             parser.error(f"Required existing frozen fixture not found: {fixture}")
-    root = Path(__file__).resolve().parents[1]
-    out = root / "validation"
-    out.mkdir(exist_ok=True)
+    out = args.output_dir
+    out.mkdir(parents=True, exist_ok=True)
     suites = ["evidence_selection", "failure_guard", "coverage", "coverage_review",
               "coverage_structure", "scope_boundary", "corpus_qualification_review",
               "qualification_final_cases", "e2e_integration_review", "e2e_replay_regressions",
