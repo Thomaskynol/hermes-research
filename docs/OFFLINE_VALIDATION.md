@@ -67,3 +67,31 @@ Não depende de `output/`, `runs/` ou `validation/` não-versionados. `validatio
 - Sem instalação de dependências, sem chamadas reais de modelo/rede, sem credenciais, sem `sync_config`.
 - Documentos: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (`3487df6f...`) e `docs/HANDOFF_PESQUISA_HERMES_20261018.md` (bytes integrais do handoff).
 - Limitação: aprovação final ainda depende de execução fresca offline no Hermes (ETAPA D); registros antigos em `validation/` são histórico, não prova.
+
+## Validação adaptativa fix/review-981c030 (snapshot isolado)
+
+Snapshot: `cp -a <repo>/. /tmp/adaptive_snapshot/` (fora do Git).
+Execução (sem tocar produção, sem `sync_config`/credenciais, offline via
+audithook, `PYTHONPATH` do snapshot, `--output-dir /tmp`):
+
+```bash
+PYTHONPATH=/tmp/adaptive_snapshot python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot/tests -p test_review_regressions.py -v
+# → 14 passed (R01–R14), exit 0
+PYTHONPATH=/tmp/adaptive_snapshot python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot/tests -p "test_adaptive*.py" -v
+# → 26 passed (18 adaptativos + 8 entrada), exit 0
+PYTHONPATH=/tmp/adaptive_snapshot python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot/tests -p "test_question*.py" -v
+# → 11 passed, exit 0
+PYTHONPATH=/tmp/adaptive_snapshot python3 \
+  /tmp/adaptive_snapshot/scripts/run_replay_offline_validation.py \
+  --frozen-report /tmp/adaptive_snapshot/fixtures/RELATORIO_CORRIGIDO_184601.md \
+  --frozen-evidence /tmp/adaptive_snapshot/fixtures/replay_corrigido_evidence.json \
+  --output-dir /tmp/adaptive_out_981c030fix
+# → 11/11 suítes exit 0 (83 casos históricos, expectations/fixtures intactos)
+```
+
+Import da entrada (`gpt_researcher_integration`) verificado em subprocesso
+isolado: sem `/opt/data` em `sys.path`, módulos próprios resolvendo para o
+snapshot, `bootstrap_runtime(do_sync=False)` sem `sync`.

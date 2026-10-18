@@ -87,33 +87,42 @@ Validação completa isolada (snapshot, sem tocar produção): ver
 
 ## Validação vinculada
 
-Rodada 2026-10-18 ~11:27 UTC, branch `feat/adaptive-research`, commits
-`c9f0234` + `466b5d8` (snapshot `/tmp/adaptive_dev` no container
-`hermes-gateway`, sem tocar `/opt/data` nem `~/.hermes`):
+Rodada 2026-10-18 ~11:52 UTC, branch `fix/review-981c030` (base `981c030`),
+snapshot isolado `/tmp/adaptive_snapshot` (`PYTHONPATH=/tmp/adaptive_snapshot`,
+`--output-dir /tmp/adaptive_out_981c030fix`, offline via audithook,
+sem `sync_config`/credenciais, sem tocar `/opt/data` nem `~/.hermes`):
 
-- Novos: `PYTHONPATH=/tmp/adaptive_dev python -m pytest
-  tests/test_adaptive_research.py tests/test_question_coverage.py -q`
-  → **29 passed** (18 adaptativos + 11 cobertura), exit 0,
-  Python 3.13.5 (`/opt/data/home/.agent-reach-venv/bin/python`).
-- Baseline: `scripts/run_replay_offline_validation.py --frozen-report
-  fixtures/RELATORIO_CORRIGIDO_184601.md --frozen-evidence
-  fixtures/replay_corrigido_evidence.json --output-dir /tmp/adapt_out`
+- Revisão: `PYTHONPATH=/tmp/adaptive_snapshot python -m unittest discover
+  -s /tmp/adaptive_snapshot/tests -p test_review_regressions.py -v`
+  → **14 passed** (R01–R14 verdes), exit 0, Python 3.14.6.
+- Novos: `PYTHONPATH=/tmp/adaptive_snapshot python -m unittest discover
+  -s /tmp/adaptive_snapshot/tests -p "test_adaptive*.py" -v`
+  → **26 passed** (18 adaptativos + 8 entrada real offline), exit 0.
+- Cobertura: `... -p "test_question*.py"` → **11 passed**, exit 0.
+- Baseline histórica: `PYTHONPATH=/tmp/adaptive_snapshot python
+  /tmp/adaptive_snapshot/scripts/run_replay_offline_validation.py
+  --frozen-report .../RELATORIO_CORRIGIDO_184601.md --frozen-evidence
+  .../replay_corrigido_evidence.json --output-dir /tmp/adaptive_out_981c030fix`
   → **11/11 suítes exit 0** (83 casos históricos preservados, sem alterar
-  expectations/fixtures), modo `offline; transport prohibited`.
-- Hashes do snapshot testado (sha256): planner `d5e084be…`,
-  state `39e10a50…`, coordinator `1ed57232…`, testes `47d298c5…`,
-  integração `65fee29b…`, budget `d1542019…`, ledger `2c349ccf…` (intocado),
-  este doc `93b0b36a…` (versão pré-preenchimento desta seção).
-- Registros antigos em `validation/` são histórico, não prova.
+  expectations/fixtures), modo offline.
+- Hashes do snapshot testado (sha256): coordinator `443f087b…`,
+  ledger `7d5cc810…`, state `bf7c60a5…`, planner `d5e084be…` (intocado),
+  integração `b1b3b962…`, budget `d1542019…` (intocado).
+- Entrada real offline: `tests/test_adaptive_entry.py` exercita
+  `adaptive_entry()` com transportes simulados e planner/assessor/writer/
+  coordinator/persistência reais (sem substituir `run_adaptive` nem o
+  assessor por avaliações prontas).
+- Registros antigos em `validation/` são histórico, não prova; evidência
+  fresca está nos logs do pacote transferível.
 
 ## Limitações (não feito aqui)
 
-- Avaliador automático evidência→critério em produção: o default offline
-  preserva insuficiência; a entrada real precisa de um `assess_fn` baseado em
-  modelo com histórico de tentativas (interface pronta, validação pendente).
-- Nenhuma pesquisa real executada neste incremento; entrada `_adaptive_main`
-  compila e fia a biblioteca, mas aguarda validação com rede/modelo.
+- Nenhuma pesquisa real executada neste incremento; validação com
+  rede/modelo real (`_adaptive_main` com `GPTResearcher`/`litellm`) permanece
+  pendente e deve ocorrer em ambiente com credenciais.
 - Concorrência: executada sequencialmente com o limite registrado; paralelismo
   real com o mesmo teto é trabalho futuro.
-- Relatórios longos: auditoria por lotes e orçamento de escrita seguem os
-  limites existentes; `analyzed`/`used` continuam 0 até haver análise explícita.
+- Uma chamada externa pode conter múltiplas buscas/chamadas internas; a
+  contagem atual trata 1 invocação de fronteira como 1 chamada de modelo
+  (documentado como shortcut em `adaptive_coordinator.py`); atribuição fina
+  por chamada interna é trabalho futuro.
