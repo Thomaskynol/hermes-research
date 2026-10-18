@@ -92,6 +92,22 @@ class Budget:
             if count > self._used.get("unique_sources", 0):
                 self._used["unique_sources"] = count
 
+    def reseed(self, used: dict | None) -> None:
+        """Restore consumed counters (e.g. after a checkpoint resume) so a
+        resumed run cannot pierce the aggregate ceiling. Additive; caps the
+        restored values at their limits instead of raising."""
+        with self._lock:
+            for key, value in (used or {}).items():
+                if key in self._used:
+                    try:
+                        value = max(0, int(value))
+                    except (TypeError, ValueError):
+                        continue
+                    limit = self.limits.get(key, 0)
+                    self._used[key] = min(value, limit) if limit else value
+                    if limit and self._used[key] >= limit and self.stopped_reason is None:
+                        self.stopped_reason = f"budget:{key}"
+
     def elapsed(self) -> float:
         return time.monotonic() - self._start
 
