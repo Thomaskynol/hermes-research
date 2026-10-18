@@ -115,7 +115,10 @@ def classify_hit(state: dict, url: str, text: str) -> str:
         return "new_useful"  # same URL, distinct excerpt -> preserved
     for seg in state["segments"]:
         if seg.get("sha") == digest and seg.get("url") != url:
-            return "confirmed"  # independent URL, same bytes
+            # Identical bytes on another URL prove republication/duplication,
+            # never independent confirmation (independence unknown).
+            # shortcut: sem análise de proveniência, independência desconhecida.
+            return "duplicate"
     known_texts = {s.get("excerpt", "") for s in state["segments"]}
     if text in known_texts:
         return "duplicate"
@@ -163,30 +166,105 @@ def prioritize_gaps(gaps: list[dict]) -> list[dict]:
     return [g for _, _, g in scored]
 
 
+def _model_remaining(state: dict, resolved: dict) -> int:
+    try:
+        return int(resolved.get("max_model_calls", 0) or 0) - int(
+            state.get("consumption", {}).get("model_calls", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _check_model_budget(state: dict, resolved: dict) -> bool:
+    """True when one more model-boundary call is allowed."""
+    try:
+        limit = int(resolved.get("max_model_calls", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    used = int(state.get("consumption", {}).get("model_calls", 0) or 0)
+    return used < limit
+
+
+def _note_model_call(state: dict) -> None:
+    state["consumption"]["model_calls"] = int(
+        state.get("consumption", {}).get("model_calls", 0) or 0) + 1
+
+
+def _update_ledger_counts(state: dict, ledger) -> None:
+    """Observed stage counts from real events only (never inferred)."""
+    try:
+        ev = state.get("evidence", {}) or {}
+        qual = state.get("qualification", {}) or {}
+        cands = state.get("discovery", {}).get("candidates", []) or []
+        evals = state.get("evaluations", []) or []
+        obtained = sum(1 for t in ev.values()
+                       if isinstance(t, str) and t.strip())
+        qualified = sum(1 for u in ev if u in qual)
+        used = sum(1 for e in evals if isinstance(e, dict) and e.get(
+            "state") in ("covered", "partial"))
+        report_text = (state.get("report", {}) or {}).get("text", "") or ""
+        cited = sum(1 for u in set(list(ev) + list(cands))
+                  if u and u in report_text)
+        ledger.set_observed_counts({
+            "discovered": len(set(list(ev) + list(cands))),
+            "obtained": obtained,
+            "qualified": qualified,
+            "analyzed": len(evals),
+            "used": used,
+            "cited": cited,
+        })
+    except Exception:
+        pass
+
+
 def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
-    """One specific op per top gap; vary channel after failed/flat attempts."""
+    """One specific op per top gap; vary channel/target after flat attempts.
+
+    Identical queries are never repeated after a useful gain that did not
+    resolve the gap: the follow-up varies the channel and marks the
+    refinement so the budget is not spent on byte-identical requests.
+    """
     ops = []
+    seen_targets: set[tuple] = set()
     for gap in gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
         attempts = state["attempts"].get(cid, [])
         last_channel = attempts[-1].get("channel") if attempts else None
         last_outcome = attempts[-1].get("outcome") if attempts else None
+        n = len(attempts)
         unfetched = [c for c in state["discovery"].get("candidates", [])
                      if c not in state["evidence"]]
+        base_label = gap.get("label", cid)
+        base_q = f"{state['question']} — {base_label}"
         if unfetched and (attempts and last_outcome in ("failed", "nogain")):
             kind, channel = "read_source", (last_channel or CHANNELS[0])
             target = unfetched[0]
         elif not attempts:
             kind, channel = "gap_query", CHANNELS[0]
-            target = f"{state['question']} — {gap.get('label', cid)}"
-        elif last_outcome in ("failed", "nogain", "duplicate"):
+            target = base_q
+        elif last_outcome in ("failed", "nogain", "duplicate", "time",
+                              "budget"):
             idx = (CHANNELS.index(last_channel) + 1) % len(CHANNELS) \
                 if last_channel in CHANNELS else 1
             kind, channel = "alt_channel", CHANNELS[idx]
-            target = f"{state['question']} — {gap.get('label', cid)}"
+            target = f"{base_q} (canal {channel}, tentativa {n})"
+        elif last_outcome in ("new_useful", "confirmed"):
+            # Useful gain without resolution: do not repeat the byte-identical
+            # query; vary channel + mark refinement.
+            idx = (CHANNELS.index(last_channel) + 1) % len(CHANNELS) \
+                if last_channel in CHANNELS else 1
+            kind, channel = "alt_channel", CHANNELS[idx]
+            target = f"{base_q} (aprofundamento {n}, canal {channel})"
         else:
             kind, channel = "gap_query", (last_channel or CHANNELS[0])
-            target = f"{state['question']} — {gap.get('label', cid)}"
+            target = f"{base_q} (tentativa {n})" if n else base_q
+        # Never emit byte-identical (target, channel) twice in one batch.
+        key = (target, channel, kind)
+        suffix = 0
+        while key in seen_targets:
+            suffix += 1
+            target = f"{target} #{suffix}"
+            key = (target, channel, kind)
+        seen_targets.add(key)
         op_id = f"r{len(state['rounds'])}-{cid}-{len(attempts)}"
         ops.append({"op_id": op_id, "kind": kind, "channel": channel,
                     "target": target, "criterion_id": cid,
@@ -201,7 +279,14 @@ def _default_assess(plan, evidence, qualification) -> list:
 
 
 def _default_writer(view: dict) -> tuple[str, dict]:
-    """Deterministic synthesis by plan criteria (no model needed)."""
+    """Deterministic fallback synthesis (explicitly partial).
+
+    This template only renders criteria states/justifications; it does NOT
+    synthesize the corpus body. It must never claim full-corpus processing.
+    Real deployments inject a model-backed writer; this stays as an
+    explicitly-identified fallback when the model budget is exhausted or
+    the writer transport fails.
+    """
     lines = [f"# {view['question']}", ""]
     cov = view.get("question_coverage", {})
     lines.append(f"Coverage: {cov.get('status', '?')} "
@@ -220,8 +305,158 @@ def _default_writer(view: dict) -> tuple[str, dict]:
     if gaps:
         lines.append("Insufficient / pending: " +
                      ", ".join(g.get("criterion_id", "?") for g in gaps))
+    lines.append("")
+    lines.append("_Fallback parcial determinístico: template por critérios; "
+                 "corpo do corpus não sintetizado aqui._")
     return "\n".join(lines), {"included_urls": sorted(view.get("evidence", {})),
-                              "cuts": "none (template writer uses full corpus)"}
+                              "cuts": ("fallback parcial: template imprime "
+                                       "apenas estados/justificativas; sem "
+                                       "síntese do corpo do corpus"),
+                              "fallback": True}
+
+
+def make_model_assessor(model_client):
+    """Model-backed assessor injectable at the boundary.
+
+    Receives (plan, evidence, qualification, attempts?) and returns a
+    validated structured list. The model sees the plan, the REALLY
+    selected material (truncated excerpts), qualification and attempt
+    history. Return is validated (criterion/state/justification/origin/
+    references); invalid entries are dropped (insufficiency preserved,
+    never fabricated). Insufficiency/contradiction/failure preserved.
+    Transport failures propagate as TransportError.
+    """
+    import json as _json
+
+    def assess(plan, evidence, qualification, attempts=None):
+        evidence = dict(evidence or {})
+        qualification = dict(qualification or {})
+        attempts = dict(attempts or {})
+        # Real selection: cap excerpts so the prompt is bounded; record
+        # what was sent (selection is auditable via notes upstream).
+        items = []
+        for url, text in list(evidence.items())[:24]:
+            qual = qualification.get(url, {})
+            items.append({
+                "url": url,
+                "excerpt": (text or "")[:1200],
+                "status": qual.get("status", "?"),
+                "excluded": bool(qual.get("excluded", False)),
+            })
+        prompt = (
+            "Você avalia evidências contra um plano. Retorne SOMENTE JSON: "
+            "uma lista de avaliações.\n"
+            f"Plano: {_json.dumps(plan, ensure_ascii=False)[:6000]}\n"
+            f"Material selecionado: {_json.dumps(items, ensure_ascii=False)[:12000]}\n"
+            f"Tentativas: {_json.dumps(attempts, ensure_ascii=False)[:3000]}\n"
+            "Cada avaliação: {criterion_id, entity_id?, state "
+            "(covered|partial|insufficient|contradictory|blocked), "
+            "justification, origin, references:[{url}]}. "
+            "Sem evidência utilizável -> insufficient/blocked; "
+            "divergência real -> contradictory; nunca invente cobertura."
+        )
+        try:
+            raw = model_client(prompt)
+        except TransportError:
+            raise
+        except Exception as exc:
+            raise TransportError(f"assessor transport failed: {exc}")
+        raw_s = str(raw or "").strip()
+        try:
+            parsed = _json.loads(raw_s)
+        except Exception as exc:
+            raise TransportError(f"assessor returned invalid JSON: {exc}")
+        if isinstance(parsed, dict) and isinstance(
+                parsed.get("evaluations"), list):
+            parsed = parsed["evaluations"]
+        if not isinstance(parsed, list):
+            raise TransportError("assessor must return a JSON list")
+        out = []
+        known_c = {c.get("id") for c in (plan or {}).get("criteria", []) or []}
+        for ev in parsed:
+            if not isinstance(ev, dict) or ev.get("criterion_id") not in known_c:
+                continue
+            if ev.get("state") not in ("covered", "partial", "insufficient",
+                                       "contradictory", "blocked"):
+                continue
+            if not str(ev.get("justification", "") or "").strip():
+                continue
+            if not str(ev.get("origin", "") or "").strip():
+                continue
+            refs = ev.get("references", []) or []
+            if ev.get("state") in ("covered", "partial") and not refs:
+                continue
+            out.append({
+                "criterion_id": ev["criterion_id"],
+                "entity_id": ev.get("entity_id"),
+                "state": ev["state"],
+                "justification": ev["justification"],
+                "origin": ev["origin"],
+                "references": refs if isinstance(refs, list) else [],
+            })
+        return out
+
+    return assess
+
+
+def make_model_writer(model_client, max_chars: int = 12000):
+    """Model-backed synthesis in Portuguese from the real corpus.
+
+    Receives the coordinator view (question/plan/evidence/coverage) and
+    returns (text, selection). Selection records included_urls actually
+    used and cuts actually applied (truncation/budget). Verdict↔text link
+    is preserved by the caller via audited_sha. On transport failure the
+    caller falls back to _default_writer (explicitly identified).
+    """
+    import json as _json
+
+    def write(view: dict):
+        question = view.get("question", "")
+        cov = view.get("question_coverage", {}) or {}
+        evidence = dict(view.get("evidence", {}) or {})
+        # Real selection: cap corpus; record cuts.
+        included, cuts, budget = [], [], int(max_chars)
+        parts = []
+        total = 0
+        for url in sorted(evidence):
+            text = evidence[url] or ""
+            chunk = text[:2000]
+            if total + len(chunk) > budget:
+                cuts.append(f"truncado {url} ao teto {budget} chars")
+                chunk = chunk[:max(0, budget - total)]
+            if chunk.strip():
+                parts.append(f"Fonte {url}:\n{chunk}")
+                included.append(url)
+                total += len(chunk)
+            if total >= budget:
+                cuts.append(f"teto de seleção {budget} chars atingido; "
+                            f"{len(evidence)-len(included)} fontes fora")
+                break
+        corpus_s = "\n\n".join(parts)[:budget]
+        prompt = (
+            "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
+            "Estruture por critérios, cite URLs, marque lacunas e contradições; "
+            "não invente fatos.\n"
+            f"Pergunta: {question}\n"
+            f"Cobertura: {_json.dumps(cov, ensure_ascii=False)[:4000]}\n"
+            f"Corpus selecionado:\n{corpus_s}\n"
+            "Retorne SOMENTE o relatório em markdown."
+        )
+        try:
+            text = str(model_client(prompt) or "")
+        except TransportError:
+            raise
+        except Exception as exc:
+            raise TransportError(f"writer transport failed: {exc}")
+        if not text.strip():
+            raise TransportError("writer returned empty text")
+        selection = {"included_urls": included,
+                     "cuts": "; ".join(cuts) if cuts else "sem cortes",
+                     "fallback": False,
+                     "chars": len(corpus_s)}
+        return text, selection
+
+    return write
 
 
 def _default_auditor(report: str, evidence: dict) -> dict:
@@ -242,19 +477,61 @@ def _default_auditor(report: str, evidence: dict) -> dict:
     return result
 
 
-def _assess_round(state: dict, assess_fn, ledger) -> tuple[list, dict]:
+def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
+                  ) -> tuple[list, dict]:
     """Feed the ledger with the REAL corpus/qualification, apply ONLY the
     assessor's explicit evaluations, compute the block. Returns (evals, block).
-    The coordinator never maps evidence to criteria itself."""
+    The coordinator never maps evidence to criteria itself.
+
+    Model budget is enforced BEFORE the assessor transport: exhausted
+    budget yields no call (insufficiency preserved). Failures/invalid
+    attempts are counted. Transport failures propagate as TransportError
+    so the caller can preserve evidence and produce a partial/failure
+    result (never silent).
+    """
     ledger.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
-    evals = assess_fn(state["plan"], dict(state["evidence"]),
-                      dict(state["qualification"])) or []
+    _update_ledger_counts(state, ledger)
+    # Default assessor uses no model: never spends budget, never blocked.
+    is_default_assessor = (assess_fn is _default_assess)
+    if not is_default_assessor and resolved is not None and not _check_model_budget(
+            state, resolved):
+        state["notes"].append(
+            "assessor skipped: max_model_calls exhausted (insufficiency kept)")
+        return [], ledger.compute()
+    if not is_default_assessor:
+        _note_model_call(state)
+    try:
+        try:
+            evals = assess_fn(state["plan"], dict(state["evidence"]),
+                              dict(state["qualification"]),
+                              dict(state.get("attempts", {}))) or []
+        except TypeError:
+            # Retro-compat: 3-arg assessors (plan, evidence, qualification).
+            evals = assess_fn(state["plan"], dict(state["evidence"]),
+                              dict(state["qualification"])) or []
+    except TransportError:
+        raise
+    except Exception as exc:
+        raise TransportError(f"assessor failed: {exc}")
+    # Structured validation: every evaluation must be a dict with a known
+    # criterion, valid state, justification + origin; references must
+    # resolve via the ledger (invalid -> kept as insufficiency, never
+    # forced into coverage). Insufficiency/contradiction/failure preserved.
     applied = []
     for ev in evals:
         if not isinstance(ev, dict) or "criterion_id" not in ev:
+            state["notes"].append(
+                f"assessor evaluation malformed (not a dict/criterion): kept")
+            continue
+        st = ev.get("state", "insufficient")
+        if st not in ("uninvestigated", "insufficient", "partial", "covered",
+                      "contradictory", "blocked"):
+            state["notes"].append(
+                f"assessor evaluation for {ev.get('criterion_id')} has "
+                f"unknown state {st!r}: kept as insufficiency")
             continue
         try:
-            ledger.evaluate(ev["criterion_id"], ev.get("state", "insufficient"),
+            ledger.evaluate(ev["criterion_id"], st,
                             ev.get("justification", ""), ev.get("origin", ""),
                             ev.get("references", []), ev.get("entity_id"))
             applied.append(ev)
@@ -271,6 +548,9 @@ def _assess_round(state: dict, assess_fn, ledger) -> tuple[list, dict]:
         proposal = (ev or {}).get("propose_entity")
         if proposal and state["discovery"]["open"]:
             _apply_discovery(state, ledger, proposal, ev)
+    # Counts after evaluations: analyzed/used reflect what was applied.
+    state["evaluations"] = applied
+    _update_ledger_counts(state, ledger)
     block = ledger.compute()
     return applied, block
 
@@ -324,6 +604,63 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         state["notes"].append(f"discovery proposal rejected: {exc}")
 
 
+def _reconcile_resume(state: dict, checkpoint, run_dir) -> None:
+    """Reconcile checkpoint + state before selecting new ops.
+
+    - Every url in state.evidence is concluded: kept, never re-obtained.
+    - Checkpoint-only urls (noted but without evidence, e.g. crash between
+      note and state save) become explicit retries.
+    - In-progress pending ops were already marked interrupted by load().
+    """
+    concluded = set((state.get("evidence") or {}).keys())
+    ck_urls: set[str] = set()
+    if checkpoint is not None:
+        try:
+            ck_urls = set((checkpoint.load().get("sources") or {}).keys())
+        except Exception:
+            ck_urls = set()
+    orphan = sorted(ck_urls - concluded)
+    if orphan:
+        state["notes"].append(
+            f"resume: {len(orphan)} checkpoint source(s) without evidence "
+            f"-> explicit retry (no exactly-once): {orph[:3]}")
+        # Record as candidates so gap selection can retry them explicitly.
+        cands = state.setdefault("discovery", {}).setdefault("candidates", [])
+        for u in orphan:
+            if u not in cands and u not in concluded:
+                cands.append(u)
+    # Pending in-progress were marked interrupted on load(); ensure none
+    # stays in-progress silently.
+    for op in state.get("pending_ops", []) or []:
+        if op.get("status") == "in-progress":
+            op["status"] = "interrupted"
+            op["note"] = ("marked interrupted during resume reconcile "
+                          "(outcome unknown, safe to retry)")
+
+
+def _counting_model_client(state: dict, resolved: dict, raw_client):
+    """Wrap the planner frontier: limit BEFORE each call, count every
+    attempt (including failures/invalid). Raises TransportError when the
+    ceiling is hit instead of calling the provider."""
+    def wrapped(prompt: str):
+        if not _check_model_budget(state, resolved):
+            raise TransportError(
+                f"max_model_calls={resolved.get('max_model_calls')} exhausted")
+        _note_model_call(state)
+        try:
+            if callable(raw_client):
+                return raw_client(prompt)
+            gen = getattr(raw_client, "generate", None)
+            if callable(gen):
+                return gen(prompt)
+            raise TransportError("[PLAN] model_client must be callable")
+        except TransportError:
+            raise
+        except Exception as exc:
+            raise TransportError(f"planner transport failed: {exc}")
+    return wrapped
+
+
 def run_adaptive(question: str, *, profile: str = "light",
                  plan: dict | None = None, plan_source: str | dict | None = None,
                  purpose: str = "", constraints: dict | None = None,
@@ -349,6 +686,8 @@ def run_adaptive(question: str, *, profile: str = "light",
     budget_given = budget is not None
     if budget is None:
         budget = _run_budget.Budget(resolved.get("budget"), profile=resolved["profile"])
+    # Reconcile persisted consumption/time on resume: accumulated values
+    # travel in state (never reset on session change). Unknown stays unknown.
     if resume and run_dir is not None:
         try:
             state = _state.load(run_dir, run_id or None)
@@ -383,6 +722,12 @@ def run_adaptive(question: str, *, profile: str = "light",
                 state["notes"].append(
                     f"resume extended {key}: {old} -> {resolved[key]} (recorded, "
                     f"not silent)")
+        # Accumulated wall-clock: resume continues, never restarts.
+        try:
+            prev_elapsed = float(state.get("elapsed_s", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            prev_elapsed = 0.0
+        t_start = now() - prev_elapsed
         if not budget_given:
             budget = _run_budget.Budget(resolved.get("budget"),
                                         profile=resolved.get("profile", profile))
@@ -394,6 +739,13 @@ def run_adaptive(question: str, *, profile: str = "light",
                                "unique_sources": len(state.get("evidence", {}))})
             except Exception:
                 pass
+        # Reconcile checkpoint + state BEFORE new ops: completed sources in
+        # state are reused (never re-obtained); checkpoint-only urls without
+        # evidence are explicit retries (no exactly-once promise).
+        try:
+            _reconcile_resume(state, checkpoint, run_dir)
+        except Exception as exc:
+            state["notes"].append(f"resume reconcile note failed: {exc}")
         state["notes"].append("resumed from checkpoint; completed work kept, "
                               "interrupted ops marked, no silent repetition")
         plan, plan_meta = state["plan"], state.get("plan_meta", {})
@@ -401,6 +753,7 @@ def run_adaptive(question: str, *, profile: str = "light",
             raise ValueError("[ADAPTIVE] stored state has no plan to resume")
         ledger = _ledger.Ledger(plan, run_id=state["run_id"])
         ledger.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
+        _update_ledger_counts(state, ledger)
         kept = []
         for prev in state.get("evaluations", []):
             try:
@@ -411,6 +764,7 @@ def run_adaptive(question: str, *, profile: str = "light",
             except (ValueError, KeyError):
                 pass
         state["evaluations"] = kept
+        _update_ledger_counts(state, ledger)
         block = ledger.compute()
         prev_proportion = block.get("proportion")
         if checkpoint is None and _checkpoint is not None:
@@ -435,27 +789,48 @@ def run_adaptive(question: str, *, profile: str = "light",
     if run_dir is not None:
         _state.save(run_dir, state)
 
-    # -- plan -------------------------------------------------------------
+    # -- plan (limits BEFORE transport; every attempt counted) --------
     try:
         if plan is not None:
             plan, plan_meta = _planner.plan_from_explicit(plan)
         elif plan_source is not None:
             plan, plan_meta = _planner.plan_from_explicit(plan_source)
         elif model_client is not None:
+            if not _check_model_budget(state, resolved):
+                raise _planner.PlanError(
+                    "[PLAN] max_model_calls=0 blocks planner transport")
+            counting = _counting_model_client(state, resolved, model_client)
             plan, plan_meta = _planner.generate_plan(
-                question, model_client, purpose, constraints)
+                question, counting, purpose, constraints)
         else:
             raise _planner.PlanError(
                 "[PLAN] no plan and no model_client — cannot invent one")
     except _planner.PlanError as exc:
         state["stop"] = {"reason": "failure", "partial": True,
-                         "detail": f"plan failed: {exc}"}
+                          "detail": f"plan failed: {exc}"}
         state["notes"].append(f"plan failure (no fictitious plan): {exc}")
         if run_dir is not None:
-            _state.save(run_dir, state)
+            try:
+                _state.save(run_dir, state)
+            except Exception as exc2:
+                state["notes"].append(f"persist after plan failure failed: {exc2}")
         return _finalize(state, resolved, budget, None, None, None,
                          t_start, now, run_dir)
-    state["consumption"]["model_calls"] += int(plan_meta.get("model_calls", 0))
+    except TransportError as exc:
+        # Planner transport failure (including budget block): partial/failure
+        # with preserved state, never an escape.
+        state["stop"] = {"reason": "failure", "partial": True,
+                          "detail": f"planner transport failed: {exc}"}
+        state["notes"].append(f"planner transport failure: {exc}")
+        if run_dir is not None:
+            try:
+                _state.save(run_dir, state)
+            except Exception as exc2:
+                state["notes"].append(f"persist after plan failure failed: {exc2}")
+        return _finalize(state, resolved, budget, None, None, None,
+                         t_start, now, run_dir)
+    # model_calls already counted per-transport via the wrapper (repairs and
+    # failures included); plan_meta is record-only, never double-counted.
     _state.record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
                                if plan_meta.get("repair_log") else "plan adopted")
     state["plan_meta"] = plan_meta
@@ -474,15 +849,55 @@ def run_adaptive(question: str, *, profile: str = "light",
     init_ops = [{"op_id": f"init-{i}", "kind": "initial", "channel": CHANNELS[0],
                  "target": q, "criterion_id": "", "status": "in-progress"}
                 for i, q in enumerate(initial_queries)]
+    for op in init_ops:
+        state["pending_ops"].append(dict(op))
     _execute_ops(state, init_ops, search_fn, fetch_fn, budget, resolved, now,
-                 t_start, checkpoint, round_no=0)
-    applied, block = _assess_round(state, assess, ledger)
+                 t_start, checkpoint, round_no=0, run_dir=run_dir)
+    try:
+        applied, block = _assess_round(state, assess, ledger, resolved)
+    except TransportError as exc:
+        state["notes"].append(f"assessor failure after collection: {exc}")
+        _update_ledger_counts(state, ledger)
+        block = ledger.compute()
+        applied = []
+        state["evaluations"] = applied
+        state["stop"] = {"reason": "failure", "partial": True,
+                         "detail": f"assessor failed: {exc}"}
+        state["rounds"].append({
+            "round": 0, "kind": "initial",
+            "target_gaps": [], "ops": _summarize_ops(state, init_ops),
+            "new_evidence": len(state["segments"]),
+            "coverage": {"status": block["status"],
+                         "proportion": block.get("proportion")},
+            "delta": None,
+            "insufficiencies": [g["criterion_id"] for g in block.get("gaps", [])],
+            "decision": f"assessor failed, evidence preserved: {exc}",
+        })
+        state["consumption"]["rounds"] = 1
+        try:
+            state["elapsed_s"] = round(now() - t_start, 3)
+        except Exception:
+            pass
+        if run_dir is not None:
+            try:
+                _state.save(run_dir, state)
+            except Exception as exc2:
+                state["notes"].append(f"persist after assess failure failed: {exc2}")
+        if checkpoint is not None:
+            try:
+                checkpoint.note_query_done("initial-sweep",
+                                           n_sources=len(state["evidence"]))
+            except Exception as exc2:
+                state["notes"].append(f"checkpoint initial-sweep failed: {exc2}")
+        return _finalize(state, resolved, budget, block, write, audit,
+                         t_start, now, run_dir)
     state["evaluations"] = applied
     prev_proportion = block.get("proportion")
+    prev_segments = 0
     state["rounds"].append({
         "round": 0, "kind": "initial",
         "target_gaps": [], "ops": _summarize_ops(state, init_ops),
-        "new_evidence": len(state["segments"]),
+        "new_evidence": len(state["segments"]) - prev_segments,
         "coverage": {"status": block["status"], "proportion": prev_proportion},
         "delta": None, "insufficiencies": [g["criterion_id"] for g in block.get("gaps", [])],
         "decision": "assessed initial sweep",
@@ -492,10 +907,17 @@ def run_adaptive(question: str, *, profile: str = "light",
         try:
             checkpoint.note_query_done("initial-sweep",
                                        n_sources=len(state["evidence"]))
-        except Exception:
-            pass
+        except Exception as exc:
+            state["notes"].append(f"checkpoint initial-sweep failed: {exc}")
+    try:
+        state["elapsed_s"] = round(now() - t_start, 3)
+    except Exception:
+        pass
     if run_dir is not None:
-        _state.save(run_dir, state)
+        try:
+            _state.save(run_dir, state)
+        except Exception as exc:
+            state["notes"].append(f"persist initial round failed: {exc}")
 
     # -- adaptive rounds ----------------------------------------------------
     return _resume_loop(state, ledger, assess, write, audit, resolved,
@@ -508,8 +930,13 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                  run_dir, block: dict, prev_proportion) -> dict:
     """Shared gap-round loop for fresh and resumed runs."""
     stop = None
+    prev_segments = len(state.get("segments", []) or [])
     while len(state["rounds"]) - 1 < resolved["max_rounds"]:
         elapsed = now() - t_start
+        try:
+            state["elapsed_s"] = round(elapsed, 3)
+        except Exception:
+            pass
         open_gaps = block.get("gaps", [])
         # Explicit round/time motives (orçamento genérico não os esconde).
         if len(state["rounds"]) - 1 >= resolved["max_rounds"]:
@@ -520,6 +947,17 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
         if elapsed >= resolved["time_s"]:
             stop = {"reason": "time", "partial": bool(open_gaps),
                     "detail": f"elapsed={elapsed:.1f}s >= {resolved['time_s']}s"}
+            state["rounds"][-1]["decision"] = stop["detail"]
+            break
+        # Reserve finalization (write+audit cost): if fewer than 2 model
+        # calls remain and gaps are pending, stop now so the reserve holds.
+        if open_gaps and _model_remaining(state, resolved) < 2 and len(
+                state["rounds"]) > 0:
+            # Still allow the loop to assess if no assess happened yet?
+            # For the initial-only case the assess already ran; reserve now.
+            stop = {"reason": "budget", "partial": True,
+                    "detail": (f"max_model_calls={resolved['max_model_calls']} "
+                               f"reserved for finalization")}
             state["rounds"][-1]["decision"] = stop["detail"]
             break
         novelty = _novelty(state)
@@ -543,19 +981,62 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                     "detail": "no selectable ops for open gaps"}
             break
         for op in ops:
-            state["pending_ops"].append(op)
+            state["pending_ops"].append(dict(op))
+        if run_dir is not None:
+            try:
+                _state.save(run_dir, state)
+            except Exception as exc:
+                state["notes"].append(f"persist pending ops failed: {exc}")
         _execute_ops(state, ops, search_fn, fetch_fn, budget, resolved, now,
-                     t_start, checkpoint, round_no=len(state["rounds"]))
-        applied, block = _assess_round(state, assess, ledger)
+                     t_start, checkpoint, round_no=len(state["rounds"]),
+                     run_dir=run_dir)
+        try:
+            applied, block = _assess_round(state, assess, ledger, resolved)
+        except TransportError as exc:
+            state["notes"].append(f"assessor failure in gap round: {exc}")
+            _update_ledger_counts(state, ledger)
+            block = ledger.compute()
+            new_prop = block.get("proportion")
+            delta = _prop_delta(prev_proportion, new_prop)
+            prev_proportion = new_prop
+            gained = len(state.get("segments", []) or []) - prev_segments
+            prev_segments = len(state.get("segments", []) or [])
+            state["rounds"].append({
+                "round": len(state["rounds"]), "kind": "gap",
+                "target_gaps": [o["criterion_id"] for o in ops],
+                "ops": _summarize_ops(state, ops),
+                "new_evidence": gained,
+                "coverage": {"status": block["status"], "proportion": new_prop},
+                "delta": delta,
+                "insufficiencies": [g["criterion_id"] for g in block.get("gaps", [])],
+                "decision": f"assessor failed, evidence preserved: {exc}",
+            })
+            state["consumption"]["rounds"] += 1
+            try:
+                state["elapsed_s"] = round(now() - t_start, 3)
+            except Exception:
+                pass
+            if run_dir is not None:
+                try:
+                    _state.save(run_dir, state)
+                except Exception as exc2:
+                    state["notes"].append(
+                        f"persist after assess failure failed: {exc2}")
+            state["stop"] = {"reason": "failure", "partial": True,
+                             "detail": f"assessor failed: {exc}"}
+            return _finalize(state, resolved, budget, block, write, audit,
+                             t_start, now, run_dir)
         state["evaluations"] = applied
         new_prop = block.get("proportion")
         delta = (_prop_delta(prev_proportion, new_prop))
         prev_proportion = new_prop
+        gained = len(state.get("segments", []) or []) - prev_segments
+        prev_segments = len(state.get("segments", []) or [])
         state["rounds"].append({
             "round": len(state["rounds"]), "kind": "gap",
             "target_gaps": [o["criterion_id"] for o in ops],
             "ops": _summarize_ops(state, ops),
-            "new_evidence": len(state["segments"]),
+            "new_evidence": gained,
             "coverage": {"status": block["status"], "proportion": new_prop},
             "delta": delta, "insufficiencies": [g["criterion_id"] for g in block.get("gaps", [])],
             "decision": "continue",
@@ -566,18 +1047,32 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                 checkpoint.note_learning(
                     f"round {len(state['rounds']) - 1}: {block['status']} "
                     f"{new_prop} delta={delta}")
-            except Exception:
-                pass
+            except Exception as exc:
+                state["notes"].append(f"checkpoint learning failed: {exc}")
+        try:
+            state["elapsed_s"] = round(now() - t_start, 3)
+        except Exception:
+            pass
         if run_dir is not None:
-            _state.save(run_dir, state)
+            try:
+                _state.save(run_dir, state)
+            except Exception as exc:
+                state["notes"].append(f"persist gap round failed: {exc}")
 
     if stop is None:  # max_rounds consumed by the loop guard
         open_gaps = block.get("gaps", [])
         stop = {"reason": "rounds", "partial": bool(open_gaps),
                 "detail": f"max_rounds={resolved['max_rounds']} consumed"}
     state["stop"] = stop
+    try:
+        state["elapsed_s"] = round(now() - t_start, 3)
+    except Exception:
+        pass
     if run_dir is not None:
-        _state.save(run_dir, state)
+        try:
+            _state.save(run_dir, state)
+        except Exception as exc:
+            state["notes"].append(f"persist stop failed: {exc}")
     return _finalize(state, resolved, budget, block, write, audit,
                      t_start, now, run_dir)
 
@@ -612,13 +1107,24 @@ def _all_blocked(block: dict) -> bool:
 
 def _map_stop(decision: dict, block: dict, state: dict, resolved: dict,
               budget, elapsed: float, now, t_start) -> dict | None:
-    """Translate decide_stop + hard limits into an explicit motive."""
+    """Translate decide_stop + hard limits into an explicit motive.
+
+    The legacy 95% coverage threshold never becomes criteria_ok on its
+    own: criteria_ok requires block.complete (every mandatory pair
+    covered). A 0.95 proportion with pending mandatory gaps keeps the
+    run partial and consistent across plan/coverage/stop/partial/report.
+    """
     open_gaps = block.get("gaps", [])
     pending = bool(open_gaps)
     reason = decision.get("stop_reason")
     if reason == "coverage":
-        return {"reason": "criteria_ok", "partial": False,
-                "detail": f"proportion={block.get('proportion')}"}
+        if block.get("complete"):
+            return {"reason": "criteria_ok", "partial": False,
+                    "detail": f"proportion={block.get('proportion')}"}
+        # Measured 0.95 but mandatory work remains: not complete, keep
+        # going (rounds/budget/time will stop as partial). Never report
+        # criteria_ok with pending gaps.
+        return None
     if reason == "novelty":
         return {"reason": "saturation", "partial": pending,
                 "detail": f"novelty={_novelty(state):.2f} with "
@@ -660,16 +1166,144 @@ def _summarize_ops(state: dict, ops: list[dict]) -> list[dict]:
             for o in ops]
 
 
+def _unique_limit(resolved: dict, budget) -> int:
+    try:
+        lim = int((resolved.get("budget") or {}).get("unique_sources", 0) or 0)
+    except (TypeError, ValueError):
+        lim = 0
+    if not lim and budget is not None:
+        try:
+            lim = int(budget.limits.get("unique_sources", 0) or 0)
+        except (TypeError, ValueError):
+            lim = 0
+    return lim
+
+
+def _persist_progress(state: dict, run_dir, checkpoint, url: str, text: str,
+                      channel: str) -> None:
+    """Crash-durable progress after each concluded source.
+
+    State is saved atomically (tmp+rename); checkpoint notes the source.
+    Failures are recorded in notes (never silent), never favourable.
+    """
+    if checkpoint is not None:
+        try:
+            checkpoint.note_source(url, source=channel, content=text)
+        except Exception as exc:
+            state["notes"].append(f"checkpoint note failed for {url[:60]}: {exc}")
+    if run_dir is not None:
+        try:
+            import time as _t
+            # Elapsed is kept in state so resume accumulates, never resets.
+            state["elapsed_s"] = float(state.get("elapsed_s", 0.0) or 0.0)
+            _state.save(run_dir, state)
+        except Exception as exc:
+            state["notes"].append(f"progress persist failed: {exc}")
+
+
 def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
-                 resolved: dict, now, t_start, checkpoint, round_no: int) -> None:
+                 resolved: dict, now, t_start, checkpoint, round_no: int,
+                 run_dir=None) -> None:
     """Run ops sequentially within limits (concurrency recorded; the offline
-    path executes sequentially — no fabricated parallelism)."""
+    path executes sequentially — no fabricated parallelism).
+
+    - read_source reads its target directly (never via search).
+    - channel alters the effective access (passed to search; recorded per
+      attempt; unavailable channels recorded, never silently relabelled).
+    - Completed sources are reused, never re-obtained; progress is
+      persisted after each concluded source so a real mid-round
+      interruption recovers without silent repetition.
+    """
     for op in ops:
         if now() - t_start >= resolved["time_s"]:
             op["status"], op["outcome"] = "failed", "time"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
                 {"channel": op.get("channel"), "outcome": "time"})
             continue
+        kind = op.get("kind", "gap_query")
+        # --- read_source: direct target read, no search -----------------
+        if kind == "read_source":
+            target = op.get("target", "")
+            if not isinstance(target, str) or not target:
+                op["status"], op["outcome"] = "failed", "failed"
+                state["attempts"].setdefault(
+                    op.get("criterion_id", ""), []).append(
+                    {"channel": op.get("channel"), "outcome": "failed",
+                     "note": "read_source without target"})
+                continue
+            if target in state["evidence"] and not state.get(
+                    "discovery", {}).get("open"):
+                op["status"], op["outcome"] = "done", "duplicate"
+                state["attempts"].setdefault(
+                    op.get("criterion_id", ""), []).append(
+                    {"channel": op.get("channel"), "outcome": "duplicate",
+                     "note": f"reused concluded {target[:60]}"})
+                for pending in state["pending_ops"]:
+                    if pending.get("op_id") == op.get("op_id"):
+                        pending["status"] = op["status"]
+                        pending["outcome"] = "duplicate"
+                continue
+            lim = _unique_limit(resolved, budget)
+            if lim and len(state.get("evidence", {})) >= lim:
+                op["status"], op["outcome"] = "failed", "budget"
+                state["notes"].append(
+                    f"unique_sources limit {lim} hit; read_source "
+                    f"{target[:80]} skipped")
+                state["attempts"].setdefault(
+                    op.get("criterion_id", ""), []).append(
+                    {"channel": op.get("channel"), "outcome": "budget"})
+                continue
+            if not budget.spend("extractions"):
+                op["status"], op["outcome"] = "failed", "budget"
+                state["notes"].append(
+                    f"op {op['op_id']}: extraction budget hit (read_source)")
+                state["attempts"].setdefault(
+                    op.get("criterion_id", ""), []).append(
+                    {"channel": op.get("channel"), "outcome": "budget"})
+                continue
+            state["consumption"]["ops"] += 1
+            try:
+                payload = _run_fetch(fetch_fn, op, target)
+            except TransportError as exc:
+                state["consumption"]["fetches"] += 1
+                op["status"], op["outcome"] = "failed", "failed"
+                state["attempts"].setdefault(
+                    op.get("criterion_id", ""), []).append(
+                    {"channel": op.get("channel"), "outcome": "failed",
+                     "note": f"canal {op.get('channel')}: {str(exc)[:160]}"})
+                state["notes"].append(
+                    f"op {op['op_id']} read_source failure "
+                    f"(canal {op.get('channel')}) for {target[:80]}: {exc}")
+                continue
+            text, qual = _coerce_payload(payload, target)
+            state["consumption"]["fetches"] += 1
+            outcome = incorporate(state, target, text, op["op_id"], round_no,
+                                  qualification=qual)
+            if outcome in ("new_useful", "confirmed"):
+                _persist_progress(state, run_dir, checkpoint, target, text,
+                                  op.get("channel", ""))
+            else:
+                # Even duplicates/partials persist qualification progress.
+                _persist_progress(state, run_dir, checkpoint, target, text,
+                                  op.get("channel", ""))
+            if state.get("discovery", {}).get("open") and target not in state[
+                    "discovery"]["candidates"]:
+                state["discovery"]["candidates"].append(target)
+            op["status"] = "done" if outcome != "failed" else "failed"
+            op["outcome"] = outcome if outcome in (
+                "new_useful", "confirmed", "duplicate", "nogain") else "nogain"
+            # incorporate never returns failed/budget; map unknown to nogain.
+            if op["outcome"] not in ("new_useful", "confirmed", "duplicate",
+                                     "nogain"):
+                op["outcome"] = "nogain"
+            state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
+                {"channel": op.get("channel"), "outcome": op["outcome"]})
+            for pending in state["pending_ops"]:
+                if pending.get("op_id") == op.get("op_id"):
+                    pending["status"] = op["status"]
+                    pending["outcome"] = op["outcome"]
+            continue
+        # --- search-backed ops (initial/gap_query/alt_channel) -----------
         if not budget.spend("queries"):
             op["status"], op["outcome"] = "failed", "budget"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
@@ -683,18 +1317,33 @@ def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
             op["status"], op["outcome"] = "failed", "failed"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
                 {"channel": op.get("channel"), "outcome": "failed",
-                 "note": str(exc)[:200]})
-            state["notes"].append(f"op {op['op_id']} transport failure: {exc}")
+                 "note": f"canal {op.get('channel')}: {str(exc)[:160]}"})
+            state["notes"].append(
+                f"op {op['op_id']} transport failure "
+                f"(canal {op.get('channel')}): {exc}")
             continue
         best = "nogain"
         for hit in (hits or [])[:resolved["vast_max"]]:
             url = hit.get("url") if isinstance(hit, dict) else hit
             if not isinstance(url, str) or not url:
                 continue
-            if url in state["evidence"] and not state["discovery"]["open"]:
-                pass
+            if url in state["evidence"] and not state.get(
+                    "discovery", {}).get("open"):
+                # Reuse concluded source; never re-obtain.
+                if best == "nogain":
+                    best = "duplicate"
+                continue
+            lim = _unique_limit(resolved, budget)
+            if lim and len(state.get("evidence", {})) >= lim:
+                state["notes"].append(
+                    f"unique_sources limit {lim} hit; skipped {url[:80]}")
+                if best == "nogain":
+                    best = "budget"
+                break
             if not budget.spend("extractions"):
                 state["notes"].append(f"op {op['op_id']}: extraction budget hit")
+                if best == "nogain":
+                    best = "budget"
                 break
             try:
                 payload = _run_fetch(fetch_fn, op, url)
@@ -708,12 +1357,9 @@ def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
             state["consumption"]["fetches"] += 1
             outcome = incorporate(state, url, text, op["op_id"], round_no,
                                   qualification=qual)
-            if checkpoint is not None and outcome in ("new_useful", "confirmed"):
-                try:
-                    checkpoint.note_source(url, source=op.get("channel", ""),
-                                           content=text)
-                except Exception:
-                    pass
+            if outcome in ("new_useful", "confirmed"):
+                _persist_progress(state, run_dir, checkpoint, url, text,
+                                  op.get("channel", ""))
             if outcome == "new_useful":
                 best = "new_useful"
             elif outcome == "confirmed" and best != "new_useful":
@@ -772,10 +1418,26 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
         text = payload.get("text", "") or ""
         qual = {k: payload[k] for k in ("status", "reason", "usable_text",
                                        "excluded") if k in payload}
+        status = str(qual.get("status", "") or "").strip().lower()
+        # Pure error payloads are never usable evidence by default, even
+        # when they carry text (e.g. "HTTP 403 Forbidden"). Useful metadata
+        # stays in the record; usable_text is cleared.
+        if status in ("error", "failed", "fetch_error", "timeout",
+                      "access_failure", "access-failure", "blocked"):
+            qual["excluded"] = True
+            qual["usable_text"] = ""
+            qual.setdefault("reason", "error payload excluded by default")
+            return text, qual
         if "excluded" not in qual:
             qual["excluded"] = not bool(text.strip())
         qual.setdefault("usable_text", text if not qual["excluded"] else "")
         qual.setdefault("status", "usable" if text.strip() else "empty")
+        # Incoherent usable-with-empty-text can never sustain coverage.
+        if not (qual.get("usable_text") or "").strip():
+            qual["excluded"] = True
+            if qual.get("status") in ("usable", "partial"):
+                qual["status"] = "empty"
+                qual["usable_text"] = ""
         return text, qual
     return "", {"status": "empty", "reason": "unrecognised payload",
                 "usable_text": "", "excluded": True}
@@ -783,8 +1445,116 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
 
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
               write, audit, t_start: float, now, run_dir) -> dict:
-    """Finalisation is reserved: write + audit always run on what exists.
+    """Finalisation with reserved budget: write + audit counted BEFORE the
+    call; exhausted budget yields a deterministic partial fallback without
+    exceeding the ceiling. Writer failures become partial/failure (never a
+    normal delivery); persistence errors are recorded, never silent.
     Tokens/costs come from real data only, else 'unknown'."""
+    if block is None:
+        block = _ledger.empty_question_coverage(state["run_id"])
+    view = {"question": state["question"], "plan": state["plan"],
+            "evidence": dict(state["evidence"]),
+            "question_coverage": block, "stop": state["stop"],
+            "rounds": state["rounds"]}
+    # -- write (1 model-boundary call when a real writer is used) ----
+    if write is None:
+        write = _default_writer
+    write_is_default = (write is _default_writer)
+    if write_is_default:
+        # Deterministic fallback: no model, never spends budget.
+        try:
+            report_text, selection = _default_writer(view)
+        except Exception as exc:
+            state["stop"] = {"reason": "failure", "partial": True,
+                             "detail": f"writer failed: {exc}"}
+            report_text, selection = "", {"included_urls": [], "cuts": str(exc)}
+            state["notes"].append(f"writer failure: {exc}")
+    elif not _check_model_budget(state, resolved):
+        state["notes"].append(
+            "write skipped: max_model_calls exhausted -> fallback parcial")
+        report_text, selection = _default_writer(view)
+        selection = dict(selection or {})
+        selection["fallback"] = True
+        selection["cuts"] = (str(selection.get("cuts", "")) +
+                             " | reserva: teto esgotado, fallback sem chamar modelo")
+    else:
+        _note_model_call(state)
+        try:
+            report_text, selection = write(view)
+        except TransportError as exc:
+            state["stop"] = {"reason": "failure", "partial": True,
+                             "detail": f"writer failed: {exc}"}
+            report_text, selection = _default_writer(view)
+            selection = dict(selection or {})
+            selection["fallback"] = True
+            selection["cuts"] = (str(selection.get("cuts", "")) +
+                                 f" | writer transport falhou: {exc}")
+            state["notes"].append(f"writer transport failure: {exc}")
+        except Exception as exc:
+            state["stop"] = {"reason": "failure", "partial": True,
+                             "detail": f"writer failed: {exc}"}
+            report_text, selection = _default_writer(view)
+            selection = dict(selection or {})
+            selection["fallback"] = True
+            state["notes"].append(f"writer failure: {exc}")
+    state["report"] = {"text": report_text,
+                       "sha": _content_hash(report_text or ""),
+                       "selection": selection,
+                       "words": len((report_text or "").split())}
+    # -- audit (1 model-boundary call when a real auditor is used) ----
+    if audit is None:
+        audit = _default_auditor
+    audit_is_default = (audit is _default_auditor)
+    if audit_is_default:
+        try:
+            semantic = audit(report_text, dict(state["evidence"]))
+        except TransportError as exc:
+            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
+                        "accepted": False, "note": f"auditor failure: {exc}"}
+        except Exception as exc:
+            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
+                        "accepted": False, "note": f"auditor failure: {exc}"}
+    elif not _check_model_budget(state, resolved):
+        state["notes"].append(
+            "audit skipped: max_model_calls exhausted (verdict unknown)")
+        semantic = {"enabled": False, "verdict_state": "não revisado semanticamente",
+                    "accepted": False,
+                    "note": "audit skipped: model budget exhausted"}
+    else:
+        _note_model_call(state)
+        try:
+            semantic = audit(report_text, dict(state["evidence"]))
+        except TransportError as exc:
+            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
+                        "accepted": False, "note": f"auditor failure: {exc}"}
+        except Exception as exc:
+            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
+                        "accepted": False, "note": f"auditor failure: {exc}"}
+    if not isinstance(semantic, dict):
+        semantic = {"enabled": True, "verdict_state": "revisão incompleta",
+                    "accepted": False, "note": "auditor returned non-dict"}
+    # Trace report<->audited text: the verdict belongs to exactly this hash.
+    semantic.setdefault("audited_sha", _content_hash(report_text or ""))
+    state["semantic"] = semantic
+    # Semantic NEVER moves question coverage: the block above is untouched.
+    # Consistency: partial is true whenever mandatory gaps remain
+    # (block incomplete) or the stop itself is partial. criteria_ok with
+    # an incomplete block never clears partial (that combination must not
+    # happen after _map_stop, but if it does, partial stays true).
+    partial = bool(state["stop"].get("partial", True)) or not block.get(
+        "complete", False)
+    if state["stop"].get("reason") == "criteria_ok" and block.get(
+            "complete", False) and not state["stop"].get("partial", False):
+        partial = False
+    # Consumption AFTER write/audit accounting (reserve respected).
+    try:
+        elapsed_final = round(now() - t_start, 3)
+    except Exception:
+        elapsed_final = float(state.get("elapsed_s", 0.0) or 0.0)
+    try:
+        state["elapsed_s"] = elapsed_final
+    except Exception:
+        pass
     consumption = dict(state["consumption"])
     try:
         used = budget.snapshot().get("used", {}) if budget is not None else {}
@@ -793,48 +1563,26 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         consumption["budget_used"] = "unknown"
     consumption["tokens"] = "unknown"  # shortcut: no per-call attribution on
     consumption["cost_usd"] = "unknown"  # this path (run_budget documents it)
-    if block is None:
-        block = _ledger.empty_question_coverage(state["run_id"])
-    view = {"question": state["question"], "plan": state["plan"],
-            "evidence": dict(state["evidence"]),
-            "question_coverage": block, "stop": state["stop"],
-            "rounds": state["rounds"]}
-    try:
-        report_text, selection = write(view)
-    except Exception as exc:
-        state["stop"] = {"reason": "failure", "partial": True,
-                         "detail": f"writer failed: {exc}"}
-        report_text, selection = "", {"included_urls": [], "cuts": str(exc)}
-    state["report"] = {"text": report_text,
-                       "sha": _content_hash(report_text or ""),
-                       "selection": selection,
-                       "words": len((report_text or "").split())}
-    try:
-        semantic = audit(report_text, dict(state["evidence"]))
-    except Exception as exc:
-        semantic = {"enabled": True, "verdict_state": "revisão incompleta",
-                    "accepted": False, "note": f"auditor failure: {exc}"}
-    if not isinstance(semantic, dict):
-        semantic = {"enabled": True, "verdict_state": "revisão incompleta",
-                    "accepted": False, "note": "auditor returned non-dict"}
-    # Trace report<->audited text: the verdict belongs to exactly this hash.
-    semantic.setdefault("audited_sha", _content_hash(report_text or ""))
-    state["semantic"] = semantic
-    # Semantic NEVER moves question coverage: the block above is untouched.
     result = {
         "run_id": state["run_id"], "mode": "adaptive",
         "profile": state["profile"], "resolved": resolved,
         "plan": state["plan"], "plan_versions": state["plan_versions"],
         "question_coverage": block, "stop": state["stop"],
-        "partial": bool(state["stop"].get("partial", True)) or not block.get("complete", False),
+        "partial": partial,
         "rounds": state["rounds"], "consumption": consumption,
         "report": state["report"], "semantic": semantic,
-        "elapsed_s": round(now() - t_start, 3),
+        "elapsed_s": elapsed_final,
     }
-    if state["stop"].get("reason") == "criteria_ok":
-        result["partial"] = False
     if run_dir is not None:
-        _state.save(run_dir, state)
+        try:
+            _state.save(run_dir, state)
+        except Exception as exc:
+            state["notes"].append(f"persist state failed: {exc}")
+            if state["stop"].get("reason") != "failure":
+                state["stop"] = {"reason": "failure", "partial": True,
+                                 "detail": f"persist failed: {exc}"}
+                result["stop"] = state["stop"]
+                result["partial"] = True
         try:
             from pathlib import Path as _P
             (_P(run_dir) / "report.md").write_text(report_text or "", encoding="utf-8")
@@ -843,6 +1591,11 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                 _json.dumps({k: v for k, v in result.items()
                              if k != "resolved"}, ensure_ascii=False, indent=1),
                 encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as exc:
+            # Persistence failures are never silent: recorded + visible.
+            state["notes"].append(f"persist artifacts failed: {exc}")
+            try:
+                _state.save(run_dir, state)
+            except Exception:
+                pass
     return result

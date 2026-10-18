@@ -505,9 +505,14 @@ class AdaptiveResearch(unittest.TestCase):
         self.assertTrue(res["partial"])
 
     def test_k_checkpoint_resume_no_loss_no_repetition(self):
+        # Contrato correto (R08): fontes concluídas são reutilizadas, nunca
+        # re-obtidas. Nova evidência chega por NOVA url, não por mutação da
+        # mesma url (que seria ignorada como duplicada). Ajuste documentado
+        # em 2026-10-18: antes o teste mutava u2 para simular ganho, o que
+        # exigia o comportamento defeituoso (re-fetch silencioso).
         u1, t1 = doc(1, "COVER:c1")
         u2, t2plain = doc(2)
-        u2t2 = "Harbor note 2: lamp rotation, power source. COVER:c2"
+        u3, t3 = doc(7, "COVER:c2")
         corp = FakeCorpus({u1: t1, u2: t2plain})
         with tempfile.TemporaryDirectory() as tmp:
             first = ac.run_adaptive(
@@ -525,7 +530,7 @@ class AdaptiveResearch(unittest.TestCase):
                                       "channel": "web", "target": "x",
                                       "criterion_id": "c2", "status": "in-progress"})
             ast_.save(tmp, st)
-            corp2 = FakeCorpus({u1: t1, u2: u2t2})
+            corp2 = FakeCorpus({u1: t1, u2: t2plain, u3: t3})
             second = ac.run_adaptive(
                 "Compare harbor lamp tools", profile="light", resume=True,
                 search_fn=corp2.search, fetch_fn=corp2.fetch,
@@ -533,8 +538,8 @@ class AdaptiveResearch(unittest.TestCase):
                 auditor_fn=fake_auditor_off, clock=FakeClock(),
                 run_dir=tmp, run_id="run-k",
                 overrides={"max_rounds": 3})
-            # completed work kept: c1 still covered; u1 revalidated (duplicate,
-            # not double-counted), u2's new excerpt incorporated
+            # completed work kept: c1 still covered; u1/u2 reused (duplicate,
+            # not double-counted, not re-fetched), u3 incorporated
             by_id = {c["id"]: c["state"]
                      for c in second["question_coverage"]["criteria"]}
             self.assertEqual(by_id["c1"], "covered")
@@ -546,8 +551,11 @@ class AdaptiveResearch(unittest.TestCase):
             statuses = [o.get("status") for o in reloaded["pending_ops"]]
             self.assertNotIn("in-progress", statuses)
             self.assertIn("interrupted", statuses)
-            self.assertEqual(len(reloaded["segments"]), 3)  # u1, u2, u2-new
-            self.assertEqual(len(corp2.fetch_calls), 2)  # only the gap round
+            self.assertEqual(len(reloaded["segments"]), 3)  # u1, u2, u3-new
+            # Only the gap round fetches, and only the NEW url (u3):
+            # concluded u1/u2 are reused, never re-obtained.
+            self.assertEqual(len(corp2.fetch_calls), 1)
+            self.assertEqual(corp2.fetch_calls, [u3])
 
     def test_l_semantic_dimensions_independent(self):
         def one_run(auditor):
