@@ -12,7 +12,7 @@ sync_config.sync()
 key = os.environ.get("OPENROUTER_API_KEY") or os.environ["OPENAI_API_KEY"]
 from langchain_openai import ChatOpenAI
 
-MODEL = "meta/muse-spark-1.3-contributor"
+MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 
 async def probe(label, **kw):

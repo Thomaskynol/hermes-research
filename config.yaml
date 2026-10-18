@@ -1,7 +1,7 @@
 RETRIEVER: duckduckgo
 EMBEDDING: ollama
-SMART_LLM: openrouter:inclusionai/ling-3.0-flash-vl:free
-FAST_LLM: openrouter:inclusionai/ling-3.0-flash-vl:free
+SMART_LLM: openrouter:nvidia/nemotron-3-ultra-550b-a55b:free
+FAST_LLM: openrouter:nvidia/nemotron-3-ultra-550b-a55b:free
 REPORT_SOURCE: web
 TOTAL_WORDS: 1200
 REPORT_FORMAT: apa

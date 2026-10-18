@@ -1,0 +1,9 @@
+test_attribute_value_table_keeps_package_values_and_relationships (__main__.E2EIntegrationContract.test_attribute_value_table_keeps_package_values_and_relationships) ... ok
+test_failure_votes_remain_visible_after_quorum_aggregation (__main__.E2EIntegrationContract.test_failure_votes_remain_visible_after_quorum_aggregation) ... ok
+test_repeated_url_keeps_the_distinct_chunks_used_by_writer (__main__.E2EIntegrationContract.test_repeated_url_keeps_the_distinct_chunks_used_by_writer) ... ok
+test_source_attribution_alone_is_not_a_package_fact (__main__.E2EIntegrationContract.test_source_attribution_alone_is_not_a_package_fact) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.002s
+
+OK

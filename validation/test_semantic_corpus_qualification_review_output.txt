@@ -1,0 +1,12 @@
+test_excluded_error_does_not_reenter_auditor_via_fallbacks (__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks) ... ok
+test_github_api_facts_are_retained_for_the_fields_they_contain (__main__.CorpusQualificationContract.test_github_api_facts_are_retained_for_the_fields_they_contain) ... ok
+test_legitimate_http_code_documentation_remains_available (__main__.CorpusQualificationContract.test_legitimate_http_code_documentation_remains_available) ... ok
+test_mixed_readme_isolates_standalone_error_but_keeps_facts (__main__.CorpusQualificationContract.test_mixed_readme_isolates_standalone_error_but_keeps_facts) ... ok
+test_script_only_html_is_not_factual_content (__main__.CorpusQualificationContract.test_script_only_html_is_not_factual_content) ... ok
+test_useful_html_body_reaches_auditor_without_script_or_style (__main__.CorpusQualificationContract.test_useful_html_body_reaches_auditor_without_script_or_style) ... ok
+test_youtube_description_and_partial_spoken_markers_stay_distinct (__main__.CorpusQualificationContract.test_youtube_description_and_partial_spoken_markers_stay_distinct) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.008s
+
+OK

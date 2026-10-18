@@ -1,6 +1,13 @@
 __pycache__/
 *.pyc
+.pytest_cache/
 output/
 runs/
 *.log
 .env
+state.db
+current_run_id.txt
+*.zip
+*.backup
+*_backup.py
+semantic_review*.V2*

@@ -1,0 +1,156 @@
+
+======================================================================
+TESTE: Três falhas técnicas (failure, failure, failure)
+  0 julgamentos válidos → sem quórum → revisão incompleta
+======================================================================
+Claims extraídas: 1
+Estado: revisão incompleta
+Accepted: False
+Resumo: {'review_incomplete': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 1, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 3, 'missing_results': 0, 'votes': 3, 'disputed': 0, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'review_incomplete'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: review_incomplete
+     Votos válidos: 0
+     Falhas: 3
+     Tally: {'review_failure': 3}
+  ✅ Veredito correto: review_incomplete
+  ✅ valid_count correto: 0
+  ✅ failure_count correto: 3
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TESTE: Um válido, duas falhas (sustained, failure, failure)
+  1 julgamento válido < 2 → sem quórum → revisão incompleta
+======================================================================
+Claims extraídas: 1
+Estado: revisão incompleta
+Accepted: False
+Resumo: {'review_incomplete': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 1, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 2, 'missing_results': 0, 'votes': 3, 'disputed': 1, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'review_incomplete'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: review_incomplete
+     Votos válidos: 1
+     Falhas: 2
+     Tally: {'sustained': 1, 'review_failure': 2}
+  ✅ Veredito correto: review_incomplete
+  ✅ valid_count correto: 1
+  ✅ failure_count correto: 2
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TESTE: Dois válidos divergentes + falha (sustained, unsupported, failure)
+  2 julgamentos válidos mas empate (1-1) → disputed_tie → não aprova
+======================================================================
+Claims extraídas: 1
+Estado: revisão incompleta
+Accepted: False
+Resumo: {'disputed_tie': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 0, 'disputed_ties': 1, 'technical_failures': 0, 'technical_failure_votes': 1, 'missing_results': 0, 'votes': 3, 'disputed': 1, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'disputed_tie'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: disputed_tie
+     Votos válidos: 2
+     Falhas: 1
+     Tally: {'sustained': 1, 'unsupported': 1, 'review_failure': 1}
+  ✅ Veredito correto: disputed_tie
+  ✅ valid_count correto: 2
+  ✅ failure_count correto: 1
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TESTE: Consenso válido + falha (sustained, sustained, failure)
+  2 julgamentos válidos concordam (2-0) → consenso → sustained; falha registrada mas não bloqueia
+======================================================================
+Claims extraídas: 1
+Estado: aceito
+Accepted: True
+Resumo: {'sustained': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 0, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 1, 'missing_results': 0, 'votes': 3, 'disputed': 1, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'sustained'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: sustained
+     Votos válidos: 2
+     Falhas: 1
+     Tally: {'sustained': 2, 'review_failure': 1}
+  ✅ Veredito correto: sustained
+  ✅ valid_count correto: 2
+  ✅ failure_count correto: 1
+  ✅ accepted correto: True
+  ✅ PASS
+
+======================================================================
+TESTE: Consenso unsupported (unsupported, unsupported, sustained)
+  2 unsupported vs 1 sustained → maioria unsupported → reprovado
+======================================================================
+Claims extraídas: 1
+Estado: reprovado
+Accepted: False
+Resumo: {'unsupported': 1, 'blocking': 1, 'gaps': 0, 'partials': 0, 'incomplete': 0, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 0, 'missing_results': 0, 'votes': 3, 'disputed': 1, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'unsupported'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: unsupported
+     Votos válidos: 3
+     Falhas: 0
+     Tally: {'unsupported': 2, 'sustained': 1}
+  ✅ Veredito correto: unsupported
+  ✅ valid_count correto: 3
+  ✅ failure_count correto: 0
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TESTE: Consenso unânime sustained (sustained, sustained, sustained)
+  3 sustained → consenso unânime → aceito
+======================================================================
+Claims extraídas: 1
+Estado: aceito
+Accepted: True
+Resumo: {'sustained': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 0, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 0, 'missing_results': 0, 'votes': 3, 'disputed': 0, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'sustained'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: sustained
+     Votos válidos: 3
+     Falhas: 0
+     Tally: {'sustained': 3}
+  ✅ Veredito correto: sustained
+  ✅ valid_count correto: 3
+  ✅ failure_count correto: 0
+  ✅ accepted correto: True
+  ✅ PASS
+
+======================================================================
+TESTE: Três passagens vazias ([], [], [])
+  0 julgamentos válidos (3 missing_result) → sem quórum → revisão incompleta
+======================================================================
+Claims extraídas: 1
+Estado: revisão incompleta
+Accepted: False
+Resumo: {'review_incomplete': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 1, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 3, 'missing_results': 0, 'votes': 3, 'disputed': 0, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'review_incomplete'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: review_incomplete
+     Votos válidos: 0
+     Falhas: 3
+     Tally: {'missing_result': 3}
+  ✅ Veredito correto: review_incomplete
+  ✅ valid_count correto: 0
+  ✅ failure_count correto: 3
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TESTE: Duplicata na primeira passagem + falhas nas outras
+  Duplicata invalida votos da primeira passagem (2 invalid_json); outras 2 falham → 0 válidos, 3 falhas
+======================================================================
+Claims extraídas: 1
+Estado: revisão incompleta
+Accepted: False
+Resumo: {'review_incomplete': 1, 'blocking': 0, 'gaps': 0, 'partials': 0, 'incomplete': 1, 'disputed_ties': 0, 'technical_failures': 0, 'technical_failure_votes': 3, 'missing_results': 0, 'votes': 3, 'disputed': 1, 'coverage': {'scope': {'delimiter': '## 7. Auditoria', 'rule': 'corpo anterior ao apêndice de auditoria', 'hash_sha256': '8cc6827c833e151736d558fbf9e3ac4c01190bfe4127ec8b94a844d61d9821a3', 'chars': 80, 'delimiter_found': False, 'delimiter_position': -1}, 'counts': {'blocks_total': 1, 'blocks_processed': 1, 'blocks_incomplete': 0, 'claims_total': 1, 'claims_selected': 1, 'claims_deferred_by_cap': 0, 'claims_excluded_duplicate': 0, 'claims_incomplete': 0, 'claims_reviewed': 1, 'dropped_items': 1, 'dropped_incomplete': 0}, 'blocks': [{'id': 'blk_0', 'section': '# Relatório de Teste', 'position': 0, 'original_text': '# Relatório de Teste\n\nO pacote `opencode-example` é gratuito e usa licença MIT.', 'classification': 'paragrafo', 'classification_reason': 'bloco com heading + conteúdo factual', 'claim_ids': [0], 'extraction_state': 'processed'}], 'claims': [{'id': 0, 'block_id': 'blk_0', 'subject': ['opencode-example'], 'context': 'extraída do bloco de origem', 'text': 'O pacote `opencode-example` é gratuito e usa licença MIT.', 'selection_state': 'selected', 'duplicate_of': None, 'defer_reason': None, 'review_state': 'review_incomplete'}], 'dropped': [{'block_id': 'blk_0', 'text': '', 'reason': 'muito curto (< 25 chars)', 'state': 'dropped'}], 'coverage_complete': True}}
+  -> Claim ID 0: O pacote `opencode-example` é gratuito e usa licença MIT.
+     Veredito final: review_incomplete
+     Votos válidos: 0
+     Falhas: 3
+     Tally: {'invalid_json': 1, 'review_failure': 2}
+  ✅ Veredito correto: review_incomplete
+  ✅ valid_count correto: 0
+  ✅ failure_count correto: 3
+  ✅ accepted correto: False
+  ✅ PASS
+
+======================================================================
+TODOS OS 8 TESTES DE PROTEÇÃO PASSARAM
+======================================================================

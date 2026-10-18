@@ -1,0 +1,11 @@
+test_code_documentation_lines_survive_removal_of_a_standalone_error (__main__.FinalQualificationCases.test_code_documentation_lines_survive_removal_of_a_standalone_error) ... ok
+test_custom_api_format_retains_subject_and_each_tag_commit_pair (__main__.FinalQualificationCases.test_custom_api_format_retains_subject_and_each_tag_commit_pair) ... ok
+test_frozen_api_tag_commit_relationships_are_preserved (__main__.FinalQualificationCases.test_frozen_api_tag_commit_relationships_are_preserved) ... ok
+test_generic_feature_body_is_not_limited_to_price_license_or_free (__main__.FinalQualificationCases.test_generic_feature_body_is_not_limited_to_price_license_or_free) ... ok
+test_head_text_cannot_supply_a_missing_body_fact (__main__.FinalQualificationCases.test_head_text_cannot_supply_a_missing_body_fact) ... ok
+test_html_without_doctype_uses_the_clean_body (__main__.FinalQualificationCases.test_html_without_doctype_uses_the_clean_body) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.007s
+
+OK

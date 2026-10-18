@@ -1,0 +1,13 @@
+test_ambiguous_heading_does_not_assign_one_package_to_the_row (__main__.ReplayClosure.test_ambiguous_heading_does_not_assign_one_package_to_the_row) ... ok
+test_model_metadata_belongs_only_to_the_current_review (__main__.ReplayClosure.test_model_metadata_belongs_only_to_the_current_review) ... ok
+test_normal_entrypoint_keeps_votes_metadata_and_review_duration (__main__.ReplayClosure.test_normal_entrypoint_keeps_votes_metadata_and_review_duration)
+Evaluate the real record expressions without importing network hooks. ... ok
+test_original_nested_capabilities_table_keeps_all_five_rows (__main__.ReplayClosure.test_original_nested_capabilities_table_keeps_all_five_rows) ... ok
+test_subject_does_not_leak_from_a_previous_sibling_section (__main__.ReplayClosure.test_subject_does_not_leak_from_a_previous_sibling_section) ... ok
+test_unresolved_table_row_blocks_acceptance_even_with_favorable_votes (__main__.ReplayClosure.test_unresolved_table_row_blocks_acceptance_even_with_favorable_votes) ... ok
+test_usage_dictionary_survives_repeated_normalization (__main__.ReplayClosure.test_usage_dictionary_survives_repeated_normalization) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.008s
+
+OK

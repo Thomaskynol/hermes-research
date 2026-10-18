@@ -1,0 +1,8 @@
+test_attribute_rows_inherit_context_without_repeating_the_package (__main__.RevisedReplayRegressions.test_attribute_rows_inherit_context_without_repeating_the_package) ... ok
+test_empty_response_records_a_protocol_failure_on_the_request (__main__.RevisedReplayRegressions.test_empty_response_records_a_protocol_failure_on_the_request) ... ok
+test_missing_table_facts_cannot_produce_a_complete_accepted_review (__main__.RevisedReplayRegressions.test_missing_table_facts_cannot_produce_a_complete_accepted_review) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.002s
+
+OK

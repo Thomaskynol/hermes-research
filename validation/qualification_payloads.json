@@ -1,0 +1,346 @@
+{
+  "module_sha256": "93087dc82f8fbadb9802146195473458c6d1ab7d36aeed4c110caa6a5557f57a",
+  "simulated_review": true,
+  "network_attempts": [],
+  "observations": [
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "url": "https://example.com/error",
+      "qualification": {
+        "status": "error_payload",
+        "reason": "payload de erro sem conteúdo útil",
+        "usable_text": "",
+        "excluded": true
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "report": "# Relatório\n\nA página https://example.com/error confirma que o pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://example.com/error": "404: Not Found"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "A página https://example.com/error confirma que o pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://example.com/error"
+          ],
+          "evidence": "(sem evidência)"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "url": "https://example.com/error",
+      "qualification": {
+        "status": "error_payload",
+        "reason": "payload de erro sem conteúdo útil",
+        "usable_text": "",
+        "excluded": true
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://example.com/error": "404: alpha"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [],
+          "evidence": "(sem evidência)"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "url": "https://example.com/error",
+      "qualification": {
+        "status": "error_payload",
+        "reason": "payload de erro sem conteúdo útil",
+        "usable_text": "",
+        "excluded": true
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` é gratuito e usa licença MIT.\n",
+      "corpus": {
+        "https://example.com/error": "404: licença MIT gratuito"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` é gratuito e usa licença MIT.",
+          "anchors": [],
+          "evidence": "(sem evidência)"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "url": "https://example.com/error",
+      "qualification": {
+        "status": "error_payload",
+        "reason": "payload de erro sem conteúdo útil",
+        "usable_text": "",
+        "excluded": true
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_excluded_error_does_not_reenter_auditor_via_fallbacks",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` custa $99/month.\n",
+      "corpus": {
+        "https://example.com/error": "404: $99/month"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` custa $99/month.",
+          "anchors": [],
+          "evidence": "(sem evidência)"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_github_api_facts_are_retained_for_the_fields_they_contain",
+      "report": "# Relatório\n\n## Pacote `opencode-alpha`\n- **Tag:** v1.2.3\n- **Branch:** main\n- **Commit (tag v1.2.3):** aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- **Branch `main` HEAD:** bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+      "corpus": {
+        "https://api.github.com/repos/example/opencode-alpha": "GitHub metadata for example/opencode-alpha\n{\"default_branch\": \"main\", \"license\": \"MIT\", \"tags\": [{\"name\": \"v1.2.3\", \"commit\": {\"sha\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}], \"commits\": [{\"sha\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}]}"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "opencode-alpha: tag v1.2.3",
+          "anchors": [
+            "https://api.github.com/repos/example/opencode-alpha"
+          ],
+          "evidence": "GitHub metadata for example/opencode-alpha\ndefault_branch: main\nlicense: MIT\ntag: v1.2.3 (commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\ncommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "id": 1,
+          "claim": "opencode-alpha: branch: main",
+          "anchors": [
+            "https://api.github.com/repos/example/opencode-alpha"
+          ],
+          "evidence": "GitHub metadata for example/opencode-alpha\ndefault_branch: main\nlicense: MIT\ntag: v1.2.3 (commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\ncommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "id": 2,
+          "claim": "opencode-alpha: commit (tag v1.2.3): aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "anchors": [
+            "https://api.github.com/repos/example/opencode-alpha"
+          ],
+          "evidence": "GitHub metadata for example/opencode-alpha\ndefault_branch: main\nlicense: MIT\ntag: v1.2.3 (commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\ncommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "id": 3,
+          "claim": "opencode-alpha: branch `main` HEAD: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "anchors": [
+            "https://api.github.com/repos/example/opencode-alpha"
+          ],
+          "evidence": "GitHub metadata for example/opencode-alpha\ndefault_branch: main\nlicense: MIT\ntag: v1.2.3 (commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\ncommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 4
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_github_api_facts_are_retained_for_the_fields_they_contain",
+      "url": "https://api.github.com/repos/example/opencode-alpha",
+      "qualification": {
+        "status": "usable",
+        "reason": "campos factuais da API; sujeito e relações tag/commit preservados",
+        "usable_text": "GitHub metadata for example/opencode-alpha\ndefault_branch: main\nlicense: MIT\ntag: v1.2.3 (commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\ncommit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "excluded": false
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_legitimate_http_code_documentation_remains_available",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://example.com/docs/opencode-alpha": "opencode-alpha uses the MIT license.\nHTTP 404 means a resource was not found; HTTP 429 indicates throttling.\nThese are documented response codes, not this collection's result."
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://example.com/docs/opencode-alpha"
+          ],
+          "evidence": "opencode-alpha uses the MIT license.\nHTTP 404 means a resource was not found; HTTP 429 indicates throttling.\nThese are documented response codes, not this collection's result."
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_mixed_readme_isolates_standalone_error_but_keeps_facts",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://github.com/example/opencode-alpha": "# opencode-alpha\n\nLicense: MIT.\nThe API documentation describes handling HTTP 429 responses.\n\n404: Not Found\n\nGitHub metadata for example/opencode-alpha\n{\"default_branch\": \"main\", \"license\": \"MIT\"}\n"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://github.com/example/opencode-alpha"
+          ],
+          "evidence": "# opencode-alpha\n\nLicense: MIT.\nThe API documentation describes handling HTTP 429 responses.\n\n\nGitHub metadata for example/opencode-alpha\n{\"default_branch\": \"main\", \"license\": \"MIT\"}"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_script_only_html_is_not_factual_content",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` é gratuito.\n",
+      "corpus": {
+        "https://example.com/opencode-alpha": "<!DOCTYPE html><html><head><script>var plan=\"FREE\"; var noise=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\";</script></head><body><p>opencode-alpha</p></body></html>"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` é gratuito.",
+          "anchors": [],
+          "evidence": "(sem evidência)"
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_script_only_html_is_not_factual_content",
+      "url": "https://example.com/opencode-alpha",
+      "qualification": {
+        "status": "insufficient",
+        "reason": "corpo sem texto suficiente sob a heurística local",
+        "usable_text": "",
+        "excluded": true,
+        "excluded_fragments": [
+          {
+            "start": 21,
+            "end": 261,
+            "text": "<head><script>var plan=\"FREE\"; var noise=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\";</script></head>",
+            "reason": "elemento HTML head fora do texto probatório"
+          }
+        ],
+        "limitations": [
+          "não executa JavaScript nem avalia visibilidade por CSS",
+          "não certifica completude do documento nem suporte a uma claim"
+        ]
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_useful_html_body_reaches_auditor_without_script_or_style",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://example.com/opencode-alpha": "<!DOCTYPE html><html><head><script>const hidden=\"SCRIPT_ONLY_917\";</script><style>/* STYLE_ONLY_917 */ p { color: red; }</style></head><body><p>opencode-alpha usa licença MIT. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. </p></body></html>"
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://example.com/opencode-alpha"
+          ],
+          "evidence": "opencode-alpha usa licença MIT. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote."
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_useful_html_body_reaches_auditor_without_script_or_style",
+      "url": "https://example.com/opencode-alpha",
+      "qualification": {
+        "status": "usable",
+        "reason": "texto do corpo extraído localmente; suficiência textual heurística",
+        "usable_text": "opencode-alpha usa licença MIT. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote. Documentação do pacote.",
+        "excluded": false,
+        "excluded_fragments": [
+          {
+            "start": 21,
+            "end": 135,
+            "text": "<head><script>const hidden=\"SCRIPT_ONLY_917\";</script><style>/* STYLE_ONLY_917 */ p { color: red; }</style></head>",
+            "reason": "elemento HTML head fora do texto probatório"
+          }
+        ],
+        "limitations": [
+          "não executa JavaScript nem avalia visibilidade por CSS",
+          "não certifica completude do documento nem suporte a uma claim"
+        ]
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_youtube_description_and_partial_spoken_markers_stay_distinct",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://www.youtube.com/watch?v=qualification_fixture": "[description] opencode-alpha usa licença MIT na descrição."
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://www.youtube.com/watch?v=qualification_fixture"
+          ],
+          "evidence": "[description] opencode-alpha usa licença MIT na descrição."
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_youtube_description_and_partial_spoken_markers_stay_distinct",
+      "url": "https://www.youtube.com/watch?v=qualification_fixture",
+      "qualification": {
+        "status": "usable",
+        "reason": "descrição do YouTube",
+        "usable_text": "[description] opencode-alpha usa licença MIT na descrição.",
+        "excluded": false
+      }
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_youtube_description_and_partial_spoken_markers_stay_distinct",
+      "report": "# Relatório\n\nO pacote `opencode-alpha` usa licença MIT.\n",
+      "corpus": {
+        "https://www.youtube.com/watch?v=qualification_fixture": "[spoken 5/11] opencode-alpha usa licença MIT neste trecho."
+      },
+      "auditor_input": [
+        {
+          "id": 0,
+          "claim": "O pacote `opencode-alpha` usa licença MIT.",
+          "anchors": [
+            "https://www.youtube.com/watch?v=qualification_fixture"
+          ],
+          "evidence": "[spoken 5/11] opencode-alpha usa licença MIT neste trecho."
+        }
+      ],
+      "simulated_review": true,
+      "actual_result_claim_count": 1
+    },
+    {
+      "test": "__main__.CorpusQualificationContract.test_youtube_description_and_partial_spoken_markers_stay_distinct",
+      "url": "https://www.youtube.com/watch?v=qualification_fixture",
+      "qualification": {
+        "status": "partial",
+        "reason": "transcrição parcial do YouTube [spoken n/M]",
+        "usable_text": "[spoken 5/11] opencode-alpha usa licença MIT neste trecho.",
+        "excluded": false
+      }
+    }
+  ]
+}

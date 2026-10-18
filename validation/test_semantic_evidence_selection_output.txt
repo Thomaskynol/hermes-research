@@ -1,0 +1,167 @@
+======================================================================
+TESTES DE SELEÇÃO DE EVIDÊNCIA - MORPH E DAYTONA (+ CONTROLES EXTRAS)
+======================================================================
+
+======================================================================
+TESTE 1: Morph pricing - URL explícita deve ser promovida
+======================================================================
+
+  Alvo: 'morphllm.com/pricing'
+  Claim ID: 19
+  Claim: opencode-morph-plugin: Modelo Morph Compact (*Verbatim context compaction*) | Uso no plugin **compactação de contexto** (só no `opencode-morph-plugin`...
+  Packages: ['opencode-morph-plugin']
+  Anchors (top 3): ['https://www.morphllm.com/pricing', 'https://github.com/morphllm/opencode-morph-plugin', 'https://api.github.com/repos/morphllm/opencode-morph-plugin']
+  Evidence preview: URL: https://www.morphllm.com/pricing
+Fetched: 2026-10-13 via browser (JS-rendered page; plain curl returns 429)
+======================================================================
+Morph
+Models
+OPE...
+  ✅ PASS: https://www.morphllm.com/pricing está nos top 2 anchors
+  ✅ PASS: Evidence contém '200 req'
+
+  Alvo: '200 req free every month'
+  Claim ID: 59
+  Claim: * **Custo do serviço Morph — condições verificadas:** a página [morphllm.com/pricing](https://www.morphllm.com/pricing) anuncia **"200 req free every ...
+  Packages: ['Morph']
+  Anchors (top 3): ['https://www.morphllm.com/pricing', 'https://github.com/JRedeker/opencode-morph-fast-apply', 'https://github.com/morphllm/opencode-morph-plugin']
+  Evidence preview: URL: https://www.morphllm.com/pricing
+Fetched: 2026-10-13 via browser (JS-rendered page; plain curl returns 429)
+======================================================================
+Morph
+Models
+OPE...
+  ✅ PASS: https://www.morphllm.com/pricing está nos top 2 anchors
+  ✅ PASS: Evidence contém '200 req'
+
+======================================================================
+TESTE 2: Morph pricing AUSENTE - deve dar gap, não fabricar
+======================================================================
+  Evidências sem morphllm.com/pricing: 25 fontes
+
+  Alvo: '200 req free every month'
+  Claim ID: 59
+  Anchors: ['https://github.com/JRedeker/opencode-morph-fast-apply', 'https://github.com/morphllm/opencode-morph-plugin', 'https://api.github.com/repos/morphllm/opencode-morph-plugin']
+  Evidence preview: # opencode-morph-fast-apply
+
+[![CI](https://github.com/JRedeker/opencode-morph-fast-apply/actions/workflows/ci.yml/badge.svg)](https://github.com/JRedeker/opencode-morph-fast-apply/actions/workflows/c...
+  ✅ PASS: Sem fabricação de conteúdo da pricing page
+
+======================================================================
+TESTE 3: Daytona - deve receber README do opencode-plugin
+======================================================================
+
+  Alvo: 'opencode-daytona'
+  Claim ID: 24
+  Claim: opencode-daytona: Ordem 5 | Pacote opencode-daytona | Por que isolamento/sandbox | Custo Apache-2.0 + pago após teste...
+  Packages: ['opencode-daytona']
+  Anchors (top 3): ['https://github.com/daytona/integrations/tree/main/packages/opencode-plugin']
+  Evidence preview: # Daytona Sandbox Plugin for OpenCode
+
+This is an OpenCode plugin that automatically runs OpenCode sessions in Daytona sandboxes. Each session has its own remote sandbox which is automatically synced to a local git branch.
+
+## Features
+
+- Securely isolate each OpenCode session in a sandbox environme...
+  ✅ PASS: README do opencode-plugin está nos top 2 anchors
+  ✅ PASS: Evidence contém conteúdo sobre sandbox/isolamento
+
+======================================================================
+TESTE 4: Daytona com vídeo distrator - README deve vencer
+======================================================================
+
+  Alvo: 'opencode-daytona'
+  Claim ID: 24
+  Anchors: ['https://github.com/daytona/integrations/tree/main/packages/opencode-plugin']
+  ✅ PASS: README do opencode-plugin está na posição 0 (primeiro)
+  ✅ PASS: YouTube NÃO está na posição 0
+
+======================================================================
+TESTE 5: Seleção real no corpo do relatório com corpus congelado
+======================================================================
+
+  Claims sobre Morph pricing: 4
+  Claim 59: * **Custo do serviço Morph — condições verificadas:** a página [morphllm.com/pricing](https://www.morphllm.com/pricing) ...
+  Anchors: ['https://www.morphllm.com/pricing', 'https://github.com/JRedeker/opencode-morph-fast-apply', 'https://github.com/morphllm/opencode-morph-plugin']
+  Evidence has '200 req': True
+  ✅ Morph pricing URL nos top 2 anchors
+  Claim 16: morph: Modelo Morph morph-v3-fast | Uso no plugin **Fast Apply** — *"Merges LLM code edits into files at 98% accuracy"* ...
+  Anchors: ['https://www.morphllm.com/pricing', 'https://github.com/JRedeker/opencode-morph-fast-apply', 'https://github.com/morphllm/opencode-morph-plugin']
+  Evidence has '200 req': True
+  ✅ Morph pricing URL nos top 2 anchors
+  Claim 17: morph: Modelo Morph morph-v3-large | Uso no plugin Fast Apply (variante *Most diverse*) | Entrada $0.90/1M | Saída $1.90...
+  Anchors: ['https://www.morphllm.com/pricing', 'https://github.com/JRedeker/opencode-morph-fast-apply', 'https://github.com/morphllm/opencode-morph-plugin']
+  Evidence has '200 req': True
+  ✅ Morph pricing URL nos top 2 anchors
+  Claim 19: opencode-morph-plugin: Modelo Morph Compact (*Verbatim context compaction*) | Uso no plugin **compactação de contexto** ...
+  Anchors: ['https://www.morphllm.com/pricing', 'https://github.com/morphllm/opencode-morph-plugin', 'https://api.github.com/repos/morphllm/opencode-morph-plugin']
+  Evidence has '200 req': True
+  ✅ Morph pricing URL nos top 2 anchors
+
+  Claims sobre Daytona: 2
+  Claim 5: opencode-daytona: # — | Pacote (nome exato) opencode-daytona | Licença Apache-2.0 | Cobrança pelo software nenhuma | Dep...
+  Packages: ['opencode-daytona']
+  Anchors: ['https://github.com/daytona/integrations/tree/main/packages/opencode-plugin']
+  ✅ Daytona README nos top 2 anchors
+  Claim 24: opencode-daytona: Ordem 5 | Pacote opencode-daytona | Por que isolamento/sandbox | Custo Apache-2.0 + pago após teste...
+  Packages: ['opencode-daytona']
+  Anchors: ['https://github.com/daytona/integrations/tree/main/packages/opencode-plugin']
+  ✅ Daytona README nos top 2 anchors
+
+  Total claims extraídas: 50
+
+======================================================================
+DEMONSTRAÇÃO DE DETECÇÃO DE PERDA
+======================================================================
+
+A. Remoção das claims alvo (simulando relatório sem as claims):
+  ✅ PASS: Verificador rejeita extração sem claims alvo
+
+B. Remoção apenas do campo evidence das claims sobre Morph:
+  ✅ PASS: Verificador rejeita extração com evidence Morph removido
+
+C. Remoção apenas do campo evidence das claims sobre Daytona:
+  ✅ PASS: Verificador rejeita extração com evidence Daytona removido
+
+======================================================================
+PASSO 3: Pertinência de READMEs - apenas READMEs pertinentes devem ser promovidos
+======================================================================
+  Claim: O pacote `opencode-example` oferece isolamento em sandbox....
+  Packages: ['opencode-example']
+  Anchors: ['https://vendor.example.com/documentation/overview', 'https://github.com/other/other-tool/README.md', 'https://github.com/another/another-tool/README.md']
+  Evidence: Documentação do opencode-example: isolamento em sandbox com sync git. PROVA_PERTINENTE: sandbox isolado com sync git.
+
+# other-tool
+
+Comparação com opencode-example: nosso sandbox é melhor....
+  ✅ PASS: Fonte pertinente está nos anchors
+  ✅ PASS: PROVA_PERTINENTE está na evidence
+  ✅ PASS: READMEs irrelevantes NÃO estão na posição 0
+
+======================================================================
+TESTE 6: Vídeo explicitamente citado com spoken + 2 READMEs concorrentes
+======================================================================
+  Claim: O pacote `opencode-example` tem um tutorial em vídeo em https://www.youtube.com/watch?v=test123 que diz "[spoken 1/5] instale com npm install opencode...
+  Anchors: ['https://www.youtube.com/watch?v=test123', 'https://github.com/example/opencode-example', 'https://github.com/other/opencode-example']
+  Evidence: Tutorial do opencode-example. [spoken 1/5] instale com npm install opencode-example. [spoken 2/5] configure o plugin.
+
+# opencode-example
+
+README do pacote opencode-example....
+  ✅ PASS: URL do YouTube citada está nos anchors
+  ✅ PASS: Segmento falado citado está na evidence
+  ✅ PASS: Vídeo citado está na posição 0
+
+======================================================================
+TESTE 7: URL explicitamente citada fora dos candidatos por palavras-chave
+======================================================================
+  Claim: A página https://example.com/pricing anuncia "200 req free every month" para o plano gratuito do `opencode-example`....
+  Packages: ['opencode-example']
+  Anchors: ['https://example.com/pricing']
+  Evidence: Pricing page: 200 req free every month. No limits. Usage-based billing....
+  ✅ PASS: URL explicitamente citada está nos top 2 anchors
+  ✅ PASS: Conteúdo da pricing page está na evidence
+
+======================================================================
+TODOS OS 9 TESTES DE SELEÇÃO DE EVIDÊNCIA PASSARAM
+======================================================================

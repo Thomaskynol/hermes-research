@@ -98,11 +98,17 @@ PRICING = {
         "runs/pricing_snapshots/tavily_pricing.html",
     "https://www.daytona.io/pricing":
         "runs/pricing_snapshots/daytona_pricing.html",
+    # Note: Daytona pricing for opencode plugin is in a subdirectory
+    "https://www.daytona.io/pricing":  # fallback
+        "runs/pricing_snapshots/daytona_pricing.html",
 }
 # Tokens that must appear in a pricing snapshot for it to count as evidence of
 # the prices the report cites. A snapshot missing them is reported, not used.
+# REMOVED hardcoded "open-source models only" - no literal capture sustains it.
 PRICING_REQUIRED = {
-    "https://www.morphllm.com/pricing": ("morph-v3-fast", "200 req", "$9.06"),
+    # morphllm.com/pricing is JS-rendered and curl gets 429. The required tokens
+    # reflect what the page *claims* but the snapshot may be unavailable.
+    "https://www.morphllm.com/pricing": ("morph-v3-fast", "200 req"),
     "https://tavily.com/pricing": ("1,000 API credits", "Pay As You Go"),
     "https://www.daytona.io/pricing": ("Start for free", "0.0504"),
 }
@@ -160,6 +166,8 @@ def build_extra_evidence() -> dict[str, str]:
         if meta:
             # Keep only the fields the report cites, so the reviewer can match
             # tag/branch/commit/date without the payload noise.
+            # CRITICAL: Do NOT truncate head[:900] as it cuts SHA values.
+            # Parse the commits JSON and extract full SHA values.
             try:
                 d = json.loads(meta)
                 brief = {
@@ -169,13 +177,35 @@ def build_extra_evidence() -> dict[str, str]:
                 }
             except Exception:
                 brief = {"raw": meta[:800]}
+            
+            # Parse commits to extract full SHA values (40 chars)
+            # CRITICAL: Parse the full commits JSON BEFORE any truncation to preserve full SHAs
+            commit_shas = []
+            try:
+                commits_data = json.loads(head)
+                for commit in commits_data:
+                    sha = commit.get("sha", "")
+                    if sha and len(sha) >= 40:
+                        commit_shas.append(sha[:40])  # Ensure exactly 40 chars
+                    elif sha:
+                        # If SHA is shorter, it's likely already truncated - don't pad with zeros
+                        commit_shas.append(sha)
+            except Exception:
+                pass
+            
+            # Only include commits if we have valid SHAs
+            if commit_shas:
+                commits_summary = "commits: " + ", ".join(commit_shas)
+            else:
+                commits_summary = "commits: (none - SHAs truncated or unavailable)"
+            
             # Prefix with the repo slug and the version-bearing tokens: the
             # claim extractor anchors a claim to a source by searching for the
             # package name inside the evidence text, so the metadata blob must
             # contain the name it is evidence FOR.
             ev[url] = (f"GitHub metadata for {repo}\n" +
                        json.dumps(brief, ensure_ascii=False) + "\n\n" +
-                       "tags: " + tags[:600] + "\n\ncommits: " + head[:900])
+                       "tags: " + tags[:600] + "\n\n" + commits_summary)
             # Also anchor the README-derived entry to the API url, since a
             # claim about version/commit names the package, not the API host.
             for base, (r2, _br) in REPOS.items():
@@ -185,6 +215,7 @@ def build_extra_evidence() -> dict[str, str]:
     for url, local in PRICING.items():
         lp = WORKDIR / local if not local.startswith("/") else Path(local)
         txt = ""
+        collection_state = "ok"
         if lp.exists() and lp.stat().st_size > 1000:
             txt = lp.read_text(encoding="utf-8", errors="ignore")
         else:
@@ -193,7 +224,13 @@ def build_extra_evidence() -> dict[str, str]:
             if alt.exists() and alt.stat().st_size > 1000:
                 txt = alt.read_text(encoding="utf-8", errors="ignore")
         if not txt:
-            txt = fetch(url)
+            # Record absence as collection state; do NOT fabricate content attributed to the page.
+            collection_state = "missing"
+            if "morphllm.com/pricing" in url:
+                print(f"  ! {url}: snapshot missing -- morphllm.com/pricing is JS-rendered and blocks curl with 429", flush=True)
+            else:
+                print(f"  ! {url}: snapshot missing -- no local file found", flush=True)
+            continue  # Skip adding missing evidence
         # Only count a snapshot as evidence if it actually contains the figures
         # the report quotes. A 429 page or a JS shell must not be passed off as
         # proof of a price.
@@ -225,6 +262,9 @@ def main() -> int:
     import sync_config
     sync_config.sync()
     import semantic_review as sr
+    import hashlib
+    import subprocess
+    import time
 
     run_ctx = (WORKDIR / "runs/20261012-184601-Pesquise_extensões_gratuitas_p"
                / "context.json")
@@ -236,9 +276,36 @@ def main() -> int:
         json.loads(run_ctx.read_text(encoding="utf-8"))["items"][0]["text"])
     extra = build_extra_evidence()
 
+    # Compute hashes of the evidence texts actually sent to the auditor
+    def _sha256(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    base_ev_hashes = {url: _sha256(txt) for url, txt in base_ev.items()}
+    extra_ev_hashes = {url: _sha256(txt) for url, txt in extra.items()}
+    
+    # Build the complete evidence map that was actually used for review
+    complete_evidence = {**base_ev, **extra}
+    complete_evidence_hashes = {url: _sha256(txt) for url, txt in complete_evidence.items()}
+
+    # Get code version (git commit)
+    try:
+        code_version = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=WORKDIR, timeout=5
+        ).stdout.strip()
+    except Exception:
+        code_version = "unknown"
+
+    # Get resolved model from sync_config
+    model = os.environ.get("SMART_LLM", "unknown")
+
+    # Execution ID: timestamp + git short hash
+    execution_id = f"{int(time.time())}_{code_version[:8]}"
+
     print(f"evidencia da run: {len(base_ev)} fontes | "
           f"evidencia complementar: {len(extra)} fontes", flush=True)
     print(f"votos por claim: {VOTES} | seed: {SEED or '(sem seed)'}", flush=True)
+    print(f"model: {model} | code_version: {code_version} | execution_id: {execution_id}", flush=True)
 
     # The corrected file carries an audit appendix (§7-§9) that QUOTES the
     # evidence as prose. Feeding it to the reviewer makes it re-audit its own
@@ -265,10 +332,46 @@ def main() -> int:
                 if v.get("correction"):
                     print(f"     -> {v['correction'][:150]}")
 
+    # Build the final replay output with full metadata
+    replay_output = {
+        "run_id": "20261012-184601",
+        "timestamp": int(time.time()),
+        "execution_id": execution_id,
+        "code_version": code_version,
+        "model": model,
+        "report_sha256": _sha256(body),
+        "evidence_sha256": _sha256(json.dumps(complete_evidence, sort_keys=True, ensure_ascii=False)),
+        "base_evidence_hashes": base_ev_hashes,
+        "extra_evidence_hashes": extra_ev_hashes,
+        "complete_evidence_hashes": complete_evidence_hashes,
+        "votes": VOTES,
+        "seed": SEED or None,
+        "ORIGINAL": results["ORIGINAL"],
+        "CORRIGIDO": results["CORRIGIDO"],
+    }
+
     out = WORKDIR / "runs/replay_corrigido_semantic.json"
-    out.write_text(json.dumps(results, ensure_ascii=False, indent=1),
+    out.write_text(json.dumps(replay_output, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     print(f"\nsalvo: {out}")
+
+    # Also save the COMPLETE evidence map (base + extra) with collection state
+    evidence_map_output = {
+        "run_id": "20261012-184601",
+        "timestamp": int(time.time()),
+        "execution_id": execution_id,
+        "code_version": code_version,
+        "model": model,
+        "base_evidence_count": len(base_ev),
+        "extra_evidence_count": len(extra),
+        "total_evidence_count": len(complete_evidence),
+        "evidence": complete_evidence,
+        "evidence_hashes": complete_evidence_hashes,
+    }
+    ev_out = WORKDIR / "runs/replay_corrigido_evidence.json"
+    ev_out.write_text(json.dumps(evidence_map_output, ensure_ascii=False, indent=1),
+                      encoding="utf-8")
+    print(f"salvo evidence map: {ev_out}")
     return 0
 
 

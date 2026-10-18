@@ -45,7 +45,7 @@ async def main():
     # (ChatOpenAI on https://openrouter.ai/api/v1).
     llm = ChatOpenAI(openai_api_base="https://openrouter.ai/api/v1",
                      openai_api_key=key,
-                     model="meta/muse-spark-1.3-contributor",
+                     model="nvidia/nemotron-3-ultra-550b-a55b:free",
                      temperature=0.35,
                      max_tokens=8000,
                      request_timeout=600)
@@ -62,7 +62,7 @@ async def main():
     t0 = time.time()
     resp = await llm.ainvoke(messages)
     dt = time.time() - t0
-    out = {"model": "meta/muse-spark-1.3-contributor", "seconds": round(dt, 1),
+    out = {"model": "nvidia/nemotron-3-ultra-550b-a55b:free", "seconds": round(dt, 1),
            "finish_reason": getattr(resp, "finish_reason", None)
            or resp.response_metadata.get("finish_reason"),
            "usage": getattr(resp, "usage_metadata", None),

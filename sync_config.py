@@ -187,7 +187,7 @@ def get_model_pin() -> str | None:
     """Modelo fixo para o GPT Researcher, se o usuário tiver pinado.
 
     Lê ``GPT_MODEL_PIN`` do arquivo ``.env`` (formato: um modelo por linha,
-    ex. ``openrouter:meta/muse-spark-1.3-contributor``). Quando presente, o
+    ex. ``openrouter:nvidia/nemotron-3-ultra-550b-a55b:free``). Quando presente, o
     ``sync()`` usa ESSE modelo nos 3 slots e ignora o auto-follow do chat —
     o pin só é trocado quando o usuário o editar explicitamente. Retorna
     ``None`` se não houver pin (comportamento auto-follow normal).

@@ -243,19 +243,21 @@ async def main():
     run_provenance_audit(report, _ctx, output_file)
     _t_audit_done = time.monotonic()
     # Semantic review: the mechanical URL audit proves a citation EXISTS, never
-    # that it says what the report claims. Run 20261012-184601 passed provenance
-    # with 0 findings while calling five plugins "free" when one was SUL-1.0 and
-    # three needed paid API keys. Opt-in via SEMANTIC_REVIEW=1 so the default
-    # path is unchanged; when on, a report with unsupported claims is NOT
-    # declared accepted.
-    _semantic = {"enabled": False}
-    if os.environ.get("SEMANTIC_REVIEW", "").strip() == "1":
+    # that it says what the report claims. Enabled by default; when explicitly
+    # disabled via SEMANTIC_REVIEW=0, the result declares "não revisado semanticamente".
+    _semantic_review_env = os.environ.get("SEMANTIC_REVIEW", "").strip()
+    _semantic_enabled = _semantic_review_env != "0"
+    _semantic = {"enabled": _semantic_enabled}
+    _t_semantic_start = time.monotonic()
+    if _semantic_enabled:
         import semantic_review as _sr
         _evidence = _sr.build_evidence(_ctx)
         _semantic = _sr.review_report(report, _evidence, enabled=True)
         _s = _semantic.get("summary", {})
+        _t_semantic_done = time.monotonic()
+        _semantic["duration_s"] = round(_t_semantic_done - _t_semantic_start, 2)
         print(f"[SEMANTIC] {_semantic.get('claims', 0)} claims -> {_s}"
-              f" | estado={_semantic.get('verdict_state')}")
+              f" | estado={_semantic.get('verdict_state')} | {_semantic['duration_s']}s")
         if _semantic.get("verdicts"):
             for _v in _semantic["verdicts"]:
                 if _v["verdict"] in ("unsupported", "gap", "partial"):
@@ -263,6 +265,12 @@ async def main():
                           f"{_v['claim'][:110]}")
                     if _v.get("correction"):
                         print(f"[SEMANTIC]   correção: {_v['correction'][:140]}")
+    else:
+        _t_semantic_done = time.monotonic()
+        _semantic["duration_s"] = round(_t_semantic_done - _t_semantic_start, 2)
+        _semantic["verdict_state"] = "não revisado semanticamente"
+        _semantic["summary"] = {"note": "revisão semântica desativada via SEMANTIC_REVIEW=0"}
+        print(f"[SEMANTIC] desativada (SEMANTIC_REVIEW=0) - {_semantic['duration_s']}s")
     # Final-transport trace: dump every LLM call's parameters + any provider
     # error body (sanitized). Off unless RUN_CALL_TRACE names a path, so normal
     # runs pay nothing.
@@ -315,16 +323,10 @@ async def main():
         # Semantic review of the report's claims. Distinct from the mechanical
         # URL audit: a citation can be real and the claim about it still false.
         # ``accepted`` is the only verdict that should close a report.
-        "semantic": {
-            "enabled": _semantic.get("enabled", False),
-            "claims": _semantic.get("claims", 0),
-            "summary": _semantic.get("summary", {}),
-            "verdict_state": _semantic.get("verdict_state"),
-            "accepted": _semantic.get("accepted"),
-        },
+        "semantic": dict(_semantic),
         # Phase timings: budget time_s is measured from install() (before the
         # research starts) and therefore covers the WHOLE run -- research,
-        # write and audit. The vast's own ledger starts at its first request,
+        # write, provenance audit and semantic review. The vast's ledger starts at its first request,
         # so the two clocks legitimately disagree (observed: client 1875s vs
         # vast ~900s on the same run). Reported separately so neither number
         # has to be guessed.
@@ -332,8 +334,9 @@ async def main():
             "research_s": round(_t_research_done - _t_start, 1),
             "write_s": round(_t_write_done - _t_research_done, 1),
             "audit_s": round(_t_audit_done - _t_write_done, 1),
-            "total_s": round(_t_audit_done - _t_start, 1),
-            "clock_scope": "install->audit (whole run)",
+            "semantic_s": round(_t_semantic_done - _t_audit_done, 1),
+            "total_s": round(_t_semantic_done - _t_start, 1),
+            "clock_scope": "install->semantic review (whole run)",
             "vast_clock_scope": "first vast request -> last (collection only)",
         },
     }

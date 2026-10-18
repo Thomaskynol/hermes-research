@@ -85,9 +85,9 @@ async def main():
         # Model resolved for research = current chat model (state.db,
         # permanently authorized). Committed config still names the dead
         # space-bunny (0 endpoints); replay records the substitution.
-        c["SMART_LLM"] = "openrouter:meta/muse-spark-1.3-contributor"
-        c["FAST_LLM"] = "openrouter:meta/muse-spark-1.3-contributor"
-        c["STRATEGIC_LLM"] = "openrouter:meta/muse-spark-1.3-contributor"
+        c["SMART_LLM"] = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"
+        c["FAST_LLM"] = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"
+        c["STRATEGIC_LLM"] = "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"
         cfg.write_text(json.dumps(c, indent=2), encoding="utf-8")
 
         captured = {}

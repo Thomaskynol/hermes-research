@@ -1,0 +1,6 @@
+test_scope_hash_matches_exact_extracted_body (__main__.ScopeBoundary.test_scope_hash_matches_exact_extracted_body) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK

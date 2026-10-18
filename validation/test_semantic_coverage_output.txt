@@ -1,0 +1,38 @@
+
+  Blocos totais: 30
+  Claims totais: 75
+  Claims selecionadas: 50
+  Claims adiadas por limite: 24
+  Claims excluídas duplicata: 0
+  Claims revisadas: 50
+  Itens descartados: 202
+  Cobertura completa: False
+  accepted: False
+  verdict_state: revisão incompleta
+test_approval_blocked_when_deferred (__main__.TestCoverageApprovalProtection.test_approval_blocked_when_deferred)
+accepted=False quando há claims adiadas pelo limite. ... ok
+test_approval_blocked_when_incomplete_extraction (__main__.TestCoverageApprovalProtection.test_approval_blocked_when_incomplete_extraction)
+accepted=False quando há extração factual incompleta (parágrafo longo não dividido). ... ok
+test_approval_when_fully_covered (__main__.TestCoverageApprovalProtection.test_approval_when_fully_covered)
+accepted=True quando cobertura completa e vereditos favoráveis. ... ok
+test_a_metadata_lists (__main__.TestCoverageTracking.test_a_metadata_lists)
+Metadados de pacote: Tag, Branch, Commit, Data extraídos com sujeito correto. ... ok
+test_b_table_five_packages_separate (__main__.TestCoverageTracking.test_b_table_five_packages_separate)
+Tabela de cinco pacotes: claims separadas por sujeito, não uma claim com cinco nomes. ... ok
+test_c_factual_vs_contextual_title (__main__.TestCoverageTracking.test_c_factual_vs_contextual_title)
+Título factual extrai proposição; título contextual não inventa fato. ... ok
+test_d_long_paragraph (__main__.TestCoverageTracking.test_d_long_paragraph)
+Parágrafo longo (>600 chars): dividido ou marcado incompleto; accepted=False. ... ok
+test_e_recommendation_justification (__main__.TestCoverageTracking.test_e_recommendation_justification)
+Recomendação editorial: justificativa factual separada da escolha. ... ok
+test_f_scope_and_origin (__main__.TestCoverageTracking.test_f_scope_and_origin)
+Escopo declarado com hash real; claim inline não preenche bloco de metadados. ... ok
+test_g_states_and_duplicates (__main__.TestCoverageTracking.test_g_states_and_duplicates)
+IDs estáveis antes da ordenação; duplicatas vinculadas; review_state atualizado. ... ok
+test_h_frozen_report_checklist (__main__.TestCoverageTracking.test_h_frozen_report_checklist)
+Checklist do relatório congelado: destino dos metadados e linhas de tabela. ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.893s
+
+OK

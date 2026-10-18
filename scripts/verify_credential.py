@@ -104,7 +104,7 @@ def main() -> int:
     fresh_sync({"OPENROUTER_API_KEY": REAL})
     from gpt_researcher.utils.llm import get_llm
     try:
-        provider = get_llm("openrouter", model="meta/muse-spark-1.3-contributor")
+        provider = get_llm("openrouter", model="nvidia/nemotron-3-ultra-550b-a55b:free")
         # GenericLLMProvider wraps the real chat client; unwrap it.
         client = getattr(provider, "llm", provider)
         key = (getattr(client, "openai_api_key", None)
@@ -126,7 +126,7 @@ def main() -> int:
     for slot in ("SMART_LLM", "FAST_LLM", "STRATEGIC_LLM"):
         val = os.environ.get(slot, "")
         check(f"E_{slot}_explicit",
-              bool(val) and ":" in val and "muse" in val,
+              bool(val) and ":" in val and "nemotron" in val,
               f"{slot}={val}")
 
     print(f"\n{len(FAILURES)} FAILURES")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression for the provider minimum on the output-token parameter.
 
-Established by direct probe: the muse-spark endpoint answers 400 with
+Established by direct probe: the nemotron-3-ultra endpoint answers 400 with
 ``max_output_tokens The number must be >= 16`` for any value in 1..15, and
 accepts 0 (treated as unset) and >= 16. This test locks the invariant on OUR
 side: no code path we control may hand the transport a value in 1..15, and the
