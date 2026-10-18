@@ -340,14 +340,18 @@ def count_sources(discovered=(), with_content=(), used_in_analysis=(),
     }
 
 
-def decide_stop(aspects_covered: float = 0.0,
+def decide_stop(aspects_covered: float | None = 0.0,
                 novelty_last_rounds: float = 1.0,
                 budget: dict | None = None,
                 blocked: bool = False,
                 gaps: list | None = None) -> dict:
     """Decide whether to stop investigating.
 
-    aspects_covered: 0..1 fraction of question aspects covered.
+    aspects_covered: 0..1 fraction of question aspects covered, measured for
+      real — or None when nothing was measured. None NEVER stops for
+      coverage/novelty: an unmeasured question is not a covered question
+      (a caller that passes 1.0/0.5 guesses instead of measuring is
+      fabricating; pass the ledger proportion or None).
     novelty_last_rounds: 0..1 fraction of new findings in recent rounds
       (low = rounds repeat what is known).
     budget: e.g. {time_used_s, time_budget_s, tokens_used, tokens_budget,
@@ -362,10 +366,12 @@ def decide_stop(aspects_covered: float = 0.0,
     """
     gaps = list(gaps or [])
     budget = dict(budget or {})
-    try:
-        coverage = max(0.0, min(1.0, float(aspects_covered)))
-    except (TypeError, ValueError):
-        coverage = 0.0
+    coverage = None
+    if aspects_covered is not None:
+        try:
+            coverage = max(0.0, min(1.0, float(aspects_covered)))
+        except (TypeError, ValueError):
+            coverage = 0.0
     try:
         novelty = max(0.0, min(1.0, float(novelty_last_rounds)))
     except (TypeError, ValueError):
@@ -374,6 +380,21 @@ def decide_stop(aspects_covered: float = 0.0,
     if blocked:
         return {"stop": True, "stop_reason": "blocked",
                 "partial": bool(gaps)}
+    # Unmeasured coverage (None) never proves coverage and never grounds a
+    # novelty stop: only budget/blocked stop an unmeasured run.
+    if coverage is None:
+        for used_k, budget_k in (("time_used_s", "time_budget_s"),
+                                 ("tokens_used", "tokens_budget"),
+                                 ("rounds_used", "rounds_budget")):
+            try:
+                used = float(budget.get(used_k, 0) or 0)
+                limit = float(budget.get(budget_k, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if limit > 0 and used >= limit:
+                return {"stop": True, "stop_reason": "budget",
+                        "partial": bool(gaps)}
+        return {"stop": False, "stop_reason": "continue", "partial": False}
     if coverage >= COVERAGE_DONE:
         return {"stop": True, "stop_reason": "coverage", "partial": False}
     for used_k, budget_k in (("time_used_s", "time_budget_s"),

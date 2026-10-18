@@ -3,12 +3,20 @@
 
 Usage:
     python3 gpt_researcher_integration.py "your research query" [depth]
+        [--coverage-plan <plan.json | inline-json>]
 
 Depth options: light, medium, hard, deep
   (aliases: quick==light, standard==medium, detailed==hard, deep==deep)
 Per-run overrides via env: DEPTH_OVERRIDES_JSON='{"TOTAL_WORDS": 800}'
+Coverage plan (optional, retrocompatible): --coverage-plan points at a JSON
+  file (or inline JSON) describing entities/sub-questions/criteria with
+  stable ids. The plan describes EXPECTED work, never fulfilment (a plan
+  declaring pre_satisfied-style fields is rejected). Without it the run
+  records question_coverage.status="unevaluated" with proportion null and
+  no heuristics. See docs/QUESTION_COVERAGE.md.
 Example:
     python3 gpt_researcher_integration.py "AI trends in 2026" detailed
+    python3 gpt_researcher_integration.py "Q" light --coverage-plan plan.json
 """
 import asyncio
 import sys
@@ -54,6 +62,9 @@ if os.environ.get("RUN_CALL_TRACE", "").strip():
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
 import depth_profiles
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import coverage_ledger as _coverage_ledger
 
 DEPTH_MAP = {
     "quick": "quick",
@@ -127,13 +138,29 @@ def run_provenance_audit(report: str, messages: str, output_file) -> dict:
 
 async def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 gpt_researcher_integration.py \"query\" [depth]")
+        print("Usage: python3 gpt_researcher_integration.py \"query\" [depth] "
+              "[--coverage-plan <json|path>]")
         print("Depth: light (default), medium, hard, deep "
               "(aliases: quick, standard, detailed, deep)")
         return
 
-    query = sys.argv[1]
-    depth = sys.argv[2] if len(sys.argv) > 2 else "light"
+    try:
+        query, depth, _plan_source = _coverage_ledger.parse_coverage_cli(
+            sys.argv[1:])
+    except ValueError as _e:
+        print(f"[COVERAGE] {_e}")
+        print("Usage: python3 gpt_researcher_integration.py \"query\" [depth] "
+              "[--coverage-plan <json|path>]")
+        return
+    _coverage_plan = None
+    if _plan_source is not None:
+        try:
+            _coverage_plan = _coverage_ledger.load_coverage_plan(_plan_source)
+        except (ValueError, OSError) as _e:
+            print(f"[COVERAGE] invalid plan: {_e}")
+            return
+        print(f"[COVERAGE] plan {_coverage_plan.get('plan_id')} "
+              f"({len(_coverage_plan.get('criteria', []))} criteria)")
     # Overrides JSON (optional, validated keys only).
     try:
         cli_overrides = json.loads(
@@ -297,20 +324,52 @@ async def main():
     else:
         _budget_snap["used"] = "unknown (vast /budget unreachable)"
         _budget_snap["consumption_source"] = "unknown"
+    # Question coverage: fed with the REAL corpus/qualification/traceability,
+    # evaluated ONLY against explicit records. The flow itself performs no
+    # evidence->criterion mapping, so without explicit evaluations every
+    # mandatory criterion stays uninvestigated and insufficiency is preserved
+    # (never fabricated). Semantic approval never implies question coverage.
+    try:
+        import semantic_review as _sr_cov
+        _evidence_map = _sr_cov.build_evidence(_ctx)
+        try:
+            _qualification_map = _sr_cov.qualify_evidence_corpus(_evidence_map)
+        except Exception:
+            _qualification_map = {}
+    except Exception:
+        _evidence_map, _qualification_map = {}, {}
+    _question_coverage, _coverage_ratio = \
+        _coverage_ledger.build_run_question_coverage(
+            plan=_coverage_plan, run_id=run_id, evidence=_evidence_map,
+            qualification=_qualification_map,
+            discovered_urls=list(researcher.get_source_urls()),
+            report_text=report, evaluations=[], semantic=_semantic)
+    print(_coverage_ledger.summarize(_question_coverage))
     _budget_stop = _budget_snap.get("stop_reason")
     if _budget_stop:
         # An exhausted budget is the effective stop condition: say so instead of
         # reporting "coverage", which would claim more than we measured.
         _stop = {"stop": True, "stop_reason": _budget_stop,
                  "partial": bool(_gaps) or _budget_stop.startswith("budget")}
+    elif _coverage_ratio is None:
+        # Nothing real was measured (no plan): end of the legacy flow is a
+        # stop motive, never proof of coverage. Fictitious 1.0/0.5 removed.
+        _stop = {"stop": True, "stop_reason": "flow_end",
+                 "partial": bool(_gaps)}
     else:
         try:
-            _stop = depth_profiles.decide_stop(
-                aspects_covered=1.0 if not _gaps else 0.5,
+            _measured = depth_profiles.decide_stop(
+                aspects_covered=_coverage_ratio,
                 novelty_last_rounds=0.0,
                 blocked=False, gaps=_gaps)
+            if _measured.get("stop_reason") == "continue":
+                _stop = {"stop": True, "stop_reason": "flow_end",
+                         "partial": True}
+            else:
+                _stop = _measured
         except Exception:
-            _stop = {"stop": True, "stop_reason": "coverage", "partial": False}
+            _stop = {"stop": True, "stop_reason": "flow_end",
+                     "partial": bool(_gaps)}
     _depth_record = {
         "profile": resolved["profile"],
         "depth_arg": depth,
@@ -323,7 +382,10 @@ async def main():
         # Semantic review of the report's claims. Distinct from the mechanical
         # URL audit: a citation can be real and the claim about it still false.
         # ``accepted`` is the only verdict that should close a report.
+        # Question coverage is a SEPARATE dimension (question_coverage below):
+        # semantic approval never implies the question was covered.
         "semantic": dict(_semantic),
+        "question_coverage": dict(_question_coverage),
         # Phase timings: budget time_s is measured from install() (before the
         # research starts) and therefore covers the WHOLE run -- research,
         # write, provenance audit and semantic review. The vast's ledger starts at its first request,
