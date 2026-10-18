@@ -58,6 +58,7 @@ def new_state(question: str, run_id: str = "", mode: str = "adaptive",
         "notes": [],
         "report": {},
         "semantic": {},
+        "elapsed_s": 0.0,
         "stop": {"reason": None, "partial": None, "detail": ""},
     }
 
@@ -111,28 +112,57 @@ def load(run_dir: str | Path, run_id: str | None = None) -> dict:
     return state
 
 
-def record_plan_version(state: dict, plan: dict, justification: str) -> None:
-    """Attach a plan (first or updated); user requirements never shrink."""
-    prev_ids = set()
-    if state.get("plan"):
-        for coll in ("entities", "criteria"):
-            for item in state["plan"].get(coll, []) or []:
-                if isinstance(item, dict) and item.get("required"):
-                    prev_ids.add((coll, item.get("id")))
-    new_ids = set()
+def _required_ids(plan: dict) -> set:
+    """Required ids with default True (same default as coverage_ledger)."""
+    ids = set()
     for coll in ("entities", "criteria"):
-        for item in plan.get(coll, []) or []:
-            if isinstance(item, dict) and item.get("required"):
-                new_ids.add((coll, item.get("id")))
+        for item in (plan or {}).get(coll, []) or []:
+            if isinstance(item, dict) and item.get("required", True):
+                ids.add((coll, item.get("id")))
+    return ids
+
+
+def record_plan_version(state: dict, plan: dict, justification: str) -> None:
+    """Attach a plan (first or updated); user requirements never shrink.
+
+    required defaults to True (consistent with coverage_ledger._required).
+    Every version stores a snapshot (or delta) so earlier plans can be
+    rebuilt: snapshot holds the full plan, required holds the mandatory
+    ids, prev holds the previous version number.
+    """
+    import copy as _copy
+    prev_ids = _required_ids(state.get("plan") or {}) if state.get("plan") else set()
+    new_ids = _required_ids(plan)
     missing = prev_ids - new_ids
     if missing:
         raise ValueError(
             "[STATE] plan update would silently drop required items "
             f"{sorted(missing)} — user requirements never disappear silently")
+    # Version must increase on update; adopt caller's version when it
+    # moves forward, else bump.
+    prev_v = 0
+    if state.get("plan_versions"):
+        try:
+            prev_v = max(int(v.get("version", 0) or 0)
+                         for v in state["plan_versions"])
+        except (TypeError, ValueError):
+            prev_v = len(state["plan_versions"])
+    try:
+        want_v = int(plan.get("version", 0) or 0)
+    except (TypeError, ValueError):
+        want_v = 0
+    if state.get("plan") and want_v <= prev_v:
+        want_v = prev_v + 1
+        plan["version"] = want_v
+    elif not state.get("plan") and not want_v:
+        want_v = 1
+        plan["version"] = want_v
     state["plan"] = plan
     state["plan_versions"].append({
         "version": plan.get("version", len(state["plan_versions"]) + 1),
         "plan_id": plan.get("plan_id"),
         "at": _utcnow(),
         "justification": justification,
+        "required": sorted(new_ids),
+        "snapshot": _copy.deepcopy(plan),
     })

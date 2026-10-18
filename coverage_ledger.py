@@ -222,7 +222,15 @@ def summarize(block: dict) -> str:
 
 
 class Ledger:
-    """Explicit per-criterion evaluations against a validated plan."""
+    """Explicit per-criterion evaluations against a validated plan.
+
+    Unit of evaluation is the applicable pair (criterion_id, entity_id):
+    a criterion applying to N entities needs N covered pairs. Global
+    criteria (no applies_to) need one. Single-entity criteria accept the
+    evaluation with or without the explicit entity_id for retro-compat.
+    Aggregate evaluations (entity_id None) never cover a multi-entity
+    criterion on their own; per-entity evidence is required.
+    """
 
     def __init__(self, plan: dict, run_id: str = "") -> None:
         self.plan = validate_plan(plan)
@@ -231,7 +239,8 @@ class Ledger:
         self._evidence: dict[str, str] = {}
         self._qualification: dict[str, dict] = {}
         self._counts: dict[str, int] = {s: 0 for s in STAGES}
-        self._evals: dict[str, dict] = {}  # criterion_id -> evaluation
+        # (criterion_id, entity_id|None) -> evaluation
+        self._evals: dict[tuple, dict] = {}
 
     # -- corpus / qualification feed (real, existing) ---------------------
 
@@ -265,10 +274,17 @@ class Ledger:
         if qual.get("excluded"):
             return False, (f"evidência excluída pela qualificação "
                            f"({qual.get('status', '?')}): {url[:80]}")
+        status = str(qual.get("status", "") or "").strip().lower()
+        if status in ("error", "failed", "fetch_error", "timeout",
+                      "access_failure", "access-failure"):
+            return False, (f"evidência de erro não sustenta cobertura "
+                           f"({qual.get('status', '?')}): {url[:80]}")
+        # Empty usable text never sustains covered/partial, whatever the
+        # declared status is (a status=usable with empty text is incoherent
+        # and must not cover). shortcut: sem texto útil, sem cobertura.
         if not (qual.get("usable_text") or "").strip():
-            if qual.get("status") not in ("usable", "partial"):
-                return False, (f"evidência insuficiente "
-                               f"({qual.get('status', '?')}): {url[:80]}")
+            return False, (f"evidência vazia/insuficiente "
+                           f"({qual.get('status', '?')}): {url[:80]}")
         return True, ""
 
     def evaluate(self, criterion_id: str, state: str, justification: str,
@@ -297,8 +313,14 @@ class Ledger:
                     f"[COVERAGE] criterion {criterion_id!r} does not apply "
                     f"to entity {entity_id!r}")
         refs = list(references or [])
+        key = (criterion_id, entity_id)
         if state == "uninvestigated":
-            self._evals.pop(criterion_id, None)
+            self._evals.pop(key, None)
+            # Retro-compat: clearing without entity also clears the
+            # entity-less entry for single-entity criteria.
+            if entity_id is None:
+                for k in [k for k in self._evals if k[0] == criterion_id]:
+                    self._evals.pop(k, None)
             return {"criterion_id": criterion_id, "state": state}
         if not (justification or "").strip():
             raise ValueError("[COVERAGE] evaluation needs a justification "
@@ -319,7 +341,7 @@ class Ledger:
                 ok, why = self._resolves(ref if isinstance(ref, dict) else {})
                 if not ok:
                     raise ValueError(f"[COVERAGE] não cobre: {why}")
-        self._evals[criterion_id] = {
+        self._evals[key] = {
             "criterion_id": criterion_id,
             "entity_id": entity_id,
             "state": state,
@@ -327,26 +349,88 @@ class Ledger:
             "origin": origin,
             "references": refs,
         }
-        return dict(self._evals[criterion_id])
+        return dict(self._evals[key])
 
     # -- computation ------------------------------------------------------
 
     def _required(self) -> list[dict]:
         return [c for c in self.plan["criteria"] if c.get("required", True)]
 
-    def state_of(self, criterion_id: str) -> str:
-        return self._evals.get(criterion_id, {}).get("state", "uninvestigated")
+    def state_of(self, criterion_id: str, entity_id=None) -> str:
+        if entity_id is not None:
+            return self._evals.get(
+                (criterion_id, entity_id), {}).get("state", "uninvestigated")
+        # Overall state for the criterion: covered only when every
+        # applicable required pair is covered.
+        crit = next((c for c in self.plan["criteria"]
+                     if c["id"] == criterion_id), None)
+        if crit is None:
+            return "uninvestigated"
+        applies = crit.get("applies_to", None)
+        if not applies:
+            for (cid, _), ev in self._evals.items():
+                if cid == criterion_id and ev.get("state") == "covered":
+                    return "covered"
+            direct = self._evals.get((criterion_id, None), {})
+            if direct:
+                return direct.get("state", "uninvestigated")
+            others = [ev for (cid, _), ev in self._evals.items()
+                      if cid == criterion_id]
+            if others:
+                return others[0].get("state", "uninvestigated")
+            return "uninvestigated"
+        if len(applies) == 1:
+            eid = applies[0]
+            for key in ((criterion_id, eid), (criterion_id, None)):
+                st = self._evals.get(key, {}).get("state")
+                if st:
+                    return st
+            return "uninvestigated"
+        pairs = [self._evals.get((criterion_id, eid), {}).get("state",
+                 "uninvestigated") for eid in applies]
+        if all(s == "covered" for s in pairs):
+            return "covered"
+        if any(s == "covered" for s in pairs):
+            return "partial"
+        for s in pairs:
+            if s != "uninvestigated":
+                return s
+        return "uninvestigated"
+
+    def _covered_pairs(self, crit: dict) -> tuple[int, int]:
+        """Return (covered_pairs, total_pairs) for one criterion."""
+        applies = crit.get("applies_to", None)
+        if not applies:
+            total = 1
+            covered = 1 if self.state_of(crit["id"]) == "covered" else 0
+            return covered, total
+        if len(applies) == 1:
+            total = 1
+            eid = applies[0]
+            covered = 1 if (self._evals.get((crit["id"], eid), {}).get(
+                "state") == "covered" or self._evals.get(
+                    (crit["id"], None), {}).get("state") == "covered") else 0
+            return covered, total
+        total = len(applies)
+        covered = sum(1 for eid in applies if self._evals.get(
+            (crit["id"], eid), {}).get("state") == "covered")
+        return covered, total
 
     def compute(self) -> dict:
         """Build the persistable ``question_coverage`` block (no fabrication).
 
-        Denominator = every applicable mandatory criterion, including
-        blocked/uninvestigated ones. Numerator = covered only.
+        Denominator = every applicable (criterion, entity) pair for
+        mandatory criteria, including blocked/uninvestigated ones.
+        Numerator = covered pairs only. A shared criterion is covered
+        only when every entity in applies_to has a covering evaluation.
         """
         required = self._required()
-        total = len(required)
-        covered_n = sum(1 for c in required
-                        if self.state_of(c["id"]) == "covered")
+        total = 0
+        covered_n = 0
+        for c in required:
+            cov, tot = self._covered_pairs(c)
+            covered_n += cov
+            total += tot
         if total == 0:
             proportion = None
             complete = False
@@ -357,8 +441,33 @@ class Ledger:
             status = "covered" if complete else "partial"
         criteria_out, gaps, refs_out = [], [], []
         for c in self.plan["criteria"]:
-            ev = self._evals.get(c["id"], {})
-            state = ev.get("state", "uninvestigated")
+            state = self.state_of(c["id"])
+            # Representative evaluation for display: prefer an explicit
+            # per-entity eval, else the aggregate one.
+            ev = {}
+            applies = c.get("applies_to", None)
+            if applies and len(applies) > 1:
+                for eid in applies:
+                    cand = self._evals.get((c["id"], eid))
+                    if cand and (not ev or cand.get("state") == "covered"):
+                        ev = cand
+                        if cand.get("state") != "covered":
+                            break
+                if not ev:
+                    ev = self._evals.get((c["id"], None), {})
+            elif applies and len(applies) == 1:
+                ev = self._evals.get((c["id"], applies[0]),
+                                     self._evals.get((c["id"], None), {}))
+            else:
+                for (cid, _), cand in self._evals.items():
+                    if cid == c["id"]:
+                        ev = cand
+                        break
+            entity_states = None
+            if applies and len(applies) > 1:
+                entity_states = {eid: self._evals.get(
+                    (c["id"], eid), {}).get("state", "uninvestigated")
+                    for eid in applies}
             entry = {
                 "id": c["id"],
                 "label": c.get("label", c["id"]),
@@ -370,9 +479,13 @@ class Ledger:
                 "entity_id": ev.get("entity_id", None),
                 "references": ev.get("references", []),
             }
+            if entity_states is not None:
+                entry["entity_states"] = entity_states
             criteria_out.append(entry)
-            for r in ev.get("references", []):
-                refs_out.append({"criterion_id": c["id"], **r})
+            for (cid, _), cand in self._evals.items():
+                if cid == c["id"]:
+                    for r in cand.get("references", []):
+                        refs_out.append({"criterion_id": c["id"], **r})
             if entry["required"] and state != "covered":
                 gaps.append({
                     "criterion_id": c["id"],
