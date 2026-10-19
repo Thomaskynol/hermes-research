@@ -95,3 +95,84 @@ PYTHONPATH=/tmp/adaptive_snapshot python3 \
 Import da entrada (`gpt_researcher_integration`) verificado em subprocesso
 isolado: sem `/opt/data` em `sys.path`, módulos próprios resolvendo para o
 snapshot, `bootstrap_runtime(do_sync=False)` sem `sync`.
+
+## Validação adaptativa fix/review-85dac79 (snapshot isolado)
+
+Snapshot: `cp -a <repo>/. /tmp/adaptive_snapshot_85dac79/` (fora do Git).
+Execução (sem tocar produção, sem `sync_config`/credenciais, offline via
+audithook, `PYTHONPATH` do snapshot, `--output-dir /tmp`):
+
+```bash
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests -p test_review_85dac79.py -v
+# → 8 passed (S01–S08), exit 0
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests -p test_review_regressions.py -v
+# → 14 passed (R01–R14), exit 0
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests -p "test_adaptive*.py" -v
+# → 26 passed (18 adaptativos + 8 entrada), exit 0
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests -p "test_question*.py" -v
+# → 11 passed, exit 0
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests \
+  -p "test_*85dac79.py" -v
+# → 8 (S01–S08) + 2 (órfão) + 4 (execução única/canal/config/YT) +
+#    4 contratos (skip no host sem lib; passam no container) verdes
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 python3 \
+  /tmp/adaptive_snapshot_85dac79/scripts/run_replay_offline_validation.py \
+  --frozen-report /tmp/adaptive_snapshot_85dac79/fixtures/RELATORIO_CORRIGIDO_184601.md \
+  --frozen-evidence /tmp/adaptive_snapshot_85dac79/fixtures/replay_corrigido_evidence.json \
+  --output-dir /tmp/adaptive_out_85dac79fix
+# → 11/11 suítes exit 0 (83 casos históricos, expectations/fixtures intactos)
+```
+
+No container (`hermes-gateway`, venv
+`/opt/data/home/.agent-reach-venv`, Python 3.13.5, `gpt-researcher 0.16.0`):
+
+```bash
+docker cp /home/thomaskyn/Projetos/hermes-research-dev/. \
+  hermes-gateway:/tmp/adaptive_snapshot_85dac79/
+docker exec hermes-gateway \
+  /opt/data/home/.agent-reach-venv/bin/python -c \
+  "import importlib.metadata as m; print(m.version('gpt-researcher'))"
+# → 0.16.0 (via metadata, nunca __version__)
+PYTHONPATH=/tmp/adaptive_snapshot_85dac79 \
+  /opt/data/home/.agent-reach-venv/bin/python -m unittest discover \
+  -s /tmp/adaptive_snapshot_85dac79/tests -p "test_*85dac79.py" -v
+# → contratos passam com a biblioteca instalada; transportes externos
+#    substituídos/bloqueados; módulos próprios do snapshot; sem produção.
+```
+
+Garantias demonstradas (S01–S08 + estáticos):
+
+- Teto de modelo nos transportes efetivos (lotes/votos/reparos/retentativas);
+  auditor padrão sem isenção, `SEMANTIC_REVIEW=0` respeitado; sem saldo p/
+  revisão completa → não-revisado + parcial; teto zero = nenhuma chamada
+  remota; sem retentativa após `TypeError` (contrato único adaptado antes).
+- Avaliação registra fontes/trechos/hashes/cortes DAQUELA chamada; referência
+  fora da seleção nunca justifica covered; unidades completas (sem corte
+  arbitrário); lotes por relevância/não-enviados p/ >24 docs e rodadas
+  posteriores. `propose_entity` atravessa o assessor → versionamento do plano.
+- Qualificação reutilizada p/ strings (erro puro excluído; parciais/metadados
+  com alcance); corte 2000 chars rastreável (cabeçalhos/separadores contam;
+  `included_urls` só do prompt final); YouTube textual preservado, sem ASR.
+- Avaliações acumuladas por (critério,entidade) com revisões explícitas;
+  retomada sem regressão sem evidência invalidante; `_reconcile_resume`
+  `orph→orphan` corrigido + ramo órfão testado; `run_id`/consumo preservados.
+- Fiação real: `_adaptive_main` delega a `adaptive_entry` (mesmo caminho da
+  CLI; teste direto sem duplicar lógica). Ver `docs/LIBRARY_CONTRACTS_85dac79.md`.
+- Estáticos: `orph` corrigido; coerência config JSON × `SMART_LLM` × componentes
+  validada no runtime (`_validate_runtime_config`); `prod_path` só explícito;
+  `analyzed/used` em unidades de documentos/fontes.
+
+Limitações explícitas (não apresentadas como teto global):
+
+- 1 invocação de fronteira = 1 unidade de orçamento; voto do auditor = 1
+  unidade; lotes autorizados por chunk sem chamada quando sem saldo. Requests
+  internos da biblioteca (ex.: múltiplos requests por `quick_search`) não têm
+  atribuição fina — declarados como não-protegidos.
+- Validação offline (audithook, transportes simulados) + compatibilidade com a
+  biblioteca instalada (assinaturas/versão/localização) — pesquisa real com
+  modelo/rede (piloto) ainda pendente, sem tocar produção.

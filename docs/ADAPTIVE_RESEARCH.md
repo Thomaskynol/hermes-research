@@ -122,7 +122,12 @@ sem `sync_config`/credenciais, sem tocar `/opt/data` nem `~/.hermes`):
   pendente e deve ocorrer em ambiente com credenciais.
 - Concorrência: executada sequencialmente com o limite registrado; paralelismo
   real com o mesmo teto é trabalho futuro.
-- Uma chamada externa pode conter múltiplas buscas/chamadas internas; a
-  contagem atual trata 1 invocação de fronteira como 1 chamada de modelo
-  (documentado como shortcut em `adaptive_coordinator.py`); atribuição fina
-  por chamada interna é trabalho futuro.
+- Orçamento por transporte efetivo (fronteiras: lotes/votos/reparos/
+  retentativas): assessor 1 unidade por chamada (contrato único, sem
+  retentativa após `TypeError`); auditor padrão 1 unidade por voto
+  (`_review_pass`), lotes (`batch_size=12`) autorizados individualmente via
+  `_AUDIT_BUDGET_CHECK` (teto zero = nenhuma chamada remota). Requests
+  internos da biblioteca (ex.: múltiplos requests por `quick_search`/
+  `conduct_research`) não têm atribuição fina — declarados como
+  não-protegidos, nunca apresentados como teto global de requests.
+  `analyzed/used` em unidades de documentos/fontes (distintos referenciados).
