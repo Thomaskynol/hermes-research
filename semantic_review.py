@@ -398,6 +398,13 @@ _COVERAGE_NEXT_CLAIM_ID: int = 0
 # finish_reason, provider_usage, response_content, protocol_error. Sem credenciais.
 _MODEL_CALL_METADATA: list[dict] = []
 
+# Gancho opcional de orçamento para o auditor padrão (adaptive_coordinator):
+# _AUDIT_BUDGET_CHECK() -> True quando mais uma chamada efetiva ao provedor
+# é autorizada. Quando None, sem limite (compatibilidade histórica).
+# Verificado por lote (chunk) dentro de _review_pass, antes de cada
+# transporte real; teto zero => nenhuma chamada remota.
+_AUDIT_BUDGET_CHECK = None
+
 
 def _reset_coverage() -> None:
     global _COVERAGE_BLOCKS, _COVERAGE_CLAIMS, _COVERAGE_DROPPED
@@ -1703,6 +1710,22 @@ async def _review_pass(items: list[dict], model: str,
     out: list[dict] = []
     for i in range(0, len(items), batch_size):
         chunk = items[i:i + batch_size]
+        # Teto por lote: sem saldo, nenhum transporte remoto é autorizado.
+        if _AUDIT_BUDGET_CHECK is not None:
+            try:
+                if not _AUDIT_BUDGET_CHECK():
+                    out.extend({"id": it["id"], "verdict": "transport_error",
+                                "support": "",
+                                "correction": "orçamento esgotado: lote não "
+                                "autorizado (sem chamada remota)"}
+                               for it in chunk)
+                    continue
+            except Exception:
+                out.extend({"id": it["id"], "verdict": "transport_error",
+                            "support": "",
+                            "correction": "orçamento indisponível: lote não "
+                            "autorizado"} for it in chunk)
+                continue
         payload = [{k: it[k] for k in
                     ("id", "claim", "packages", "licences", "free_assertion",
                      "evidence")} for it in chunk]

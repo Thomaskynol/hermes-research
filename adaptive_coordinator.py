@@ -190,7 +190,14 @@ def _note_model_call(state: dict) -> None:
 
 
 def _update_ledger_counts(state: dict, ledger) -> None:
-    """Observed stage counts from real events only (never inferred)."""
+    """Observed stage counts from real events only (never inferred).
+
+    Units (declared): discovered/obtained/qualified/cited count distinct
+    documents/fontes (URLs); analyzed/used count distinct documents
+    referenced by evaluations (analyzed = any evaluation, used = those
+    sustaining covered/partial). Evaluation counts are NOT used here so
+    the stages stay in document units.
+    """
     try:
         ev = state.get("evidence", {}) or {}
         qual = state.get("qualification", {}) or {}
@@ -199,8 +206,17 @@ def _update_ledger_counts(state: dict, ledger) -> None:
         obtained = sum(1 for t in ev.values()
                        if isinstance(t, str) and t.strip())
         qualified = sum(1 for u in ev if u in qual)
-        used = sum(1 for e in evals if isinstance(e, dict) and e.get(
-            "state") in ("covered", "partial"))
+        analyzed_urls: set[str] = set()
+        used_urls: set[str] = set()
+        for e in evals:
+            if not isinstance(e, dict):
+                continue
+            for r in (e.get("references", []) or []):
+                u = (r or {}).get("url", (r or {}).get("doc_id", ""))
+                if isinstance(u, str) and u:
+                    analyzed_urls.add(u)
+                    if e.get("state") in ("covered", "partial"):
+                        used_urls.add(u)
         report_text = (state.get("report", {}) or {}).get("text", "") or ""
         cited = sum(1 for u in set(list(ev) + list(cands))
                   if u and u in report_text)
@@ -208,8 +224,8 @@ def _update_ledger_counts(state: dict, ledger) -> None:
             "discovered": len(set(list(ev) + list(cands))),
             "obtained": obtained,
             "qualified": qualified,
-            "analyzed": len(evals),
-            "used": used,
+            "analyzed": len(analyzed_urls),
+            "used": len(used_urls),
             "cited": cited,
         })
     except Exception:
@@ -315,7 +331,9 @@ def _default_writer(view: dict) -> tuple[str, dict]:
                               "fallback": True}
 
 
-def make_model_assessor(model_client):
+def make_model_assessor(model_client, max_docs: int = 24,
+                        excerpt_chars: int = 1200,
+                        json_budget: int = 12000):
     """Model-backed assessor injectable at the boundary.
 
     Receives (plan, evidence, qualification, attempts?) and returns a
@@ -325,35 +343,79 @@ def make_model_assessor(model_client):
     references); invalid entries are dropped (insufficiency preserved,
     never fabricated). Insufficiency/contradiction/failure preserved.
     Transport failures propagate as TransportError.
+
+    Selection (auditable, per call): up to max_docs COMPLETE units
+    (never an arbitrary JSON slice), each with url/excerpt/sha/status/
+    cuts. Order prioritizes not-yet-sent material (so later rounds with
+    >24 docs evaluate new evidence in bounded batches, never the same
+    fixed prefix), then insertion order. The exact selection (urls,
+    hashes, excerpts, cuts) is exposed as assess.last_selection for the
+    caller to validate references against (storage outside the selection
+    never justifies covered in that call). Open-discovery proposals
+    (propose_entity) are preserved for plan versioning.
     """
     import json as _json
+
+    _sent: set[str] = set()
 
     def assess(plan, evidence, qualification, attempts=None):
         evidence = dict(evidence or {})
         qualification = dict(qualification or {})
         attempts = dict(attempts or {})
-        # Real selection: cap excerpts so the prompt is bounded; record
-        # what was sent (selection is auditable via notes upstream).
-        items = []
-        for url, text in list(evidence.items())[:24]:
-            qual = qualification.get(url, {})
-            items.append({
+        # Order: unsent first (new material from later rounds reaches the
+        # model in bounded batches), then already-sent, each in insertion
+        # order (stable; no name-based rules). No fixed prefix: batches
+        # rotate as _sent grows.
+        ordered = [u for u in evidence if u not in _sent] + \
+                  [u for u in evidence if u in _sent]
+        # Real selection: complete units within the JSON budget.
+        items, cuts = [], []
+        used_budget = 0
+        for url in ordered[:max_docs]:
+            text = evidence.get(url) or ""
+            qual = qualification.get(url, {}) or {}
+            excerpt = (text or "")[:excerpt_chars]
+            if len(text or "") > len(excerpt):
+                cuts.append(f"truncado {url} "
+                            f"{len(text)}->{len(excerpt)} chars")
+            entry = {
                 "url": url,
-                "excerpt": (text or "")[:1200],
+                "excerpt": excerpt,
+                "sha": _content_hash(excerpt or ""),
+                "raw_chars": len(text or ""),
                 "status": qual.get("status", "?"),
                 "excluded": bool(qual.get("excluded", False)),
-            })
+            }
+            blob = _json.dumps(entry, ensure_ascii=False)
+            if used_budget + len(blob) > json_budget and items:
+                cuts.append(f"teto JSON {json_budget} chars atingido; "
+                            f"{len(ordered)-len(items)} fontes fora")
+                break
+            items.append(entry)
+            used_budget += len(blob)
+            _sent.add(url)
+        if len(ordered) > len(items):
+            cuts.append(f"lote {len(items)}/{len(ordered)} fontes nesta "
+                        f"chamada; restante em lotes posteriores")
+        selection = {"urls": [i["url"] for i in items],
+                     "hashes": {i["url"]: i["sha"] for i in items},
+                     "raw_chars": {i["url"]: i["raw_chars"] for i in items},
+                     "cuts": "; ".join(cuts) if cuts else "sem cortes",
+                     "batch": f"{len(items)}/{len(ordered)}"}
+        assess.last_selection = selection
         prompt = (
             "Você avalia evidências contra um plano. Retorne SOMENTE JSON: "
             "uma lista de avaliações.\n"
             f"Plano: {_json.dumps(plan, ensure_ascii=False)[:6000]}\n"
-            f"Material selecionado: {_json.dumps(items, ensure_ascii=False)[:12000]}\n"
+            f"Material selecionado: {_json.dumps(items, ensure_ascii=False)}\n"
             f"Tentativas: {_json.dumps(attempts, ensure_ascii=False)[:3000]}\n"
             "Cada avaliação: {criterion_id, entity_id?, state "
             "(covered|partial|insufficient|contradictory|blocked), "
-            "justification, origin, references:[{url}]}. "
+            "justification, origin, references:[{url}], "
+            "propose_entity?: {entity:{id,label?}, criteria?}}. "
             "Sem evidência utilizável -> insufficient/blocked; "
-            "divergência real -> contradictory; nunca invente cobertura."
+            "divergência real -> contradictory; nunca invente cobertura. "
+            "Referencie SOMENTE urls do material selecionado acima."
         )
         try:
             raw = model_client(prompt)
@@ -386,16 +448,22 @@ def make_model_assessor(model_client):
             refs = ev.get("references", []) or []
             if ev.get("state") in ("covered", "partial") and not refs:
                 continue
-            out.append({
+            entry = {
                 "criterion_id": ev["criterion_id"],
                 "entity_id": ev.get("entity_id"),
                 "state": ev["state"],
                 "justification": ev["justification"],
                 "origin": ev["origin"],
                 "references": refs if isinstance(refs, list) else [],
-            })
+            }
+            # Open discovery atravessa o assessor de aplicação (sem fixar
+            # nomes): proposta validada no versionamento do plano.
+            if isinstance(ev.get("propose_entity"), dict):
+                entry["propose_entity"] = ev["propose_entity"]
+            out.append(entry)
         return out
 
+    assess.last_selection = None  # type: ignore[attr-defined]
     return assess
 
 
@@ -414,25 +482,46 @@ def make_model_writer(model_client, max_chars: int = 12000):
         question = view.get("question", "")
         cov = view.get("question_coverage", {}) or {}
         evidence = dict(view.get("evidence", {}) or {})
-        # Real selection: cap corpus; record cuts.
+        # Real selection, rastreável: unidades completas por documento,
+        # corte de 2000 chars por documento SEMPRE registrado; limites
+        # contam cabeçalhos+separadores reais; included_urls só com
+        # material do prompt final.
+        per_doc = 2000
         included, cuts, budget = [], [], int(max_chars)
         parts = []
         total = 0
+        sep = "\n\n"
         for url in sorted(evidence):
             text = evidence[url] or ""
-            chunk = text[:2000]
-            if total + len(chunk) > budget:
-                cuts.append(f"truncado {url} ao teto {budget} chars")
-                chunk = chunk[:max(0, budget - total)]
-            if chunk.strip():
-                parts.append(f"Fonte {url}:\n{chunk}")
-                included.append(url)
-                total += len(chunk)
+            raw_len = len(text)
+            chunk = text[:per_doc]
+            if raw_len > len(chunk):
+                cuts.append(f"truncado {url} {raw_len}->{len(chunk)} chars "
+                            f"(corte por documento {per_doc})")
+            if not chunk.strip():
+                continue
+            header = f"Fonte {url}:\n"
+            block = header + chunk
+            if total + len(block) > budget:
+                allowed = max(0, budget - total - len(header))
+                chunk = chunk[:allowed]
+                block = header + chunk
+                cuts.append(f"truncado {url} ao teto {budget} chars "
+                            f"(cabeçalho+separador contam)")
+                if not chunk.strip():
+                    cuts.append(f"teto de seleção {budget} chars atingido; "
+                                f"{len(evidence)-len(included)} fontes fora")
+                    break
+            parts.append(block)
+            included.append(url)
+            total += len(block) + (len(sep) if parts else 0)
             if total >= budget:
                 cuts.append(f"teto de seleção {budget} chars atingido; "
                             f"{len(evidence)-len(included)} fontes fora")
                 break
-        corpus_s = "\n\n".join(parts)[:budget]
+        corpus_s = sep.join(parts)
+        # Sem corte arbitrário no JSON/serialização: unidades completas;
+        # qualquer teto já foi aplicado por bloco acima e registrado.
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
@@ -461,7 +550,18 @@ def make_model_writer(model_client, max_chars: int = 12000):
 
 def _default_auditor(report: str, evidence: dict) -> dict:
     """Real-path auditor: lazy semantic_review with its quorum/tie/failure
-    protections. Never hides question gaps (recorded separately)."""
+    protections. Never hides question gaps (recorded separately).
+
+    Honors SEMANTIC_REVIEW=0 (explicit disable, no model call). Budget
+    authorization/counting lives in _finalize (per effective transport:
+    lotes/votos/reparos/retentativas); this function never bypasses it.
+    """
+    import os as _os
+    if _os.environ.get("SEMANTIC_REVIEW", "").strip() == "0":
+        return {"enabled": False,
+                "verdict_state": "não revisado semanticamente",
+                "accepted": False,
+                "note": "revisão semântica desativada via SEMANTIC_REVIEW=0"}
     try:
         import semantic_review as _sr
     except ImportError:
@@ -500,19 +600,43 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         return [], ledger.compute()
     if not is_default_assessor:
         _note_model_call(state)
+    # Contrato único com adaptação explícita de assinatura ANTES da
+    # execução: uma só chamada, nunca retentativa após TypeError interno.
+    # Falhas internas contam (budget já debitado), nunca geram chamadas
+    # ocultas.
+    import inspect as _inspect
     try:
-        try:
+        _sig = _inspect.signature(assess_fn)
+        _params = list(_sig.parameters.values())
+        _has_var = any(p.kind == _inspect.Parameter.VAR_POSITIONAL
+                       for p in _params)
+        _n_pos = sum(1 for p in _params if p.kind in (
+            _inspect.Parameter.POSITIONAL_ONLY,
+            _inspect.Parameter.POSITIONAL_OR_KEYWORD))
+        _use_four = _has_var or _n_pos >= 4
+    except (TypeError, ValueError):
+        _use_four = True
+    try:
+        if _use_four:
             evals = assess_fn(state["plan"], dict(state["evidence"]),
                               dict(state["qualification"]),
                               dict(state.get("attempts", {}))) or []
-        except TypeError:
-            # Retro-compat: 3-arg assessors (plan, evidence, qualification).
+        else:
             evals = assess_fn(state["plan"], dict(state["evidence"]),
                               dict(state["qualification"])) or []
     except TransportError:
         raise
     except Exception as exc:
         raise TransportError(f"assessor failed: {exc}")
+    # Seleção analisada DAQUELA chamada (quando o assessor a expõe):
+    # referência fora da seleção nunca justifica covered nessa avaliação.
+    _sel_urls: set[str] | None = None
+    try:
+        _sel = getattr(assess_fn, "last_selection", None)
+        if isinstance(_sel, dict) and isinstance(_sel.get("urls"), list):
+            _sel_urls = set(_sel["urls"])
+    except Exception:
+        _sel_urls = None
     # Structured validation: every evaluation must be a dict with a known
     # criterion, valid state, justification + origin; references must
     # resolve via the ledger (invalid -> kept as insufficiency, never
@@ -530,6 +654,16 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                 f"assessor evaluation for {ev.get('criterion_id')} has "
                 f"unknown state {st!r}: kept as insufficiency")
             continue
+        if st in ("covered", "partial") and _sel_urls is not None:
+            _refs = ev.get("references", []) or []
+            _ref_urls = {(r or {}).get("url", (r or {}).get("doc_id", ""))
+                         for r in _refs if isinstance(r, dict)}
+            if not _ref_urls or not _ref_urls.issubset(_sel_urls):
+                state["notes"].append(
+                    f"assessor evaluation for {ev.get('criterion_id')} "
+                    f"references material outside the analyzed selection: "
+                    f"kept as insufficiency")
+                continue
         try:
             ledger.evaluate(ev["criterion_id"], st,
                             ev.get("justification", ""), ev.get("origin", ""),
@@ -548,8 +682,28 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         proposal = (ev or {}).get("propose_entity")
         if proposal and state["discovery"]["open"]:
             _apply_discovery(state, ledger, proposal, ev)
+    # Persistência acumulada por célula (critério,entidade): a resposta
+    # incremental do assessor nunca apaga avaliações válidas anteriores;
+    # revisões/invalidações são explícitas em notes.
+    try:
+        _merged: dict[tuple, dict] = {}
+        for _prev in (state.get("evaluations", []) or []):
+            if isinstance(_prev, dict) and "criterion_id" in _prev:
+                _merged[(_prev.get("criterion_id"),
+                         _prev.get("entity_id"))] = _prev
+        for _ev in applied:
+            _key = (_ev.get("criterion_id"), _ev.get("entity_id"))
+            _old = _merged.get(_key)
+            if _old is not None and _old.get("state") != _ev.get("state"):
+                state["notes"].append(
+                    f"evaluation revised for {_key}: "
+                    f"{_old.get('state')} -> {_ev.get('state')} "
+                    f"(origin={_ev.get('origin', '')[:80]})")
+            _merged[_key] = _ev
+        state["evaluations"] = list(_merged.values())
+    except Exception:
+        state["evaluations"] = applied
     # Counts after evaluations: analyzed/used reflect what was applied.
-    state["evaluations"] = applied
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
     return applied, block
@@ -623,7 +777,7 @@ def _reconcile_resume(state: dict, checkpoint, run_dir) -> None:
     if orphan:
         state["notes"].append(
             f"resume: {len(orphan)} checkpoint source(s) without evidence "
-            f"-> explicit retry (no exactly-once): {orph[:3]}")
+            f"-> explicit retry (no exactly-once): {orphan[:3]}")
         # Record as candidates so gap selection can retry them explicitly.
         cands = state.setdefault("discovery", {}).setdefault("candidates", [])
         for u in orphan:
@@ -860,7 +1014,8 @@ def run_adaptive(question: str, *, profile: str = "light",
         _update_ledger_counts(state, ledger)
         block = ledger.compute()
         applied = []
-        state["evaluations"] = applied
+        # Falha preserva avaliações acumuladas (nunca apaga sem evidência
+        # invalidante).
         state["stop"] = {"reason": "failure", "partial": True,
                          "detail": f"assessor failed: {exc}"}
         state["rounds"].append({
@@ -891,7 +1046,7 @@ def run_adaptive(question: str, *, profile: str = "light",
                 state["notes"].append(f"checkpoint initial-sweep failed: {exc2}")
         return _finalize(state, resolved, budget, block, write, audit,
                          t_start, now, run_dir)
-    state["evaluations"] = applied
+    # state["evaluations"] já acumulado em _assess_round; não sobrescrever.
     prev_proportion = block.get("proportion")
     prev_segments = 0
     state["rounds"].append({
@@ -1026,7 +1181,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                              "detail": f"assessor failed: {exc}"}
             return _finalize(state, resolved, budget, block, write, audit,
                              t_start, now, run_dir)
-        state["evaluations"] = applied
+        # state["evaluations"] já acumulado em _assess_round; não sobrescrever.
         new_prop = block.get("proportion")
         delta = (_prop_delta(prev_proportion, new_prop))
         prev_proportion = new_prop
@@ -1403,16 +1558,42 @@ def _run_fetch(fetch_fn, op: dict, url: str):
         raise TransportError(f"fetch failed for {url[:80]}: {exc}")
 
 
+def _string_qual_via_shared(text: str, url: str) -> dict | None:
+    """Reuse the existing evidence qualification for raw strings.
+
+    Pure error strings (e.g. 'ERROR: HTTP 403 Forbidden...') are never
+    usable evidence; partials/metadata keep their scope. Returns None when
+    the shared qualifier is unavailable (caller falls back to minimal).
+    """
+    try:
+        import semantic_review as _sr
+        qfn = getattr(_sr, "_qualify_evidence_entry", None)
+        if callable(qfn):
+            q = qfn(url, text or "")
+            return {"status": q.get("status", "usable"),
+                    "reason": q.get("reason", "shared qualification"),
+                    "usable_text": q.get("usable_text", ""),
+                    "excluded": bool(q.get("excluded", False))}
+    except Exception:
+        pass
+    return None
+
+
 def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
     """Accept str | {text,...} payloads. Qualification is recorded, never
     invented: unknown payloads get a minimal usable record only when they
-    carry non-empty text, otherwise excluded."""
+    carry non-empty text, otherwise excluded. String payloads reuse the
+    shared qualification (error-only never usable)."""
     if isinstance(payload, str):
         text = payload
+        if not text.strip():
+            return text, {"status": "empty", "reason": "empty payload",
+                          "usable_text": "", "excluded": True}
+        shared = _string_qual_via_shared(text, url)
+        if shared is not None:
+            return text, shared
         qual = {"status": "usable", "reason": "injected corpus text",
-                "usable_text": text, "excluded": False} if text.strip() else \
-            {"status": "empty", "reason": "empty payload", "usable_text": "",
-             "excluded": True}
+                "usable_text": text, "excluded": False}
         return text, qual
     if isinstance(payload, dict):
         text = payload.get("text", "") or ""
@@ -1428,6 +1609,12 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
             qual["usable_text"] = ""
             qual.setdefault("reason", "error payload excluded by default")
             return text, qual
+        # Even without an explicit error status, an error-only TEXT is
+        # never usable (same shared rule as string payloads).
+        if text.strip() and "status" not in qual:
+            shared = _string_qual_via_shared(text, url)
+            if shared is not None and shared.get("excluded"):
+                return text, shared
         if "excluded" not in qual:
             qual["excluded"] = not bool(text.strip())
         qual.setdefault("usable_text", text if not qual["excluded"] else "")
@@ -1501,19 +1688,79 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                        "sha": _content_hash(report_text or ""),
                        "selection": selection,
                        "words": len((report_text or "").split())}
-    # -- audit (1 model-boundary call when a real auditor is used) ----
+    # -- audit (transportes efetivos: lotes/votos/reparos/retentativas)
+    # Teto imposto ANTES dos transportes reais; quórum/empates/falhas/
+    # extração do semantic_review preservados. Teto zero => nenhuma chamada
+    # remota; sem saldo p/ revisão completa => não-revisado + parcial.
+    # Granularidade declarada: cada voto (_review_pass) é 1 unidade de
+    # orçamento; lotes (chunks) dentro do voto são autorizados
+    # individualmente via _AUDIT_BUDGET_CHECK (sem chamada quando sem
+    # saldo). Uma unidade de operação não equivale a 1 request real —
+    # ver docs/OFFLINE_VALIDATION.md (limitação explícita, sem teto
+    # global fictício p/ requests internos da biblioteca).
     if audit is None:
         audit = _default_auditor
     audit_is_default = (audit is _default_auditor)
     if audit_is_default:
-        try:
-            semantic = audit(report_text, dict(state["evidence"]))
-        except TransportError as exc:
-            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
-                        "accepted": False, "note": f"auditor failure: {exc}"}
-        except Exception as exc:
-            semantic = {"enabled": True, "verdict_state": "revisão incompleta",
-                        "accepted": False, "note": f"auditor failure: {exc}"}
+        import os as _os
+        if _os.environ.get("SEMANTIC_REVIEW", "").strip() == "0":
+            semantic = {"enabled": False,
+                        "verdict_state": "não revisado semanticamente",
+                        "accepted": False,
+                        "note": "revisão semântica desativada via "
+                        "SEMANTIC_REVIEW=0"}
+        elif not _check_model_budget(state, resolved):
+            state["notes"].append(
+                "audit skipped: max_model_calls exhausted (verdict unknown)")
+            semantic = {"enabled": False,
+                        "verdict_state": "não revisado semanticamente",
+                        "accepted": False,
+                        "note": "audit skipped: model budget exhausted "
+                        "(sem revisão completa sem saldo)"}
+        else:
+            try:
+                import semantic_review as _sr
+                _orig_pass = _sr._review_pass
+                _orig_check = getattr(_sr, "_AUDIT_BUDGET_CHECK", None)
+
+                def _budget_ok() -> bool:
+                    return bool(_check_model_budget(state, resolved))
+
+                async def _counting_pass(items, model, batch_size=12):
+                    if not _check_model_budget(state, resolved):
+                        raise TransportError(
+                            "audit budget exhausted: voto não autorizado")
+                    _note_model_call(state)
+                    return await _orig_pass(items, model, batch_size)
+
+                _sr._AUDIT_BUDGET_CHECK = _budget_ok
+                _sr._review_pass = _counting_pass  # type: ignore
+                try:
+                    semantic = audit(report_text, dict(state["evidence"]))
+                finally:
+                    _sr._review_pass = _orig_pass  # type: ignore
+                    _sr._AUDIT_BUDGET_CHECK = _orig_check
+            except TransportError as exc:
+                try:
+                    import semantic_review as _sr2
+                    _sr2._review_pass = _orig_pass  # type: ignore
+                    _sr2._AUDIT_BUDGET_CHECK = _orig_check
+                except Exception:
+                    pass
+                semantic = {"enabled": True,
+                            "verdict_state": "revisão incompleta",
+                            "accepted": False,
+                            "note": f"auditor failure: {exc}"}
+            except Exception as exc:
+                try:
+                    import semantic_review as _sr2
+                    _sr2._review_pass = _orig_pass  # type: ignore
+                    _sr2._AUDIT_BUDGET_CHECK = _orig_check
+                except Exception:
+                    pass
+                semantic = {"enabled": True,
+                            "verdict_state": "revisão incompleta",
+                            "accepted": False, "note": f"auditor failure: {exc}"}
     elif not _check_model_budget(state, resolved):
         state["notes"].append(
             "audit skipped: max_model_calls exhausted (verdict unknown)")
