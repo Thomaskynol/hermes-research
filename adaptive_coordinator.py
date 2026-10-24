@@ -41,6 +41,7 @@ import adaptive_planner as _planner
 import adaptive_state as _state
 import coverage_ledger as _ledger
 import depth_profiles as _profiles
+import research_counters as _counters
 import run_budget as _run_budget
 
 try:
@@ -131,8 +132,10 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
     reported, not stored twice; distinct excerpts accumulate."""
     kind = classify_hit(state, url, text or "")
     if kind in ("new_useful", "confirmed"):
+        prior = [s for s in state["segments"] if s.get("url") == url]
+        digest = _content_hash(text or "")
         state["segments"].append({
-            "url": url, "excerpt": text, "sha": _content_hash(text or ""),
+            "url": url, "excerpt": text, "sha": digest,
             "op_id": op_id, "round": round_no,
         })
         prev = state["evidence"].get(url, "")
@@ -141,6 +144,24 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
         if qualification is not None:
             state["qualification"][url] = dict(qualification)
         state["consumption"]["docs"] += 1
+        # Counters: obtained/usable are observed here (content really came
+        # back + qualification allows it). Metadata/video-without-transcript
+        # never increments obtained (research_counters enforces it).
+        _counters.record_obtained(state, url, text or "", qualification)
+        _counters.record_usable(state, url, qualification)
+        if prior:
+            _counters.register_relation(
+                state, url, url, "version",
+                f"trecho distinto da mesma URL ({len(prior)} anterior(es))")
+    elif kind == "duplicate":
+        digest = _content_hash(text or "")
+        same = next((s for s in state["segments"]
+                     if s.get("sha") == digest), None)
+        if same and same.get("url") != url:
+            _counters.register_relation(
+                state, url, same.get("url", ""), "duplicate",
+                "bytes idênticos em outra URL (republicação; independência "
+                "desconhecida)")
     return kind
 
 
@@ -192,13 +213,25 @@ def _note_model_call(state: dict) -> None:
 def _update_ledger_counts(state: dict, ledger) -> None:
     """Observed stage counts from real events only (never inferred).
 
-    Units (declared): discovered/obtained/qualified/cited count distinct
-    documents/fontes (URLs); analyzed/used count distinct documents
-    referenced by evaluations (analyzed = any evaluation, used = those
-    sustaining covered/partial). Evaluation counts are NOT used here so
-    the stages stay in document units.
+    The six-stage contract lives in ``state['counters']`` (document units):
+    discovered/obtained/usable/analyzed/used_in_synthesis/cited. The ledger
+    keeps its own stage names (qualified/used) and receives the mapped values
+    when the counter structure has observed events; otherwise the legacy
+    evidence/evaluation view is used (no regression for old states).
     """
     try:
+        snapshot = _counters.counters_snapshot(state)
+        counts = snapshot.get("counts", {})
+        if any(int(counts.get(s, 0) or 0) for s in _counters.STAGES):
+            ledger.set_observed_counts({
+                "discovered": counts.get("discovered", 0),
+                "obtained": counts.get("obtained", 0),
+                "qualified": counts.get("usable", 0),
+                "analyzed": counts.get("analyzed", 0),
+                "used": counts.get("used_in_synthesis", 0),
+                "cited": counts.get("cited", 0),
+            })
+            return
         ev = state.get("evidence", {}) or {}
         qual = state.get("qualification", {}) or {}
         cands = state.get("discovery", {}).get("candidates", []) or []
@@ -635,6 +668,9 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         _sel = getattr(assess_fn, "last_selection", None)
         if isinstance(_sel, dict) and isinstance(_sel.get("urls"), list):
             _sel_urls = set(_sel["urls"])
+            # analyzed = documents really sent to the assessor (document
+            # units, never chunks); union across calls, never inferred.
+            _counters.record_analyzed(state, _sel["urls"])
     except Exception:
         _sel_urls = None
     # Structured validation: every evaluation must be a dict with a known
@@ -706,6 +742,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     # Counts after evaluations: analyzed/used reflect what was applied.
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
+    state["gaps"] = list(block.get("gaps") or [])
     return applied, block
 
 
@@ -822,6 +859,7 @@ def run_adaptive(question: str, *, profile: str = "light",
                  assess_fn=None, writer_fn=None, auditor_fn=None,
                  clock=None, budget=None, run_dir=None, run_id: str = "",
                  overrides: dict | None = None,
+                 quantitative: list | None = None,
                  checkpoint=None, resume: bool = False) -> dict:
     """Execute the adaptive loop. All external effects are injected.
 
@@ -938,6 +976,8 @@ def run_adaptive(question: str, *, profile: str = "light",
                                       "vast_max", "yt_live", "max_rounds",
                                       "max_model_calls", "max_ops_per_round",
                                       "time_s", "concurrency", "budget")})
+    state["quantitative_specs"] = [dict(s) for s in (quantitative or [])
+                                   if isinstance(s, dict)]
     if checkpoint is None and run_dir is not None and _checkpoint is not None:
         checkpoint = _checkpoint.Checkpoint(run_dir)
     if run_dir is not None:
@@ -1359,6 +1399,29 @@ def _persist_progress(state: dict, run_dir, checkpoint, url: str, text: str,
 def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
                  resolved: dict, now, t_start, checkpoint, round_no: int,
                  run_dir=None) -> None:
+    """Execute ops within limits: sequential path at concurrency=1, real
+    bounded pool above it (see ``_execute_ops_parallel``).
+
+    The declared limit is ``resolved['concurrency']``. It bounds OUR op
+    transports (search/fetch); per-source internal request caps remain the
+    transport's own responsibility (declared, not a global ceiling).
+    """
+    try:
+        concurrency = int(resolved.get("concurrency", 1) or 1)
+    except (TypeError, ValueError):
+        concurrency = 1
+    if concurrency <= 1 or len(ops) <= 1:
+        return _execute_ops_sequential(
+            state, ops, search_fn, fetch_fn, budget, resolved, now, t_start,
+            checkpoint, round_no, run_dir)
+    return _execute_ops_parallel(
+        state, ops, search_fn, fetch_fn, budget, resolved, now, t_start,
+        checkpoint, round_no, run_dir, concurrency)
+
+
+def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
+                            budget, resolved: dict, now, t_start, checkpoint,
+                            round_no: int, run_dir=None) -> None:
     """Run ops sequentially within limits (concurrency recorded; the offline
     path executes sequentially — no fabricated parallelism).
 
@@ -1477,6 +1540,10 @@ def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
                 f"op {op['op_id']} transport failure "
                 f"(canal {op.get('channel')}): {exc}")
             continue
+        # discovered = URLs really seen in search results (observed event).
+        _counters.record_discovered(
+            state, [h.get("url") if isinstance(h, dict) else h
+                    for h in (hits or [])])
         best = "nogain"
         for hit in (hits or [])[:resolved["vast_max"]]:
             url = hit.get("url") if isinstance(hit, dict) else hit
@@ -1534,6 +1601,274 @@ def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
             if pending.get("op_id") == op.get("op_id"):
                 pending["status"] = op["status"]
                 pending["outcome"] = best
+
+
+def _record_op_outcome(state: dict, op: dict, status: str, outcome: str,
+                       note: str | None = None,
+                       attempt_note: str | None = None) -> None:
+    """Apply one op outcome (status/outcome/attempt/pending) deterministically."""
+    op["status"], op["outcome"] = status, outcome
+    if note:
+        state["notes"].append(note)
+    attempt = {"channel": op.get("channel"), "outcome": outcome}
+    if attempt_note:
+        attempt["note"] = attempt_note
+    state["attempts"].setdefault(op.get("criterion_id", ""), []).append(attempt)
+    for pending in state["pending_ops"]:
+        if pending.get("op_id") == op.get("op_id"):
+            pending["status"] = status
+            pending["outcome"] = outcome
+
+
+def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
+                          budget, resolved: dict, now, t_start, checkpoint,
+                          round_no: int, run_dir, concurrency: int) -> None:
+    """Real bounded concurrency in three phases (deterministic state order).
+
+    Phase 1 (sequential): time check, reuse/skip decisions and budget
+    authorization BEFORE any transport (queries and read_source extractions;
+    search-result extractions are authorized under the shared budget lock at
+    scheduling time, so the aggregate ceiling is never exceeded).
+    Phase 2 (pool of ``concurrency``): transports only — searches, then
+    fetches. A transport error becomes a per-op result; it never kills the
+    pool. Identical URLs inside one batch are fetched once (declared dedupe).
+    Phase 3 (sequential, op order): incorporate, qualification, persistence
+    and counters, so the final state is reproducible.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def over_time() -> bool:
+        try:
+            return now() - t_start >= resolved["time_s"]
+        except Exception:
+            return False
+
+    prepared: list[dict] = []
+    search_tasks: list[int] = []
+    fetch_tasks: list[tuple[int, str]] = []
+    claim_owner: dict[str, int] = {}
+
+    # -- phase 1: decisions + budget authorization (no transport) --------
+    for idx, op in enumerate(ops):
+        item = {"op": op, "mode": None, "skip": None, "note": None,
+                "hits": None, "search_error": None, "fetches": {},
+                "budget_skips": set(), "time_cut": False}
+        prepared.append(item)
+        if over_time():
+            item["skip"] = "time"
+            continue
+        kind = op.get("kind", "gap_query")
+        if kind == "read_source":
+            target = op.get("target", "")
+            if not isinstance(target, str) or not target:
+                item["skip"] = "failed"
+                item["note"] = "read_source without target"
+                continue
+            if target in state["evidence"] and not state.get(
+                    "discovery", {}).get("open"):
+                item["skip"] = "duplicate"
+                item["note"] = f"reused concluded {target[:60]}"
+                continue
+            lim = _unique_limit(resolved, budget)
+            if lim and len(state.get("evidence", {})) >= lim:
+                item["skip"] = "budget"
+                item["note"] = (f"unique_sources limit {lim} hit; read_source "
+                                f"{target[:80]} skipped")
+                continue
+            if not budget.spend("extractions"):
+                item["skip"] = "budget"
+                item["note"] = (f"op {op['op_id']}: extraction budget hit "
+                                f"(read_source)")
+                continue
+            state["consumption"]["ops"] += 1
+            item["mode"] = "read"
+            fetch_tasks.append((idx, target))
+            continue
+        if not budget.spend("queries"):
+            item["skip"] = "budget"
+            continue
+        state["consumption"]["queries"] += 1
+        state["consumption"]["ops"] += 1
+        item["mode"] = "search"
+        search_tasks.append(idx)
+
+    # -- phase 2a: searches in the bounded pool --------------------------
+    def run_search(idx: int):
+        try:
+            return idx, _run_search(search_fn, prepared[idx]["op"]), None
+        except Exception as exc:  # per-op failure, pool survives
+            return idx, None, exc
+
+    if search_tasks:
+        with ThreadPoolExecutor(
+                max_workers=min(concurrency, len(search_tasks))) as pool:
+            futures = [pool.submit(run_search, idx) for idx in search_tasks]
+            for future in as_completed(futures):
+                idx, hits, exc = future.result()
+                item = prepared[idx]
+                if exc is not None:
+                    item["search_error"] = exc
+                else:
+                    item["hits"] = list(hits or [])
+                    _counters.record_discovered(
+                        state, [h.get("url") if isinstance(h, dict) else h
+                                for h in item["hits"]])
+
+    # -- phase 2b: authorize + schedule fetches (sequential, op order) ---
+    lim = _unique_limit(resolved, budget)
+    for idx, item in enumerate(prepared):
+        if item["mode"] != "search" or item["hits"] is None:
+            continue
+        op = item["op"]
+        for hit in item["hits"][:resolved["vast_max"]]:
+            url = hit.get("url") if isinstance(hit, dict) else hit
+            if not isinstance(url, str) or not url:
+                continue
+            if over_time():
+                item["time_cut"] = True
+                break
+            if url in state["evidence"] and not state.get(
+                    "discovery", {}).get("open"):
+                continue  # reuse concluded source; phase 3 marks duplicate
+            if url in claim_owner:
+                continue  # same batch: fetched once (declared dedupe)
+            if lim and len(state.get("evidence", {})) + len(claim_owner) >= lim:
+                state["notes"].append(
+                    f"unique_sources limit {lim} hit; skipped {url[:80]}")
+                item["budget_skips"].add(url)
+                break
+            if not budget.spend("extractions"):
+                state["notes"].append(
+                    f"op {op['op_id']}: extraction budget hit")
+                item["budget_skips"].add(url)
+                break
+            claim_owner[url] = idx
+            fetch_tasks.append((idx, url))
+        if item["time_cut"]:
+            for later in prepared[idx + 1:]:
+                if later["mode"] is not None:
+                    later["time_cut"] = True
+            break
+
+    # -- phase 2c: fetches in the bounded pool ---------------------------
+    def run_fetch(idx: int, url: str):
+        try:
+            return idx, url, _run_fetch(fetch_fn, prepared[idx]["op"], url), None
+        except Exception as exc:  # per-op failure, pool survives
+            return idx, url, None, exc
+
+    if fetch_tasks:
+        with ThreadPoolExecutor(
+                max_workers=min(concurrency, len(fetch_tasks))) as pool:
+            futures = [pool.submit(run_fetch, idx, url)
+                       for idx, url in fetch_tasks]
+            for future in as_completed(futures):
+                idx, url, payload, exc = future.result()
+                prepared[idx]["fetches"][url] = (
+                    ("error", str(exc)) if exc is not None else ("ok", payload))
+
+    # -- phase 3: deterministic application in op order ------------------
+    for idx, item in enumerate(prepared):
+        op = item["op"]
+        if item["skip"]:
+            status = "done" if item["skip"] == "duplicate" else "failed"
+            _record_op_outcome(state, op, status, item["skip"],
+                               note=item.get("note"))
+            continue
+        if item["mode"] == "read":
+            target = op["target"]
+            result = item["fetches"].get(target)
+            if result is None:
+                _record_op_outcome(state, op, "failed", "time",
+                                   note=f"op {op['op_id']}: deadline during "
+                                        f"transport")
+                continue
+            state["consumption"]["fetches"] += 1
+            status, payload = result
+            if status == "error":
+                _record_op_outcome(
+                    state, op, "failed", "failed",
+                    note=(f"op {op['op_id']} read_source failure "
+                          f"(canal {op.get('channel')}) for {target[:80]}: "
+                          f"{payload}"),
+                    attempt_note=f"canal {op.get('channel')}: {payload[:160]}")
+                continue
+            text, qual = _coerce_payload(payload, target)
+            outcome = incorporate(state, target, text, op["op_id"], round_no,
+                                  qualification=qual)
+            _persist_progress(state, run_dir, checkpoint, target, text,
+                              op.get("channel", ""))
+            if state.get("discovery", {}).get("open") and target not in state[
+                    "discovery"]["candidates"]:
+                state["discovery"]["candidates"].append(target)
+            mapped = outcome if outcome in (
+                "new_useful", "confirmed", "duplicate", "nogain") else "nogain"
+            _record_op_outcome(state, op, "done", mapped)
+            continue
+        # search-backed
+        if item["search_error"] is not None:
+            _record_op_outcome(
+                state, op, "failed", "failed",
+                note=(f"op {op['op_id']} transport failure "
+                      f"(canal {op.get('channel')}): {item['search_error']}"),
+                attempt_note=(f"canal {op.get('channel')}: "
+                              f"{str(item['search_error'])[:160]}"))
+            continue
+        best = "nogain"
+        for hit in (item["hits"] or [])[:resolved["vast_max"]]:
+            url = hit.get("url") if isinstance(hit, dict) else hit
+            if not isinstance(url, str) or not url:
+                continue
+            if url in state["evidence"] and not state.get(
+                    "discovery", {}).get("open"):
+                if best == "nogain":
+                    best = "duplicate"
+                continue
+            if url in item["budget_skips"]:
+                if best == "nogain":
+                    best = "budget"
+                break
+            result = item["fetches"].get(url)
+            if result is None:
+                owner = claim_owner.get(url)
+                owner_result = (prepared[owner]["fetches"].get(url)
+                                if owner is not None else None)
+                if owner_result and owner_result[0] == "error":
+                    state["notes"].append(
+                        f"op {op['op_id']}: fetch compartilhado falhou para "
+                        f"{url[:80]} ({owner_result[1]})")
+                    if best == "nogain":
+                        best = "failed"
+                elif best == "nogain":
+                    best = "time" if item.get("time_cut") else "failed"
+                continue
+            state["consumption"]["fetches"] += 1
+            status, payload = result
+            if status == "error":
+                state["notes"].append(
+                    f"op {op['op_id']} fetch failure for {url[:80]}: {payload}")
+                if best == "nogain":
+                    best = "failed"
+                continue
+            text, qual = _coerce_payload(payload, url)
+            outcome = incorporate(state, url, text, op["op_id"], round_no,
+                                  qualification=qual)
+            if outcome in ("new_useful", "confirmed"):
+                _persist_progress(state, run_dir, checkpoint, url, text,
+                                  op.get("channel", ""))
+            if outcome == "new_useful":
+                best = "new_useful"
+            elif outcome == "confirmed" and best != "new_useful":
+                best = "confirmed"
+            elif outcome == "duplicate" and best == "nogain":
+                best = "duplicate"
+            if state["discovery"]["open"] and url not in [
+                    c for c in state["discovery"]["candidates"]]:
+                state["discovery"]["candidates"].append(url)
+        if item.get("time_cut") and best in ("nogain", "failed"):
+            best = "time"
+        _record_op_outcome(state, op, "failed" if best == "failed" else "done",
+                           best)
 
 
 def _run_search(search_fn, op: dict) -> list:
@@ -1598,7 +1933,9 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
     if isinstance(payload, dict):
         text = payload.get("text", "") or ""
         qual = {k: payload[k] for k in ("status", "reason", "usable_text",
-                                       "excluded") if k in payload}
+                                       "excluded", "title", "evidence_type",
+                                       "content_kind", "content_bearing")
+                if k in payload}
         status = str(qual.get("status", "") or "").strip().lower()
         # Pure error payloads are never usable evidence by default, even
         # when they carry text (e.g. "HTTP 403 Forbidden"). Useful metadata
@@ -1639,6 +1976,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     Tokens/costs come from real data only, else 'unknown'."""
     if block is None:
         block = _ledger.empty_question_coverage(state["run_id"])
+    state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
             "question_coverage": block, "stop": state["stop"],
@@ -1688,6 +2026,15 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                        "sha": _content_hash(report_text or ""),
                        "selection": selection,
                        "words": len((report_text or "").split())}
+    # used_in_synthesis = documents really included in the writer prompt.
+    # The deterministic fallback has no writer prompt: nothing is counted
+    # (honest zero, recorded as fallback), never inferred.
+    try:
+        if not (selection or {}).get("fallback"):
+            _counters.record_used_in_synthesis(
+                state, (selection or {}).get("included_urls") or [])
+    except Exception as exc:
+        state["notes"].append(f"counters used_in_synthesis failed: {exc}")
     # -- audit (transportes efetivos: lotes/votos/reparos/retentativas)
     # Teto imposto ANTES dos transportes reais; quórum/empates/falhas/
     # extração do semantic_review preservados. Teto zero => nenhuma chamada
@@ -1783,6 +2130,52 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     # Trace report<->audited text: the verdict belongs to exactly this hash.
     semantic.setdefault("audited_sha", _content_hash(report_text or ""))
     state["semantic"] = semantic
+    # -- delivery render + four independent verifications -----------------
+    # The model text is the synthesis; the renderer is the delivery. Body
+    # references come from the real corpus/ledger only (out-of-corpus model
+    # URLs are removed and recorded in notes by the renderer).
+    report_markdown = report_text or ""
+    verification = {}
+    quantitative_results: list = []
+    try:
+        import quantitative as _quant
+        for spec in state.get("quantitative_specs") or []:
+            try:
+                quantitative_results.append(_quant.compute(spec))
+            except ValueError as exc:
+                state["notes"].append(f"quantitative spec rejected: {exc}")
+    except Exception as exc:
+        state["notes"].append(f"quantitative module unavailable: {exc}")
+    state["quantitative"] = quantitative_results
+    try:
+        import report_renderer as _renderer
+        import verification_report as _verify
+        verification = _verify.verify_all(state, ledger=None, audit=semantic,
+                                          report_text=None)
+        report_markdown = _renderer.render_report(
+            state, synthesis_text=report_text or "", verifications=verification,
+            quantitative=quantitative_results or None)
+        state["verification"] = verification
+        cited_urls = list(getattr(_renderer.render_report,
+                                  "last_cited_urls", []) or [])
+        _counters.record_cited_urls(state, cited_urls)
+        # Re-run support against the DELIVERED markdown (references were
+        # renumbered/removed), keeping the other dimensions intact.
+        verification["dimensions"]["support"] = _verify.verify_support(
+            state, report_markdown, semantic)
+        verification["overall"] = _verify.aggregate(
+            verification["dimensions"])
+        state["verification"] = verification
+    except Exception as exc:
+        state["notes"].append(f"report render failed: {exc}")
+        state["verification"] = verification or {}
+        try:
+            _counters.record_cited(state, report_text or "")
+        except Exception:
+            pass
+    state["report"]["markdown"] = report_markdown
+    state["report"]["markdown_sha"] = _content_hash(report_markdown)
+    state["report"]["synthesis_sha"] = _content_hash(report_text or "")
     # Semantic NEVER moves question coverage: the block above is untouched.
     # Consistency: partial is true whenever mandatory gaps remain
     # (block incomplete) or the stop itself is partial. criteria_ok with
@@ -1818,6 +2211,10 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         "partial": partial,
         "rounds": state["rounds"], "consumption": consumption,
         "report": state["report"], "semantic": semantic,
+        "report_markdown": report_markdown,
+        "quantitative": quantitative_results,
+        "verification": verification,
+        "counters": _counters.counters_snapshot(state),
         "elapsed_s": elapsed_final,
     }
     if run_dir is not None:
@@ -1832,7 +2229,16 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                 result["partial"] = True
         try:
             from pathlib import Path as _P
-            (_P(run_dir) / "report.md").write_text(report_text or "", encoding="utf-8")
+            report_path = _P(run_dir) / "report.md"
+            report_path.write_text(report_markdown or "", encoding="utf-8")
+            result["report_path"] = str(report_path)
+            if verification:
+                try:
+                    import verification_report as _verify_write
+                    _verify_write.write_verification(run_dir, verification)
+                except Exception as exc:
+                    state["notes"].append(
+                        f"persist verification failed: {exc}")
             import json as _json
             (_P(run_dir) / "result.json").write_text(
                 _json.dumps({k: v for k, v in result.items()
