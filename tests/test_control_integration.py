@@ -7,6 +7,7 @@ Run: python3 -m unittest tests.test_control_integration -v
 import json
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -24,6 +25,7 @@ sys.addaudithook(offline_guard)
 
 import adaptive_coordinator as ac  # noqa: E402
 import gpt_researcher_integration as entry  # noqa: E402
+import run_control as rc  # noqa: E402
 
 
 A = "https://example.org/ctrl/a"
@@ -130,6 +132,53 @@ class ControlIntegration(unittest.TestCase):
             run_dir = str(Path(tmp) / "run")
             result = run(run_dir=run_dir, ctrl=ScriptControl([]), fetches={})
             self.assertEqual(result["stop"]["reason"], "rounds")
+
+    def test_pause_mid_round_via_control_file(self):
+        """Pausa real: comando gravado em control.json durante a rodada."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            control = rc.RunControl(run_dir / "control")
+
+            def slow_search(target, channel="web"):
+                time.sleep(0.4)
+                return [{"url": A}, {"url": B}]
+
+            def slow_fetch(url):
+                time.sleep(0.4)
+                return "conteúdo real de " + url
+
+            outcome = {}
+
+            def background():
+                search, fetch, model = transports({})
+                outcome["result"] = ac.run_adaptive(
+                    "Pergunta de controle", profile="light", plan=plan(),
+                    search_fn=slow_search, fetch_fn=slow_fetch,
+                    assess_fn=ac.make_model_assessor(model, max_docs=3),
+                    writer_fn=lambda view: ("Síntese.", {
+                        "included_urls": [A], "cuts": "nenhum"}),
+                    auditor_fn=lambda r, e: {"enabled": False,
+                                             "accepted": False},
+                    clock=time.monotonic, run_dir=str(run_dir),
+                    run_id="ctrl-run",
+                    overrides={"max_rounds": 2, "max_ops_per_round": 2,
+                               "time_s": 120},
+                    control=control)
+
+            worker = threading.Thread(target=background, daemon=True)
+            worker.start()
+            time.sleep(1.0)
+            control.request("pause")
+            worker.join(timeout=60)
+            self.assertFalse(worker.is_alive(), "run travou após pause")
+            result = outcome["result"]
+            self.assertTrue(result.get("partial"))
+            self.assertEqual(result["stop"]["reason"], "paused")
+            status = control.read_status()
+            self.assertIsNotNone(status)
+            self.assertEqual(status.get("stop", {}).get("reason")
+                             if isinstance(status.get("stop"), dict)
+                             else status.get("stop"), "paused")
 
 
 class ManifestTest(unittest.TestCase):
