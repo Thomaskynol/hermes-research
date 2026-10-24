@@ -298,7 +298,8 @@ def adaptive_entry(*, question: str, profile: str = "light",
                      fetch_transport=None, auditor_fn=None,
                      run_dir=None, run_id: str = "",
                      overrides: dict | None = None,
-                     budget=None, clock=None, resume: bool = False) -> dict:
+                     budget=None, clock=None, resume: bool = False,
+                     control=None) -> dict:
     """Testable adaptive entry: real planner/assessor/writer/coordinator.
 
     Only transports are injected (model/search/fetch). The planner comes
@@ -327,7 +328,60 @@ def adaptive_entry(*, question: str, profile: str = "light",
         fetch_fn=fetch_transport, assess_fn=assess, writer_fn=writer,
         auditor_fn=auditor_fn, clock=clock, budget=budget,
         run_dir=run_dir, run_id=run_id, overrides=overrides,
-        resume=resume)
+        resume=resume, control=control)
+
+
+def write_adaptive_manifest(run_dir, *, result: dict, question: str = "",
+                            transport: str = "library",
+                            model_transport: str = "litellm",
+                            model_info=None, simulated: bool = False,
+                            environment: dict | None = None) -> Path:
+    """Manifest of an adaptive run (what executed, code/config/models/artifacts).
+
+    ``simulated`` is explicit and required by run_manifest: True only when the
+    transports were simulated (offline tests), False on the real CLI path.
+    Tokens/cost stay "unknown" (run_manifest never invents them). Secrets are
+    never passed here: model_info comes from ``model_client.describe()``.
+    """
+    import run_manifest as _manifest
+    directory = Path(run_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    counters = result.get("counters") or {}
+    if counters:
+        counters_path = directory / "counters.json"
+        tmp = counters_path.with_name(f".{counters_path.name}.tmp-{os.getpid()}")
+        tmp.write_text(json.dumps(counters, ensure_ascii=False, indent=1,
+                                  sort_keys=True), encoding="utf-8")
+        os.replace(tmp, counters_path)
+    try:
+        import adaptive_state as _st
+        state = _st.load(directory, result.get("run_id") or None)
+    except Exception:  # fallback: only what the result really exposes
+        state = {
+            "run_id": result.get("run_id", ""),
+            "question": question,
+            "mode": "adaptive",
+            "profile": result.get("profile", ""),
+            "config_applied": dict(result.get("resolved") or {}),
+            "stop": dict(result.get("stop") or {}),
+            "counters": counters,
+        }
+    env = {"simulated": bool(simulated), "transport": transport,
+           "model_transport": model_transport,
+           "entry": "gpt_researcher_integration._adaptive_main"}
+    env.update(environment or {})
+    models = {"transport": transport, "model_transport": model_transport}
+    if isinstance(model_info, dict):
+        models.update(model_info)
+    elif model_info:
+        models["declared"] = str(model_info)
+    artifacts = {name: directory / name for name in
+                 ("report.md", "state.json", "verification.json",
+                  "counters.json")
+                 if (directory / name).is_file()}
+    return _manifest.write_manifest(
+        directory, state, resolved=dict(result.get("resolved") or {}),
+        model_info=models, environment=env, artifacts=artifacts)
 
 
 async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
@@ -364,6 +418,10 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                     help="id explícito do modelo (sem chave)")
     _p.add_argument("--control-dir", default=None,
                     help="diretório de controle (default <run_dir>/control)")
+    _p.add_argument("--resume", action="store_true",
+                    help="retoma o run existente (--run-id ou RUN_ID)")
+    _p.add_argument("--run-id", default=None,
+                    help="run id explícito (necessário com --resume)")
     try:
         _a = _p.parse_args(argv)
     except SystemExit:
@@ -389,7 +447,14 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
         print(f"[ADAPTIVE] {_e}")
         return
     _budget = run_budget.install(_resolved["profile"], _resolved.get("budget"))
-    _run_id = os.environ.get("RUN_ID") or run_trace.new_run_id(_a.query)
+    if _a.resume:
+        _run_id = _a.run_id or os.environ.get("RUN_ID")
+        if not _run_id:
+            print("[ADAPTIVE] --resume needs --run-id (or RUN_ID)")
+            return
+    else:
+        _run_id = (_a.run_id or os.environ.get("RUN_ID")
+                   or run_trace.new_run_id(_a.query))
     os.environ["RUN_ID"] = _run_id
     # Share run identity + aggregate budget with the remote retriever, as the
     # legacy path does (RETRIEVER_ARG_*); the adaptive path previously omitted
@@ -411,6 +476,13 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
     # host sem a biblioteca); library mantém o comportamento atual.
     _control_dir = (Path(_a.control_dir) if _a.control_dir
                     else _run_dir / "control")
+    try:
+        _run_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as _e:
+        print(f"[ADAPTIVE] cannot create run dir {_run_dir}: {_e}")
+        return
+    import run_control as _run_control
+    _control = _run_control.RunControl(_control_dir)
     _researcher = None
     if _a.transport == "native":
         import native_transport as _nt
@@ -477,7 +549,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                 plan_source=_plan_source, model_transport=_model_client,
                 search_transport=_search_fn, fetch_transport=_fetch_fn,
                 budget=_budget, run_dir=str(_run_dir), run_id=_run_id,
-                overrides=_overrides))
+                overrides=_overrides, resume=_a.resume, control=_control))
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")
         return
@@ -485,6 +557,18 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
           f"coverage={_result['question_coverage'].get('status')} "
           f"proportion={_result['question_coverage'].get('proportion')} "
           f"rounds={len(_result['rounds'])} elapsed={_result['elapsed_s']}s")
+    try:
+        _desc_final = _describe() if callable(_describe) else _model_desc
+    except Exception:  # noqa: BLE001 - describe never blocks the manifest
+        _desc_final = _model_desc
+    try:
+        _manifest_path = write_adaptive_manifest(
+            _run_dir, result=_result, question=_a.query,
+            transport=_a.transport, model_transport=_a.model_transport,
+            model_info=_desc_final, simulated=False)
+        print(f"[ADAPTIVE] manifest: {_manifest_path}")
+    except Exception as _e:  # noqa: BLE001 - manifest failure is visible
+        print(f"[ADAPTIVE] manifest failed: {type(_e).__name__}: {_e}")
     print(f"[ADAPTIVE] run dir: {_run_dir}")
 
 

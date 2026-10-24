@@ -852,6 +852,89 @@ def _counting_model_client(state: dict, resolved: dict, raw_client):
     return wrapped
 
 
+def _control_status(control, state: dict, phase: str, *,
+                    round_no: int | None = None,
+                    elapsed_s: float | None = None,
+                    stop: dict | None = None) -> None:
+    """Observable status write; a control failure never kills the research."""
+    if control is None:
+        return
+    write = getattr(control, "write_status", None)
+    if not callable(write):
+        return
+    kwargs: dict = {"phase": phase, "counters": state.get("counters")}
+    if round_no is not None:
+        kwargs["round_no"] = round_no
+    if elapsed_s is not None:
+        kwargs["elapsed_s"] = elapsed_s
+    if stop is not None:
+        kwargs["stop"] = stop
+    try:
+        write(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - status is observability only
+        state.setdefault("notes", []).append(
+            f"control status failed ({phase}): {exc}")
+
+
+def _control_command(state: dict, control) -> str | None:
+    """Poll the external control (duck-typed); pause/cancel only.
+
+    ``resume`` is deliberately ignored here: retomada uses ``resume=True``
+    and the persisted state, never a control file.
+    """
+    if control is None:
+        return None
+    poll = getattr(control, "poll", None)
+    if not callable(poll):
+        return None
+    try:
+        command = poll()
+    except Exception as exc:  # noqa: BLE001 - control never kills the run
+        state.setdefault("notes", []).append(f"control poll failed: {exc}")
+        return None
+    return command if command in ("pause", "cancel") else None
+
+
+def _control_stop(state: dict, command: str, now, t_start) -> dict:
+    state["stop"] = {
+        "reason": "paused" if command == "pause" else "cancelled",
+        "partial": True,
+        "detail": f"control {command} requested",
+    }
+    try:
+        state["elapsed_s"] = round(now() - t_start, 3)
+    except Exception:
+        pass
+    return state["stop"]
+
+
+def _mark_ops_not_run(state: dict, ops: list[dict], command: str) -> None:
+    """Ops not started when the external command arrived stay explicit."""
+    for op in ops:
+        if op.get("status") == "in-progress":
+            _record_op_outcome(
+                state, op, "failed", command,
+                note=(f"op {op.get('op_id')} not executed: control "
+                      f"{command} requested"))
+
+
+def _finalize_for_control(state: dict, command: str, resolved: dict, budget,
+                          block: dict | None, write, audit, t_start, now,
+                          run_dir, control) -> dict:
+    """Stop by external command: preserve state, finalize with what exists."""
+    _control_stop(state, command, now, t_start)
+    state.setdefault("notes", []).append(
+        f"control {command}: external stop; state preserved for resume")
+    if run_dir is not None:
+        try:
+            _state.save(run_dir, state)
+        except Exception as exc:  # noqa: BLE001
+            state.setdefault("notes", []).append(
+                f"persist before control finalize failed: {exc}")
+    return _finalize(state, resolved, budget, block, write, audit,
+                     t_start, now, run_dir, control=control)
+
+
 def run_adaptive(question: str, *, profile: str = "light",
                  plan: dict | None = None, plan_source: str | dict | None = None,
                  purpose: str = "", constraints: dict | None = None,
@@ -860,13 +943,19 @@ def run_adaptive(question: str, *, profile: str = "light",
                  clock=None, budget=None, run_dir=None, run_id: str = "",
                  overrides: dict | None = None,
                  quantitative: list | None = None,
-                 checkpoint=None, resume: bool = False) -> dict:
+                 checkpoint=None, resume: bool = False,
+                 control=None) -> dict:
     """Execute the adaptive loop. All external effects are injected.
 
     resume=True continues a persisted run_dir state (checkpoint): completed
     work is kept (duplicates detected, never double-counted), interrupted ops
     were marked 'interrupted' by load(), and no second run/plan/config mixes
     in (question + run_id verified).
+
+    control (duck-typed: ``poll()`` / ``write_status()``) enables external
+    pause/cancel. ``pause``/``cancel`` preserve state and finalize with the
+    material already obtained (reserve respected); ``resume`` is ignored here
+    because retomada is ``resume=True`` + persisted state.
 
     Returns the final result (also persisted in run_dir when given).
     Raises nothing for domain outcomes (they become stop motives); raises
@@ -940,6 +1029,7 @@ def run_adaptive(question: str, *, profile: str = "light",
             state["notes"].append(f"resume reconcile note failed: {exc}")
         state["notes"].append("resumed from checkpoint; completed work kept, "
                               "interrupted ops marked, no silent repetition")
+        _control_status(control, state, "plan")
         plan, plan_meta = state["plan"], state.get("plan_meta", {})
         if plan is None:
             raise ValueError("[ADAPTIVE] stored state has no plan to resume")
@@ -966,7 +1056,8 @@ def run_adaptive(question: str, *, profile: str = "light",
         audit = auditor_fn or _default_auditor
         stop = _resume_loop(state, ledger, assess, write, audit, resolved,
                             budget, search_fn, fetch_fn, now, t_start,
-                            checkpoint, run_dir, block, prev_proportion)
+                            checkpoint, run_dir, block, prev_proportion,
+                            control=control)
         return stop
     state = _state.new_state(question, run_id=run_id, profile=resolved["profile"],
                              config={k: resolved[k] for k in
@@ -982,6 +1073,7 @@ def run_adaptive(question: str, *, profile: str = "light",
         checkpoint = _checkpoint.Checkpoint(run_dir)
     if run_dir is not None:
         _state.save(run_dir, state)
+    _control_status(control, state, "plan")
 
     # -- plan (limits BEFORE transport; every attempt counted) --------
     try:
@@ -1009,7 +1101,7 @@ def run_adaptive(question: str, *, profile: str = "light",
             except Exception as exc2:
                 state["notes"].append(f"persist after plan failure failed: {exc2}")
         return _finalize(state, resolved, budget, None, None, None,
-                         t_start, now, run_dir)
+                         t_start, now, run_dir, control=control)
     except TransportError as exc:
         # Planner transport failure (including budget block): partial/failure
         # with preserved state, never an escape.
@@ -1022,7 +1114,7 @@ def run_adaptive(question: str, *, profile: str = "light",
             except Exception as exc2:
                 state["notes"].append(f"persist after plan failure failed: {exc2}")
         return _finalize(state, resolved, budget, None, None, None,
-                         t_start, now, run_dir)
+                         t_start, now, run_dir, control=control)
     # model_calls already counted per-transport via the wrapper (repairs and
     # failures included); plan_meta is record-only, never double-counted.
     _state.record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
@@ -1045,8 +1137,26 @@ def run_adaptive(question: str, *, profile: str = "light",
                 for i, q in enumerate(initial_queries)]
     for op in init_ops:
         state["pending_ops"].append(dict(op))
-    _execute_ops(state, init_ops, search_fn, fetch_fn, budget, resolved, now,
-                 t_start, checkpoint, round_no=0, run_dir=run_dir)
+    _control_status(control, state, "round", round_no=0,
+                    elapsed_s=round(now() - t_start, 3))
+    command = _control_command(state, control)
+    if command:
+        return _finalize_for_control(state, command, resolved, budget, None,
+                                     write, audit, t_start, now, run_dir,
+                                     control)
+    command = _execute_ops(state, init_ops, search_fn, fetch_fn, budget,
+                           resolved, now, t_start, checkpoint, round_no=0,
+                           run_dir=run_dir, control=control)
+    if command is None:
+        command = _control_command(state, control)
+    if command:
+        # Coverage from the accumulated corpus/evaluations only; no extra
+        # model call (finalization reserve stays intact).
+        ledger.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
+        _update_ledger_counts(state, ledger)
+        return _finalize_for_control(state, command, resolved, budget,
+                                     ledger.compute(), write, audit, t_start,
+                                     now, run_dir, control)
     try:
         applied, block = _assess_round(state, assess, ledger, resolved)
     except TransportError as exc:
@@ -1122,7 +1232,8 @@ def run_adaptive(question: str, *, profile: str = "light",
 
 def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                  budget, search_fn, fetch_fn, now, t_start, checkpoint,
-                 run_dir, block: dict, prev_proportion) -> dict:
+                 run_dir, block: dict, prev_proportion,
+                 control=None) -> dict:
     """Shared gap-round loop for fresh and resumed runs."""
     stop = None
     prev_segments = len(state.get("segments", []) or [])
@@ -1132,6 +1243,12 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
             state["elapsed_s"] = round(elapsed, 3)
         except Exception:
             pass
+        _control_status(control, state, "round",
+                        round_no=len(state["rounds"]), elapsed_s=elapsed)
+        command = _control_command(state, control)
+        if command:
+            stop = _control_stop(state, command, now, t_start)
+            break
         open_gaps = block.get("gaps", [])
         # Explicit round/time motives (orçamento genérico não os esconde).
         if len(state["rounds"]) - 1 >= resolved["max_rounds"]:
@@ -1182,9 +1299,15 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                 _state.save(run_dir, state)
             except Exception as exc:
                 state["notes"].append(f"persist pending ops failed: {exc}")
-        _execute_ops(state, ops, search_fn, fetch_fn, budget, resolved, now,
-                     t_start, checkpoint, round_no=len(state["rounds"]),
-                     run_dir=run_dir)
+        command = _execute_ops(state, ops, search_fn, fetch_fn, budget,
+                               resolved, now, t_start, checkpoint,
+                               round_no=len(state["rounds"]),
+                               run_dir=run_dir, control=control)
+        if command is None:
+            command = _control_command(state, control)
+        if command:
+            stop = _control_stop(state, command, now, t_start)
+            break
         try:
             applied, block = _assess_round(state, assess, ledger, resolved)
         except TransportError as exc:
@@ -1253,6 +1376,11 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
                 _state.save(run_dir, state)
             except Exception as exc:
                 state["notes"].append(f"persist gap round failed: {exc}")
+        command = _control_command(state, control)
+        if command:
+            stop = _control_stop(state, command, now, t_start)
+            state["rounds"][-1]["decision"] = f"control {command} after round"
+            break
 
     if stop is None:  # max_rounds consumed by the loop guard
         open_gaps = block.get("gaps", [])
@@ -1269,7 +1397,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
         except Exception as exc:
             state["notes"].append(f"persist stop failed: {exc}")
     return _finalize(state, resolved, budget, block, write, audit,
-                     t_start, now, run_dir)
+                     t_start, now, run_dir, control=control)
 
 
 def _prop_delta(old, new) -> float | None:
@@ -1398,7 +1526,7 @@ def _persist_progress(state: dict, run_dir, checkpoint, url: str, text: str,
 
 def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
                  resolved: dict, now, t_start, checkpoint, round_no: int,
-                 run_dir=None) -> None:
+                 run_dir=None, control=None) -> str | None:
     """Execute ops within limits: sequential path at concurrency=1, real
     bounded pool above it (see ``_execute_ops_parallel``).
 
@@ -1413,15 +1541,16 @@ def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
     if concurrency <= 1 or len(ops) <= 1:
         return _execute_ops_sequential(
             state, ops, search_fn, fetch_fn, budget, resolved, now, t_start,
-            checkpoint, round_no, run_dir)
+            checkpoint, round_no, run_dir, control=control)
     return _execute_ops_parallel(
         state, ops, search_fn, fetch_fn, budget, resolved, now, t_start,
-        checkpoint, round_no, run_dir, concurrency)
+        checkpoint, round_no, run_dir, concurrency, control=control)
 
 
 def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                             budget, resolved: dict, now, t_start, checkpoint,
-                            round_no: int, run_dir=None) -> None:
+                            round_no: int, run_dir=None,
+                            control=None) -> str | None:
     """Run ops sequentially within limits (concurrency recorded; the offline
     path executes sequentially — no fabricated parallelism).
 
@@ -1433,6 +1562,10 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
       interruption recovers without silent repetition.
     """
     for op in ops:
+        command = _control_command(state, control)
+        if command:
+            _mark_ops_not_run(state, ops, command)
+            return command
         if now() - t_start >= resolved["time_s"]:
             op["status"], op["outcome"] = "failed", "time"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
@@ -1601,6 +1734,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
             if pending.get("op_id") == op.get("op_id"):
                 pending["status"] = op["status"]
                 pending["outcome"] = best
+    return None
 
 
 def _record_op_outcome(state: dict, op: dict, status: str, outcome: str,
@@ -1622,7 +1756,8 @@ def _record_op_outcome(state: dict, op: dict, status: str, outcome: str,
 
 def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
                           budget, resolved: dict, now, t_start, checkpoint,
-                          round_no: int, run_dir, concurrency: int) -> None:
+                          round_no: int, run_dir, concurrency: int,
+                          control=None) -> str | None:
     """Real bounded concurrency in three phases (deterministic state order).
 
     Phase 1 (sequential): time check, reuse/skip decisions and budget
@@ -1636,6 +1771,11 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
     and counters, so the final state is reproducible.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    command = _control_command(state, control)
+    if command:
+        _mark_ops_not_run(state, ops, command)
+        return command
 
     def over_time() -> bool:
         try:
@@ -1869,6 +2009,10 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
             best = "time"
         _record_op_outcome(state, op, "failed" if best == "failed" else "done",
                            best)
+    # Pause/cancel during a parallel batch is honoured after phase 3: the
+    # already-fetched payloads are incorporated (no wasted budget), never
+    # re-obtained on resume.
+    return _control_command(state, control)
 
 
 def _run_search(search_fn, op: dict) -> list:
@@ -1968,7 +2112,8 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
 
 
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
-              write, audit, t_start: float, now, run_dir) -> dict:
+              write, audit, t_start: float, now, run_dir,
+              control=None) -> dict:
     """Finalisation with reserved budget: write + audit counted BEFORE the
     call; exhausted budget yields a deterministic partial fallback without
     exceeding the ceiling. Writer failures become partial/failure (never a
@@ -1976,6 +2121,12 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     Tokens/costs come from real data only, else 'unknown'."""
     if block is None:
         block = _ledger.empty_question_coverage(state["run_id"])
+    try:
+        _elapsed = round(now() - t_start, 3)
+    except Exception:
+        _elapsed = None
+    _control_status(control, state, "finalize", elapsed_s=_elapsed,
+                    stop=dict(state.get("stop") or {}))
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
@@ -2251,4 +2402,6 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                 _state.save(run_dir, state)
             except Exception:
                 pass
+    _control_status(control, state, "done", elapsed_s=result["elapsed_s"],
+                    stop=result["stop"])
     return result
