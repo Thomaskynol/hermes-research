@@ -354,6 +354,9 @@ class ReportTest(unittest.TestCase):
             # persisted artifacts
             self.assertTrue((Path(tmp) / "report.md").is_file())
             self.assertTrue((Path(tmp) / "verification.json").is_file())
+            self.assertEqual(Path(result["report_path"]),
+                             Path(tmp) / "report.md")
+            self.assertTrue(Path(result["report_path"]).is_file())
 
     def test_light_is_shorter_than_deep(self):
         with tempfile.TemporaryDirectory() as tmp:

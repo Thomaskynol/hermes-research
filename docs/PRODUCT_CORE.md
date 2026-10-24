@@ -185,7 +185,7 @@ gera manifesto — ausência explícita, não um manifesto mentiroso.
 carregar estados antigos, sem apagar nada. `load` continua verificando
 `run_id` e marcando ops `in-progress` como `interrupted`. `new_state` já nasce
 com todos os defaults. `run_adaptive` mantém `result["report"]` e adiciona
-`report_markdown`, `verification`, `counters` e `quantitative`.
+`report_markdown`, `report_path`, `verification`, `counters` e `quantitative`.
 
 ## 8. Validação executada
 

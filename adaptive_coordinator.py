@@ -2229,8 +2229,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                 result["partial"] = True
         try:
             from pathlib import Path as _P
-            (_P(run_dir) / "report.md").write_text(report_markdown or "",
-                                                   encoding="utf-8")
+            report_path = _P(run_dir) / "report.md"
+            report_path.write_text(report_markdown or "", encoding="utf-8")
+            result["report_path"] = str(report_path)
             if verification:
                 try:
                     import verification_report as _verify_write
