@@ -255,14 +255,38 @@ def build_adaptive_transports(researcher):
                 return str(item.get("content", ""))
         raise _ac.TransportError(f"scrape failed for {url[:80]}")
 
+    # Modelo: resolução/normalização única em model_transport (lê
+    # researcher.cfg.smart_llm e converte openrouter:modelo -> openrouter/modelo).
+    # Construção preguiçosa: um config ausente só falha quando o modelo é
+    # realmente chamado, como antes.
+    import model_transport as _mt
+    _client = {"obj": None, "error": None}
+
+    def _get_client():
+        if _client["obj"] is None and _client["error"] is None:
+            try:
+                _client["obj"] = _mt.litellm_client(researcher=researcher)
+            except Exception as _e:  # noqa: BLE001 - vira TransportError na chamada
+                _client["error"] = _e
+        if _client["error"] is not None:
+            raise _ac.TransportError(str(_client["error"]))
+        return _client["obj"]
+
     def _model_client(prompt: str) -> str:
-        import litellm as _llm
-        _model = os.environ.get("SMART_LLM", "")
-        if not _model:
-            raise _ac.TransportError("SMART_LLM not configured")
-        _resp = _llm.completion(model=_model,
-                                messages=[{"role": "user", "content": prompt}])
-        return _resp.choices[0].message.content or ""
+        try:
+            return _get_client()(prompt)
+        except _ac.TransportError:
+            raise
+        except Exception as _e:  # noqa: BLE001 - ModelTransportError
+            raise _ac.TransportError(str(_e)) from _e
+
+    def _describe_model() -> dict:
+        try:
+            return _get_client().describe()
+        except _ac.TransportError:
+            return {"kind": "litellm", "model_id": None, "calls": 0}
+
+    _model_client.describe = _describe_model
 
     return _search_fn, _fetch_fn, _model_client
 
@@ -330,6 +354,16 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
     _p.add_argument("--auto-plan", action="store_true")
     _p.add_argument("--config-path", default=None)
     _p.add_argument("--env-file", default=None)
+    _p.add_argument("--transport", choices=("library", "native"),
+                    default="library",
+                    help="library = gpt_researcher instalado; native = "
+                         "agent_reach/academic_search sem a biblioteca")
+    _p.add_argument("--model-transport", choices=("litellm", "opencode"),
+                    default="litellm")
+    _p.add_argument("--model", default=None,
+                    help="id explícito do modelo (sem chave)")
+    _p.add_argument("--control-dir", default=None,
+                    help="diretório de controle (default <run_dir>/control)")
     try:
         _a = _p.parse_args(argv)
     except SystemExit:
@@ -373,16 +407,53 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
     print(f"[ADAPTIVE] query={_a.query!r} profile={_resolved['profile']} "
           f"max_rounds={_resolved['max_rounds']} run={_run_id}")
 
-    # Encapsulated library use: exactly one researcher for the whole run.
-    # Lazy import: offline import of this module never requires the library.
-    from gpt_researcher import GPTResearcher as _GPT
-    from gpt_researcher.utils.enum import Tone as _Tone
-    _researcher = _GPT(
-        query=_a.query, report_type=_resolved["report_type"],
-        config_path=_cfg, report_format="markdown",
-        tone=_Tone.Objective, verbose=True)
-    _search_fn, _fetch_fn, _model_client = build_adaptive_transports(
-        _researcher)
+    # Transportes explícitos: native não importa gpt_researcher (caminho do
+    # host sem a biblioteca); library mantém o comportamento atual.
+    _control_dir = (Path(_a.control_dir) if _a.control_dir
+                    else _run_dir / "control")
+    _researcher = None
+    if _a.transport == "native":
+        import native_transport as _nt
+        import model_transport as _mt
+        try:
+            _native_model = (_mt.from_env(kind="opencode", model=_a.model)
+                             if _a.model_transport == "opencode"
+                             else _mt.from_env(kind="litellm", model=_a.model))
+        except _mt.ModelTransportError as _e:
+            print(f"[ADAPTIVE] model transport: {_e}")
+            return
+        _search_fn, _fetch_fn, _model_client = _nt.build_native_transports(
+            model_client=_native_model,
+            github_token=os.environ.get("GITHUB_TOKEN") or None)
+    else:
+        # Encapsulated library use: exactly one researcher for the whole run.
+        # Lazy import: offline import of this module never requires the library.
+        from gpt_researcher import GPTResearcher as _GPT
+        from gpt_researcher.utils.enum import Tone as _Tone
+        _researcher = _GPT(
+            query=_a.query, report_type=_resolved["report_type"],
+            config_path=_cfg, report_format="markdown",
+            tone=_Tone.Objective, verbose=True)
+        _search_fn, _fetch_fn, _model_client = build_adaptive_transports(
+            _researcher)
+        if _a.model_transport == "opencode":
+            import model_transport as _mt
+            _model_client = _mt.opencode_client(model=_a.model) \
+                if _a.model else _mt.opencode_client()
+        elif _a.model:
+            import model_transport as _mt
+            try:
+                _model_client = _mt.litellm_client(
+                    model=_a.model, researcher=_researcher)
+            except _mt.ModelTransportError as _e:
+                print(f"[ADAPTIVE] model transport: {_e}")
+                return
+    _describe = getattr(_model_client, "describe", None)
+    _model_desc = _describe() if callable(_describe) else {}
+    print(f"[ADAPTIVE] transport={_a.transport} "
+          f"model_transport={_a.model_transport} "
+          f"model={_model_desc.get('model_id') or _a.model or 'unresolved'} "
+          f"control_dir={_control_dir}")
 
     _plan_source = _a.coverage_plan
     _needs_plan = _plan_source is None and not _a.auto_plan
