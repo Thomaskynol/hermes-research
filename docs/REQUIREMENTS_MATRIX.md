@@ -68,7 +68,7 @@ estado REAL é atribuído sem execução registrada.
 | R6.2 | Amplitude independente (candidatos/perspectivas) | `DEEP_RESEARCH_BREADTH` + `max_ops_per_round` | teste de estratégia | IMPL |
 | R6.3 | Profundidade independente (aprofundamento) | `DEEP_RESEARCH_DEPTH` + gap policy | teste de estratégia | IMPL |
 | R6.4 | Rodadas independentes e com motivo | `max_rounds`, `stop.reason` | `test_adaptive_research` | IMPL |
-| R6.5 | Concorrência efetiva (não só registrada) | `_execute_ops` com pool e orçamento compartilhado | teste de concorrência | PENDENTE |
+| R6.5 | Concorrência efetiva (não só registrada) | `_execute_ops_parallel` (3 fases, teto no thread principal) | `test_product_core.ConcurrencyTest` (4x mais rápido, teto respeitado, ordem preservada) | IMPL |
 | R6.6 | Limites independentes: consultas, docs, modelo, tokens, tempo, tentativas | `run_budget` + `max_model_calls` | testes | PARCIAL (tokens não medidos) |
 | R6.7 | Reserva para síntese/auditoria/entrega | `_finalize` + reserva | `test_review_85dac79` S01 | IMPL |
 | R6.8 | Config efetiva registrada; níveis altos não comprovam alcance | `resolved` no estado + relatório | teste | IMPL |
@@ -77,12 +77,12 @@ estado REAL é atribuído sem execução registrada.
 
 | ID | Requisito | Implementação | Evidência | Estado |
 |---|---|---|---|---|
-| R7.1 | Descobertas | `state["counters"]["discovered"]` | teste | PENDENTE |
-| R7.2 | Obtidas | idem `obtained` | teste | PENDENTE |
-| R7.3 | Utilizáveis (pós-qualificação) | idem `usable` | teste | PENDENTE |
-| R7.4 | Analisadas (com trecho/alcance) | idem `analyzed` | teste | PENDENTE |
-| R7.5 | Utilizadas na síntese | idem `used_in_synthesis` | teste | PENDENTE |
-| R7.6 | Citadas | idem `cited` | teste | PENDENTE |
+| R7.1 | Descobertas | `research_counters.record_discovered` (dedupe por URL normalizada) | `test_product_core.CountersTest` (6 estágios distinguíveis) | IMPL |
+| R7.2 | Obtidas | `record_obtained` (só texto real; metadado/vídeo sem fala excluídos) | idem | IMPL |
+| R7.3 | Utilizáveis (pós-qualificação) | `record_usable` (usable/partial + usable_text) | idem | IMPL |
+| R7.4 | Analisadas (com trecho/alcance) | `record_analyzed` via `assess.last_selection` (só docs obtidos) | idem | IMPL |
+| R7.5 | Utilizadas na síntese | `record_used_in_synthesis` via `included_urls` do writer | idem | IMPL |
+| R7.6 | Citadas | `record_cited_urls` via `render_report.last_cited_urls` (só corpo entregue) | idem | IMPL |
 | R7.7 | Metadados/vídeo sem transcrição não inflam lidos | qualificação por tipo | teste | IMPL |
 | R7.8 | Duplicatas/republicações reconhecidas; versões identificadas | `_content_hash`, `versions` | testes R08/R10 | IMPL |
 | R7.9 | URL ≠ independência | `classify_hit` (`confirmed` vs `duplicate`) | R10 | IMPL |
@@ -97,8 +97,8 @@ estado REAL é atribuído sem execução registrada.
 | R8.4 | Explorar amplamente (variações, idiomas, fontes primárias) | `select_ops` + planner | teste | IMPL |
 | R8.5 | Obter/ler com qualificação e procedência | `_coerce_payload` + `incorporate` | S04/S05 | IMPL |
 | R8.6 | Lacunas orientam novas operações | `prioritize_gaps` + `select_ops` | teste | IMPL |
-| R8.7 | Cálculos locais reproduzíveis | `quantitative.py` | teste | PENDENTE |
-| R8.8 | Verificação antes da entrega | `verification_report.py` | teste | PENDENTE |
+| R8.7 | Cálculos locais reproduzíveis | `quantitative.py` (fórmulas fechadas, entradas/unidades/hipóteses registradas) | `test_product_core.QuantitativeTest` | IMPL |
+| R8.8 | Verificação antes da entrega | `verification_report.py` (4 dimensões + agregado; falha honesta, nunca aprovação forçada) | `test_product_core` + `verification.json` no run | IMPL |
 
 ## §9 Ciclo adaptativo
 
@@ -134,16 +134,16 @@ estado REAL é atribuído sem execução registrada.
 | R11.4 | Parcial/HTML vazio/erro/metadado/texto distintos | `_coerce_payload` | S04 | IMPL |
 | R11.5 | Divergências explicadas e com efeito na conclusão | `contradictory` + relatório | teste | IMPL |
 | R11.6 | Acadêmico: metadados vs resumo vs texto completo | `academic_search.read_level` | teste | IMPL |
-| R11.7 | Não verificado permanece desconhecido | relatório `uncertainties` | teste | PENDENTE |
+| R11.7 | Não verificado permanece desconhecido | relatório `uncertainties` + suporte rejeita citação fora do corpus | `test_product_core.ReportTest` | IMPL |
 
 ## §12 Auditoria
 
 | ID | Requisito | Implementação | Evidência | Estado |
 |---|---|---|---|---|
-| R12.1 | Verificação de execução | `verification_report.execution` | teste | PENDENTE |
-| R12.2 | Verificação de cobertura da pergunta | `verification_report.question` | teste | PENDENTE |
-| R12.3 | Verificação de cobertura da revisão | `verification_report.review` | teste | PENDENTE |
-| R12.4 | Verificação de sustentação das conclusões | `verification_report.support` | teste | PENDENTE |
+| R12.1 | Verificação de execução | `verification_report.verify_execution` (orçamento, falhas por motivo) | `test_product_core` | IMPL |
+| R12.2 | Verificação de cobertura da pergunta | `verification_report.verify_question` (semântica nunca promove cobertura) | `test_product_core` | IMPL |
+| R12.3 | Verificação de cobertura da revisão | `verification_report.verify_review` (extração vs auditoria, omissões explícitas) | `test_product_core` | IMPL |
+| R12.4 | Verificação de sustentação das conclusões | `verification_report.verify_support` (citação fora do corpus reprova) | `test_product_core` | IMPL |
 | R12.5 | Quórum/empates/inválidas/falhas/limites preservados | `semantic_review` | S01/S02/S08 | IMPL |
 | R12.6 | Lotes com parte não revisada explícita | `semantic_review` + relatório | S01 | IMPL |
 | R12.7 | Sem lista fixa de nomes de pacotes | planner/assessor genéricos | teste | IMPL |
@@ -152,25 +152,25 @@ estado REAL é atribuído sem execução registrada.
 
 | ID | Requisito | Implementação | Evidência | Estado |
 |---|---|---|---|---|
-| R13.1 | Português, Markdown, resposta direta | `report_renderer.py` | teste | PENDENTE |
-| R13.2 | Data/escopo/critérios/método | idem | teste | PENDENTE |
-| R13.3 | Achados por critério | idem | teste | PENDENTE |
-| R13.4 | Comparações/cálculos/recomendações | idem + `quantitative.py` | teste | PENDENTE |
-| R13.5 | Referências próximas das afirmações | idem | teste | PENDENTE |
-| R13.6 | Limitações/contradições/incertezas/não investigado | idem | teste | PENDENTE |
-| R13.7 | Conclusão + próximos passos | idem | teste | PENDENTE |
-| R13.8 | Fontes/anexos rastreáveis | idem + artefatos | teste | PENDENTE |
-| R13.9 | Tamanho proporcional à complexidade | idem | teste | PENDENTE |
+| R13.1 | Português, Markdown, resposta direta | `report_renderer.py` (9 seções PT-BR) | `test_product_core.ReportTest` | IMPL |
+| R13.2 | Data/escopo/critérios/método | idem §2 | idem | IMPL |
+| R13.3 | Achados por critério | idem §3 (estado por par + refs) | idem | IMPL |
+| R13.4 | Comparações/cálculos/recomendações | idem §4 + bloco reproduzível | idem | IMPL |
+| R13.5 | Referências próximas das afirmações | idem (só corpus; fora removida e registrada) | idem | IMPL |
+| R13.6 | Limitações/contradições/incertezas/não investigado | idem §5 | idem | IMPL |
+| R13.7 | Conclusão + próximos passos | idem §6 | idem | IMPL |
+| R13.8 | Fontes/anexos rastreáveis | idem §7–§8 + report.md/result.json/state.json | idem | IMPL |
+| R13.9 | Tamanho proporcional à complexidade | idem (light < deep) | `test_light_is_shorter_than_deep` | IMPL |
 
 ## §14 Execuções longas e controle
 
 | ID | Requisito | Implementação | Evidência | Estado |
 |---|---|---|---|---|
 | R14.1 | run_id + estado persistente | `adaptive_state` | teste | IMPL |
-| R14.2 | Progresso observável | `run_control.status` | teste | PENDENTE |
-| R14.3 | Pausa/retomada/cancelamento | `run_control` + CLI | teste | PENDENTE |
-| R14.4 | Registro de config/código/entradas/modelos/artefatos | `run_manifest` | teste | PENDENTE |
-| R14.5 | Simulado ≠ real identificado | `environment` no manifesto | teste | PENDENTE |
+| R14.2 | Progresso observável | `run_control.status.json` (fase/rodada/contadores/elapsed) | `test_run_control` + `test_control_integration` | IMPL |
+| R14.3 | Pausa/retomada/cancelamento | `run_control` + hooks no coordenador + `--resume` | `test_control_integration` (pausa real via arquivo) | IMPL |
+| R14.4 | Registro de config/código/entradas/modelos/artefatos | `run_manifest.write_manifest` (hashes, artefatos, modelos sem chave) | `test_control_integration.ManifestTest` | IMPL |
+| R14.5 | Simulado ≠ real identificado | `simulated: bool` obrigatório (erro se ausente) | idem | IMPL |
 | R14.6 | Interrupção preserva obtido; retomada não duplica | `_reconcile_resume` | R08/S06 | IMPL |
 | R14.7 | Tentativas limitadas com espera | retry policy | teste | IMPL |
 | R14.8 | Consumo não medido = desconhecido | `unknown` explícito | teste | PARCIAL |
@@ -193,11 +193,11 @@ estado REAL é atribuído sem execução registrada.
 | Descoberta aberta | S03 + real | IMPL |
 | Divergência entre fontes | teste de contradição | IMPL |
 | Pesquisa acadêmica | `academic_search` + real | IMPL |
-| Relatório quantitativo | `quantitative.py` | PENDENTE |
+| Relatório quantitativo (fórmulas/entradas/unidades) | `quantitative.py` + §4 do relatório | IMPL |
 | Mudança de profundidade observável | teste de perfis | IMPL |
 | Amplitude × profundidade independentes | teste de estratégia | IMPL |
 | Lacuna → ação direcionada | demo S03/entry | IMPL |
 | Controle de rodadas | teste | IMPL |
-| Execução longa interrompida | resume + control | PARCIAL |
+| Execução longa interrompida | resume + pausa/cancel via controle | IMPL |
 | Bloqueio/erro/limite → parcial honesto | R11/R12 | IMPL |
-| Entrega final verificável | relatório + verificação | PENDENTE |
+| Entrega final verificável | report.md + verification.json + manifest.json | IMPL |
