@@ -63,7 +63,7 @@ def _read_page(url: str, *, timeout: float, transport=None):
 
 
 def _github_search(query: str, *, timeout: float, token: str | None) -> list[dict]:
-    url = f"{GITHUB_API}?{quote(query, safe='')}&per_page={SEARCH_LIMIT}"
+    url = f"{GITHUB_API}?q={quote(query, safe='')}&per_page={SEARCH_LIMIT}"
     headers = {"Accept": "application/vnd.github+json",
                "User-Agent": "hermes-native-transport"}
     request = Request(url, headers=headers)
@@ -101,8 +101,10 @@ def _academic_hits(result) -> list[dict]:
     for work in works:
         if not isinstance(work, dict):
             continue
-        url = work.get("url") or (
-            f"https://doi.org/{work['doi']}" if work.get("doi") else "")
+        url = (work.get("url") or work.get("oa_url") or work.get("id") or "")
+        if not str(url).startswith("http"):
+            url = (f"https://doi.org/{work['doi']}"
+                   if work.get("doi") else "")
         if not url:
             continue
         hits.append({"url": str(url), "title": str(work.get("title") or ""),
