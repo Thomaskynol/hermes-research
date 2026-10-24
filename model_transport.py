@@ -118,8 +118,16 @@ def _jsonl_text(stdout: str) -> str:
 
 def opencode_client(*, model: str = DEFAULT_OPENCODE_MODEL, binary: str = "opencode",
                     timeout: float = 180.0,
-                    max_calls: int | None = None) -> Callable[[str], str]:
-    """Callable(prompt)->str via CLI do host; nada de chamada oculta."""
+                    max_calls: int | None = None,
+                    retries: int = 2,
+                    retry_delays: tuple = (15.0, 45.0)) -> Callable[[str], str]:
+    """Callable(prompt)->str via CLI do host; nada de chamada oculta.
+
+    Resposta vazia (rate limit do free tier, 429 transitório) é repetida
+    até ``retries`` vezes com espera crescente — cada tentativa conta em
+    ``calls`` e no teto ``max_calls``. Falha persistente vira
+    ModelTransportError explícito, nunca texto inventado.
+    """
     model_id = str(model or "").strip()
     if not model_id:
         raise ModelTransportError("model_not_configured")
@@ -133,31 +141,47 @@ def opencode_client(*, model: str = DEFAULT_OPENCODE_MODEL, binary: str = "openc
             raise ModelTransportError(f"max_calls_exceeded: {max_calls}")
         if shutil.which(binary) is None:
             raise ModelTransportError("opencode_cli_unavailable")
-        client.calls += 1
-        argv = [binary, "run", "--standalone", "--format", "json",
-                "-m", model_id, text]
-        try:
-            proc = subprocess.run(argv, capture_output=True, text=True,
-                                  timeout=timeout, shell=False)
-        except subprocess.TimeoutExpired as exc:
-            raise ModelTransportError(
-                f"opencode_timeout: {timeout}s") from exc
-        except FileNotFoundError as exc:
-            raise ModelTransportError("opencode_cli_unavailable") from exc
-        except OSError as exc:
-            raise ModelTransportError(_safe("opencode_spawn_failed", exc)) from exc
-        answer = _jsonl_text(proc.stdout or "")
-        if answer:
-            return answer
-        tail = _KEY_RE.sub("[redacted]", (proc.stderr or "")[-300:])
-        raise ModelTransportError(
-            f"opencode_no_text: rc={proc.returncode} stderr_tail={tail!r}")
+        last_error: Exception | None = None
+        for attempt in range(max(0, retries) + 1):
+            if max_calls is not None and client.calls >= max_calls:
+                raise ModelTransportError(f"max_calls_exceeded: {max_calls}")
+            client.calls += 1
+            argv = [binary, "run", "--standalone", "--format", "json",
+                    "-m", model_id, text]
+            try:
+                proc = subprocess.run(argv, capture_output=True, text=True,
+                                      timeout=timeout, shell=False)
+            except subprocess.TimeoutExpired as exc:
+                raise ModelTransportError(
+                    f"opencode_timeout: {timeout}s") from exc
+            except FileNotFoundError as exc:
+                raise ModelTransportError("opencode_cli_unavailable") from exc
+            except OSError as exc:
+                raise ModelTransportError(
+                    _safe("opencode_spawn_failed", exc)) from exc
+            answer = _jsonl_text(proc.stdout or "")
+            if answer:
+                return answer
+            tail = _KEY_RE.sub("[redacted]", (proc.stderr or "")[-300:])
+            last_error = ModelTransportError(
+                f"opencode_no_text: rc={proc.returncode} "
+                f"stderr_tail={tail!r} attempt={attempt + 1}")
+            if attempt < max(0, retries):
+                delay = retry_delays[attempt] \
+                    if attempt < len(retry_delays) else retry_delays[-1]
+                try:
+                    import time as _time
+                    _time.sleep(float(delay))
+                except Exception:
+                    pass
+        raise last_error  # type: ignore[misc]
 
     client.model_id = model_id
     client.calls = 0
     client.describe = lambda: {"kind": "opencode", "model_id": model_id,
                                "calls": client.calls, "timeout": timeout,
-                               "binary": binary, "max_calls": max_calls}
+                               "binary": binary, "max_calls": max_calls,
+                               "retries": max(0, retries)}
     return client
 
 

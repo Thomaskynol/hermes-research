@@ -171,13 +171,35 @@ class OpencodeCalls(unittest.TestCase):
         run = mock.Mock(return_value=_completed(
             stdout=json.dumps({"type": "step_start"}),
             stderr="upstream exploded", returncode=1))
-        client = mt.opencode_client(model="opencode/m")
+        # retries=0: mesma falha explícita de antes, sem espera no teste.
+        client = mt.opencode_client(model="opencode/m", retries=0)
         with self.assertRaises(mt.ModelTransportError) as ctx:
             self._run_client(client, run, prompt)
         message = str(ctx.exception)
         self.assertIn("opencode_no_text", message)
         self.assertIn("upstream exploded", message)
         self.assertNotIn("PROMPT-SENTINEL", message)
+
+    def test_empty_response_is_retried_then_succeeds(self):
+        empty = _completed(stdout=json.dumps({"type": "step_start"}),
+                           stderr="", returncode=1)
+        full = _completed(
+            stdout=json.dumps({"type": "text", "part": {"text": "late"}}))
+        run = mock.Mock(side_effect=[empty, full])
+        client = mt.opencode_client(model="opencode/m", retries=1,
+                                    retry_delays=(0,))
+        self.assertEqual(self._run_client(client, run), "late")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(client.calls, 2)
+        # Falha persistente: erro final informa a tentativa e conta todas.
+        run2 = mock.Mock(return_value=empty)
+        client2 = mt.opencode_client(model="opencode/m", retries=2,
+                                     retry_delays=(0, 0))
+        with self.assertRaises(mt.ModelTransportError) as ctx:
+            self._run_client(client2, run2)
+        self.assertIn("attempt=3", str(ctx.exception))
+        self.assertEqual(run2.call_count, 3)
+        self.assertEqual(client2.calls, 3)
 
     def test_timeout_is_explicit(self):
         def _timeout(*args, **kwargs):
