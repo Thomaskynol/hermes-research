@@ -1131,10 +1131,25 @@ def run_adaptive(question: str, *, profile: str = "light",
     audit = auditor_fn or _default_auditor
 
     # -- initial collection (ONE sweep; later rounds are targeted ops) ------
+    # initial_paths entries may be plain query strings (channel defaults to
+    # CHANNELS[0]) or {"query": ..., "channel": ...} dicts so the plan can
+    # direct the first sweep at the pertinent families (§8: explorar
+    # amplamente). Unknown channels fall back to the default with a note.
     initial_queries = list((plan.get("initial_paths") or [question])) or [question]
-    init_ops = [{"op_id": f"init-{i}", "kind": "initial", "channel": CHANNELS[0],
-                 "target": q, "criterion_id": "", "status": "in-progress"}
-                for i, q in enumerate(initial_queries)]
+    init_ops = []
+    for i, q in enumerate(initial_queries):
+        channel, target = CHANNELS[0], q
+        if isinstance(q, dict):
+            target = q.get("query", q.get("target", ""))
+            want = str(q.get("channel", "") or "").lower()
+            channel = want if want in CHANNELS else CHANNELS[0]
+            if want and want not in CHANNELS:
+                state["notes"].append(
+                    f"initial path {i}: unknown channel {want!r}, "
+                    f"using {CHANNELS[0]}")
+        init_ops.append({"op_id": f"init-{i}", "kind": "initial",
+                         "channel": channel, "target": target,
+                         "criterion_id": "", "status": "in-progress"})
     for op in init_ops:
         state["pending_ops"].append(dict(op))
     _control_status(control, state, "round", round_no=0,

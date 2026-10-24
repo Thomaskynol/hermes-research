@@ -167,11 +167,22 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
         if name == "academic":
             return _academic_hits(academic_search_fn(
                 query, limit=SEARCH_LIMIT, source="both"))
+        if name == "arxiv":
+            # Coordinator channel for the academic family; native serves it
+            # with the arXiv slice of the academic connector.
+            return _academic_hits(academic_search_fn(
+                query, limit=SEARCH_LIMIT, source="arxiv"))
         if name == "github":
             return _github_search(query, timeout=timeout, token=github_token)
         if name == "web":
             return _web_hits(web_search_fn(
                 query, limit=SEARCH_LIMIT, channel="web"))
+        if name == "youtube":
+            # No search connector for YouTube in native scope: discovery of
+            # videos needs web search (unavailable here); known URLs can
+            # still be read via read_source/read_video. Honest, never empty.
+            raise _error("youtube search unavailable in native transport: "
+                         "no search connector; read known URLs directly")
         raise _error(f"channel {name!r} unavailable for native search")
 
     def fetch_fn(url: str) -> dict:
