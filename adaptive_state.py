@@ -18,6 +18,8 @@ import os
 import time
 from pathlib import Path
 
+import research_counters as _counters
+
 STATE_NAME = "state.json"
 
 
@@ -55,6 +57,12 @@ def new_state(question: str, run_id: str = "", mode: str = "adaptive",
         "pending_ops": [],    # [{op_id, kind, target, status, attempts, ...}]
         "attempts": {},       # criterion_id -> [{channel, outcome, at}]
         "discovery": {"candidates": [], "open": False},
+        "gaps": [],
+        "counters": _counters.default_counters(),
+        "quantitative_specs": [],
+        "quantitative": [],
+        "verification": {},
+        "manifest": {},
         "notes": [],
         "report": {},
         "semantic": {},
@@ -84,6 +92,17 @@ def save(run_dir: str | Path, state: dict) -> Path:
     return path
 
 
+def ensure_defaults(state: dict) -> dict:
+    """Fill keys added after older runs (retrocompatible; never destructive)."""
+    state.setdefault("gaps", [])
+    state.setdefault("quantitative_specs", [])
+    state.setdefault("quantitative", [])
+    state.setdefault("verification", {})
+    state.setdefault("manifest", {})
+    _counters.ensure(state)
+    return state
+
+
 def load(run_dir: str | Path, run_id: str | None = None) -> dict:
     """Reload state; verifies run identity; marks interrupted ops explicitly."""
     path = Path(run_dir) / STATE_NAME
@@ -99,6 +118,7 @@ def load(run_dir: str | Path, run_id: str | None = None) -> dict:
         raise ValueError(
             f"[STATE] run mismatch: file holds {state['run_id']!r}, "
             f"asked for {run_id!r} — runs never mix")
+    ensure_defaults(state)
     touched = False
     for op in state.get("pending_ops", []):
         if op.get("status") == "in-progress":
