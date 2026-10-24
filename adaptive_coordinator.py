@@ -364,6 +364,35 @@ def _default_writer(view: dict) -> tuple[str, dict]:
                               "fallback": True}
 
 
+def _extract_json(raw_s: str):
+    """Parse model JSON tolerating fences/prose around it (no new calls).
+
+    Real models often wrap the payload in ```json fences or add a short
+    preamble; rejecting that as invalid wastes budget and fails runs for a
+    formatting detail. Extraction never invents content: it parses a
+    substring of the actual response.
+    """
+    import json as _json
+    import re as _re
+    text = (raw_s or "").strip()
+    fence = _re.search(r"```(?:json)?\s*(.*?)\s*```", text, _re.S)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        return _json.loads(text)
+    except Exception:
+        pass
+    decoder = _json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            try:
+                obj, _ = decoder.raw_decode(text[i:])
+                return obj
+            except Exception:
+                continue
+    raise ValueError("no JSON value found in model response")
+
+
 def make_model_assessor(model_client, max_docs: int = 24,
                         excerpt_chars: int = 1200,
                         json_budget: int = 12000):
@@ -458,7 +487,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
             raise TransportError(f"assessor transport failed: {exc}")
         raw_s = str(raw or "").strip()
         try:
-            parsed = _json.loads(raw_s)
+            parsed = _extract_json(raw_s)
         except Exception as exc:
             raise TransportError(f"assessor returned invalid JSON: {exc}")
         if isinstance(parsed, dict) and isinstance(
