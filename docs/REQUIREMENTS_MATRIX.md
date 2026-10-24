@@ -10,7 +10,8 @@ Fonte normativa: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (SHA-256
 - **BLOQUEADO** — impedido por ambiente externo (registrado, não fingido).
 
 Atualizada em 2026-10-24. Evidências apontam para teste/comando/doc; nenhum
-estado REAL é atribuído sem execução registrada.
+estado REAL é atribuído sem execução registrada. Promoções IMPL→REAL pela
+validação RAG_001 estão em "Validação real RAG_001 — promoções".
 
 ## §2 Duas ferramentas, uma base
 
@@ -175,6 +176,33 @@ estado REAL é atribuído sem execução registrada.
 | R14.7 | Tentativas limitadas com espera | retry policy | teste | IMPL |
 | R14.8 | Consumo não medido = desconhecido | `unknown` explícito | teste | PARCIAL |
 
+## Validação real RAG_001 — promoções IMPL→REAL
+
+Execução registrada em `docs/VALIDACAO_REAL_RAG_001.md` (artefatos em
+`/tmp/hermes-real-run/run/`, fora do Git). Linhas promovidas:
+
+| ID | Evidência real |
+|---|---|
+| R2.2, R2.5 | `read_page`/`academic_search` reais (arXiv texto integral via HTTP) |
+| R2.3 | `read_video` com estado `blocked` honesto (sem cookies; sem fala inventada) |
+| R2.4 | `read_repo` real (README parcial, stars, licença, release) |
+| R2.7 | contrato `ReachResult` com origem/limites/estado no caminho real |
+| R3.5 | OpenAlex + arXiv + GitHub oficiais gratuitos, sem chave |
+| R4.3, R4.4, R4.5 | idem R2.4/R2.5; canal web falho registrado (`retriever_unavailable`) |
+| R6.4 | `stop.reason=rounds`, parcial identificável, 2 rodadas registradas |
+| R7.1–R7.6 | contadores observados 8/6/6/6/6/6 em `counters.json` |
+| R8.5, R8.6, R9.2, R9.6, R9.8 | coleta→avaliação→parada parcial honesta (`result.json:rounds`) |
+| R10.1, R10.2 | `state.json` com evidências, hashes, datas de obtenção |
+| R11.6, R11.7 | `read_level` por trabalho; incertezas declaradas no relatório |
+| R12.1–R12.4 | `verification.json` (execution=ok, question=partial, review+support) |
+| R13.1–R13.3, R13.5–R13.8 | `report.md` PT-BR 9 seções, refs do corpus, lacunas explícitas |
+| R14.1, R14.4, R14.5 | `state.json` + `manifest.json` (`simulated=false`, modelo sem chave) |
+| §16 | pesquisa acadêmica REAL; bloqueio/erro/limite→parcial honesto REAL |
+
+Seguem IMPL (offline): R2.1 (gateway local fora do ar), R6.5, R8.7, R10.3–R10.6,
+R12.5–R12.7, R13.4/R13.9 (parcialmente exercidos), R14.2/R14.3/R14.6/R14.7.
+Seguem BLOQUEADO: R3.1. Seguem PARCIAL: R6.6, R14.8 (tokens unknown).
+
 ## §15 Arquitetura
 
 | ID | Requisito | Implementação | Evidência | Estado |
@@ -192,12 +220,12 @@ estado REAL é atribuído sem execução registrada.
 | Vários alvos explícitos | cobertura por par | IMPL |
 | Descoberta aberta | S03 + real | IMPL |
 | Divergência entre fontes | teste de contradição | IMPL |
-| Pesquisa acadêmica | `academic_search` + real | IMPL |
+| Pesquisa acadêmica | `academic_search` + real RAG_001 | REAL |
 | Relatório quantitativo (fórmulas/entradas/unidades) | `quantitative.py` + §4 do relatório | IMPL |
 | Mudança de profundidade observável | teste de perfis | IMPL |
 | Amplitude × profundidade independentes | teste de estratégia | IMPL |
 | Lacuna → ação direcionada | demo S03/entry | IMPL |
 | Controle de rodadas | teste | IMPL |
 | Execução longa interrompida | resume + pausa/cancel via controle | IMPL |
-| Bloqueio/erro/limite → parcial honesto | R11/R12 | IMPL |
+| Bloqueio/erro/limite → parcial honesto | R11/R12 + real RAG_001 | REAL |
 | Entrega final verificável | report.md + verification.json + manifest.json | IMPL |
