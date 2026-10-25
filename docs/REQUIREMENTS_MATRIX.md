@@ -197,6 +197,7 @@ Execução registrada em `docs/VALIDACAO_REAL_RAG_001.md` (artefatos em
 | R12.1–R12.4 | `verification.json` (execution=ok, question=partial, review+support) |
 | R13.1–R13.3, R13.5–R13.8 | `report.md` PT-BR 9 seções, refs do corpus, lacunas explícitas |
 | R14.1, R14.4, R14.5 | `state.json` + `manifest.json` (`simulated=false`, modelo sem chave) |
+| R9.6 (ext.) | sem regressão de cobertura sem evidência nova (ledger reflete o merge) | uvrun6 (0.2 mantido no round sem ganho) + `test_monotonic_coverage` | REAL |
 | §16 | pesquisa acadêmica REAL; bloqueio/erro/limite→parcial honesto REAL |
 
 Seguem IMPL (offline): R2.1 (gateway local fora do ar), R6.5, R8.7, R10.3–R10.6,
