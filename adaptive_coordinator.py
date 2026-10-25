@@ -384,6 +384,23 @@ def _update_ledger_counts(state: dict, ledger) -> None:
         pass
 
 
+def _untried_channels(state: dict, gaps: list[dict]) -> list[str]:
+    """Channels in CHANNELS with no recorded attempt for the open gaps.
+
+    A `blocked` stop is only honest after every channel was tried: giving
+    up while e.g. web was never attempted hides a reachable path.
+    Termination is safe — each rescue round records attempts, and the
+    loop stays bounded by max_rounds.
+    """
+    tried: set[str] = set()
+    for gap in gaps or []:
+        for att in state.get("attempts", {}).get(
+                gap.get("criterion_id", ""), []):
+            if att.get("channel"):
+                tried.add(att["channel"])
+    return [c for c in CHANNELS if c not in tried]
+
+
 def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     """One specific op per top gap; vary channel/target after flat attempts.
 
@@ -411,9 +428,13 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
             target = base_q
         elif last_outcome in ("failed", "nogain", "duplicate", "time",
                               "budget"):
-            idx = (CHANNELS.index(last_channel) + 1) % len(CHANNELS) \
-                if last_channel in CHANNELS else 1
-            kind, channel = "alt_channel", CHANNELS[idx]
+            untried = _untried_channels(state, gaps)
+            if untried:
+                kind, channel = "alt_channel", untried[0]
+            else:
+                idx = (CHANNELS.index(last_channel) + 1) % len(CHANNELS) \
+                    if last_channel in CHANNELS else 1
+                kind, channel = "alt_channel", CHANNELS[idx]
             target = f"{base_q} (canal {channel}, tentativa {n})"
         elif last_outcome in ("new_useful", "confirmed"):
             # Useful gain without resolution: do not repeat the byte-identical
@@ -1528,6 +1549,18 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
             gaps=[g.get("criterion_id") for g in open_gaps])
         stop = _map_stop(decision, block, state, resolved, budget,
                          elapsed, now, t_start)
+        if stop is not None and stop.get("reason") == "blocked":
+            # Honest block requires every channel tried: with rounds left
+            # and untried channels, keep going — select_ops rotates to
+            # the untried channel. Never silently stop while a path
+            # was never attempted (satrun5: arxiv+github failed, web
+            # never tried, run declared blocked after round 0).
+            if len(state["rounds"]) - 1 < resolved["max_rounds"] and \
+                    _untried_channels(state, open_gaps):
+                state["notes"].append(
+                    "blocked stop deferred: untried channels remain "
+                    f"({_untried_channels(state, open_gaps)})")
+                stop = None
         if stop is not None:
             state["rounds"][-1]["decision"] = stop["detail"]
             break
