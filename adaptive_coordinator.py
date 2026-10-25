@@ -1761,9 +1761,12 @@ def run_adaptive(question: str, *, profile: str = "light",
             state["notes"].append(f"persist initial round failed: {exc}")
 
     # -- adaptive rounds ----------------------------------------------------
+    # control=control: sem ele, runs novos perdem status/pausa após o round
+    # inicial (só a via resume passava o controle; achado na demo hermdemo4).
     return _resume_loop(state, ledger, assess, write, audit, resolved,
                         budget, search_fn, fetch_fn, now, t_start,
-                        checkpoint, run_dir, block, prev_proportion)
+                        checkpoint, run_dir, block, prev_proportion,
+                        control=control)
 
 
 def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,

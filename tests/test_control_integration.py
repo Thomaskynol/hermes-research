@@ -180,6 +180,46 @@ class ControlIntegration(unittest.TestCase):
                              if isinstance(status.get("stop"), dict)
                              else status.get("stop"), "paused")
 
+    def test_pause_in_gap_round_reaches_finalize_and_done(self):
+        """Regressão hermdemo4: run novo perdia o controle após o round
+        inicial (chamada a _resume_loop sem control=control); pausa emitida
+        nos rounds de lacuna nunca era consumida e finalize/done nunca eram
+        registrados. Pausa após os polls do caminho inicial (1678, 2115,
+        1687: 3 polls) cai no topo do 1º round de lacuna: deve parar com
+        finalize+done no status."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = str(Path(tmp) / "run")
+            ctrl = ScriptControl([None] * 5 + ["pause"])
+            search, fetch, _model = transports({})
+            import json as _json
+
+            def insufficient_model(prompt):
+                if "Você avalia evidências" in prompt:
+                    return _json.dumps([{
+                        "criterion_id": "c0", "state": "insufficient",
+                        "justification": "evidência ainda fraca",
+                        "origin": "avaliação simulada",
+                        "references": [{"url": A}]}])
+                return "relatório parcial honesto"
+
+            assess = ac.make_model_assessor(insufficient_model, max_docs=3)
+            result = ac.run_adaptive(
+                "Pergunta de controle", profile="light", plan=plan(),
+                search_fn=search, fetch_fn=fetch, assess_fn=assess,
+                writer_fn=lambda view: ("Síntese honesta.",
+                                         {"included_urls": [A],
+                                          "cuts": "nenhum"}),
+                auditor_fn=lambda report, evidence: {"enabled": False,
+                                                     "accepted": False},
+                run_dir=run_dir, run_id="ctrl-run",
+                overrides={"max_rounds": 2},
+                control=ctrl)
+            self.assertTrue(result.get("partial"))
+            self.assertEqual(result["stop"]["reason"], "paused")
+            phases = [s["phase"] for s in ctrl.statuses]
+            for expected in ("plan", "round", "finalize", "done"):
+                self.assertIn(expected, phases)
+
 
 class ManifestTest(unittest.TestCase):
     def _result(self, run_id="ctrl-run"):
