@@ -662,6 +662,17 @@ async def main():
     if _mode == "adaptive":
         await _adaptive_main(_argv)
         return
+    if "-h" in _argv or "--help" in _argv:
+        print("Usage: python3 gpt_researcher_integration.py \"query\" [depth] "
+              "[--coverage-plan <json|path>] [--mode legacy|adaptive]")
+        print("Depth: light (default), medium, hard, deep "
+              "(aliases: quick, standard, detailed, deep)")
+        print("Mode: legacy (default, current path untouched) | adaptive "
+              "(plan/state/coverage/rounds/budget/stop under our control; "
+              "see docs/ADAPTIVE_RESEARCH.md)")
+        print("Adaptive flags: see --mode adaptive --help "
+              "(--auto-plan dispensa --coverage-plan).")
+        return
 
     # Explicit bootstrap for the legacy path (import never syncs). Env/config
     # paths are explicit: HERMES_ENV_FILE overrides, otherwise the installed
