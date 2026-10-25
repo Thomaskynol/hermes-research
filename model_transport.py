@@ -97,10 +97,14 @@ def litellm_client(*, model=None, timeout: float = 120.0,
 
 
 def _jsonl_text(stdout: str) -> str:
-    """Concatena ``part.text`` dos eventos ``type=="text"`` do CLI."""
+    """Concatena ``part.text`` dos eventos ``type=="text"`` do CLI.
+
+    NULs (``\\x00``) vindos do transporte são removidos: já derrubaram a
+    síntese real uma vez (``ValueError: embedded null byte`` no writer).
+    """
     parts: list[str] = []
     for line in (stdout or "").splitlines():
-        line = line.strip()
+        line = line.strip().replace("\x00", "")
         if not line:
             continue
         try:
@@ -112,7 +116,7 @@ def _jsonl_text(stdout: str) -> str:
         part = event.get("part")
         text = part.get("text") if isinstance(part, dict) else None
         if isinstance(text, str) and text:
-            parts.append(text)
+            parts.append(text.replace("\x00", ""))
     return "".join(parts)
 
 
@@ -133,7 +137,9 @@ def opencode_client(*, model: str = DEFAULT_OPENCODE_MODEL, binary: str = "openc
         raise ModelTransportError("model_not_configured")
 
     def client(prompt: str) -> str:
-        text = str(prompt or "")
+        # Conteúdo real (páginas, READMEs) pode conter NUL; argv com \x00
+        # derruba o subprocess com "embedded null byte". Sanitiza a entrada.
+        text = str(prompt or "").replace("\x00", "")
         if len(text) > MAX_PROMPT_CHARS:
             raise ModelTransportError(
                 f"prompt_too_large: {len(text)} chars > {MAX_PROMPT_CHARS}")

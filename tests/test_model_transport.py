@@ -230,6 +230,18 @@ class OpencodeCalls(unittest.TestCase):
         self.assertIn("opencode_cli_unavailable", str(ctx.exception))
         run.assert_not_called()
 
+    def test_nul_bytes_in_prompt_are_stripped_before_spawn(self):
+        # Real evidence (pages, READMEs) can contain \x00; argv with NUL
+        # used to crash the writer with "embedded null byte" (satrun).
+        run = mock.Mock(return_value=_completed(
+            stdout=json.dumps({"type": "text", "part": {"text": "ok"}})))
+        client = mt.opencode_client(model="opencode/m")
+        self.assertEqual(
+            self._run_client(client, run, prompt="ab\x00cd\x00ef"), "ok")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[7], "abcdef")
+        self.assertNotIn("\x00", argv[7])
+
     def test_prompt_too_large_is_refused(self):
         run = mock.Mock()
         client = mt.opencode_client(model="opencode/m")
