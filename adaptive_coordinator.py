@@ -51,7 +51,7 @@ try:
 except ImportError:  # pragma: no cover - stdlib test path always has it
     _checkpoint = None
 
-CHANNELS = ("web", "github", "arxiv", "youtube")
+CHANNELS = ("web", "github", "academic", "arxiv", "youtube")
 
 ADAPTIVE_ROUNDS = {"light": 2, "medium": 3, "hard": 4, "deep": 6}
 ADAPTIVE_MODEL_CALLS = {"light": 8, "medium": 16, "hard": 32, "deep": 64}
@@ -191,6 +191,51 @@ def _substantive_body(text: str) -> tuple[str, int]:
             continue
         kept.append(line)
     return "\n".join(kept), stripped
+
+
+_PT_EN_RESEARCH: dict[str, tuple[str, ...]] = {
+    # Minimal PT->EN bridge for relevance windowing (research vocabulary).
+    # Static, deterministic, logged when it fires; never a claim, only an
+    # aid so excerpt windows can land on the English sections that answer
+    # Portuguese criteria. Keys are accent-normalized in lookup.
+    "falha": ("failure",), "falhas": ("failure", "failures"),
+    "modo": ("mode",), "modos": ("mode", "modes"),
+    "limitacao": ("limitation",), "limitacoes": ("limitation", "limitations"),
+    "declarada": ("stated", "reported"), "declaradas": ("stated", "reported"),
+    "relatado": ("reported",), "relatados": ("reported",),
+    "metodo": ("method",), "metodos": ("method", "methods"),
+    "avaliacao": ("evaluation",), "avaliacoes": ("evaluation",),
+    "resultado": ("result",), "resultados": ("result", "results"),
+    "comparacao": ("comparison",), "desempenho": ("performance",),
+    "artigo": ("paper",), "artigos": ("paper", "papers"),
+    "pesquisa": ("research",), "estudo": ("study",), "estudos": ("study",),
+    "abordagem": ("approach",), "tecnica": ("technique",),
+    "analise": ("analysis",), "problema": ("problem",),
+    "solucao": ("solution",), "custo": ("cost",),
+    "latencia": ("latency",), "precisao": ("accuracy", "precision"),
+    "revocacao": ("recall",), "recuperacao": ("retrieval",),
+    "geracao": ("generation",), "aumentada": ("augmented",),
+    "adaptativo": ("adaptive",), "adaptativa": ("adaptive",),
+    "alucinacao": ("hallucination",), "vies": ("bias",),
+    "justica": ("fairness",), "referencia": ("reference",),
+    "citacao": ("citation",), "base": ("benchmark", "dataset"),
+    "conjunto": ("dataset",), "dados": ("data",),
+}
+
+
+def _expand_terms_en(tokens: "list[str] | tuple[str, ...]") -> list[str]:
+    """Expand PT research tokens with EN equivalents (accent-insensitive)."""
+    import unicodedata as _ud
+    out: list[str] = []
+    for tok in tokens or []:
+        norm = "".join(c for c in _ud.normalize("NFKD", str(tok).lower())
+                       if not _ud.combining(c))
+        norm = "".join(ch if ch.isalpha() else " " for ch in norm)
+        for word in norm.split():
+            for en in _PT_EN_RESEARCH.get(word, ()):
+                if en not in out:
+                    out.append(en)
+    return out
 
 
 def _op_target_terms(state: dict) -> list[str]:
@@ -728,10 +773,17 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 for _k in ("label", "id"):
                     if _c.get(_k):
                         _terms.extend(str(_c[_k]).split())
+            # Bilingual bridge (deterministic heuristic, logged in cuts):
+            # plans/questions are often Portuguese while the corpus is
+            # English. Without expansion, PT label tokens ("falha",
+            # "limitacoes") never match the EN body and windowing falls
+            # back to head-only (acadrun3: 0.0 with the answer in-corpus).
+            _terms.extend(_expand_terms_en(_terms))
             for _e in (plan or {}).get("entities", []) or []:
                 for _k in ("label", "id"):
                     if _e.get(_k):
                         _terms.extend(str(_e[_k]).split())
+            _terms.extend(_expand_terms_en(_terms))
         except Exception:
             _terms = []
         # Real selection: complete units within the JSON budget.

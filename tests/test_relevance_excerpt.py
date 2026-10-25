@@ -263,3 +263,35 @@ class QueryTermsHookTest(unittest.TestCase):
         resolved = ac.resolve_adaptive("light")
         evals, _block = ac._assess_round(state, custom, ledger, resolved)
         self.assertTrue(any(e.get("state") == "partial" for e in evals))
+
+
+class BilingualBridgeTest(unittest.TestCase):
+    def test_expand_pt_research_tokens(self):
+        got = ac._expand_terms_en(["modos", "falha", "limitações", "xyz"])
+        for en in ("mode", "modes", "failure", "limitation", "limitations"):
+            self.assertIn(en, got)
+        self.assertNotIn("xyz", got)
+
+    def test_expand_is_deterministic_and_deduped(self):
+        a = ac._expand_terms_en(["falhas", "falha"])
+        b = ac._expand_terms_en(["falha", "falhas"])
+        self.assertEqual(a, b)
+        self.assertEqual(len(a), len(set(a)))
+
+    def test_relevance_uses_expanded_terms(self):
+        head = "Abstract. " + ("Intro sentence about retrieval. " * 40)
+        tail = ("Conclusion. " * 10 +
+                "Failure analysis: component failures 63.5% of errors. " +
+                "Limitations of the method are listed here. " + ("pad " * 200))
+        doc = head + "\n\n" + tail
+        exc, _stripped, windows = ac._relevant_excerpt(
+            doc, 1200, ["failure", "limitations"])
+        self.assertIn("63.5%", exc)
+        self.assertIn("relevancia", windows)
+
+    def test_academic_channel_accepted_in_initial_ops(self):
+        self.assertIn("academic", ac.CHANNELS)
+
+
+if __name__ == "__main__":
+    unittest.main()
