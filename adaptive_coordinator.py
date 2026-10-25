@@ -827,6 +827,10 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     # criterion, valid state, justification + origin; references must
     # resolve via the ledger (invalid -> kept as insufficiency, never
     # forced into coverage). Insufficiency/contradiction/failure preserved.
+    # NOTE: o ledger só é alimentado após o merge de monotonia abaixo
+    # (avaliações mescladas, não as brutas da rodada): rebaixamento sem
+    # evidência nova rejeitado no merge nunca chega ao ledger, então
+    # block/proportion refletem os estados mantidos.
     applied = []
     for ev in evals:
         if not isinstance(ev, dict) or "criterion_id" not in ev:
@@ -850,17 +854,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                     f"references material outside the analyzed selection: "
                     f"kept as insufficiency")
                 continue
-        try:
-            ledger.evaluate(ev["criterion_id"], st,
-                            ev.get("justification", ""), ev.get("origin", ""),
-                            ev.get("references", []), ev.get("entity_id"))
-            applied.append(ev)
-        except (ValueError, KeyError):
-            # Invalid evaluation (e.g. unresolvable ref): preserved as an
-            # insufficiency signal, never forced into coverage.
-            state["notes"].append(
-                f"assessor evaluation for {ev.get('criterion_id')} rejected "
-                f"({ev.get('state')}): kept as insufficiency")
+        applied.append(ev)
     # Open discovery: the assessor (model in production) may propose entities
     # the plan did not know. The coordinator only applies them as a new,
     # validated plan version — user requirements never shrink (enforced).
@@ -870,30 +864,71 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             _apply_discovery(state, ledger, proposal, ev)
     # Persistência acumulada por célula (critério,entidade): a resposta
     # incremental do assessor nunca apaga avaliações válidas anteriores;
-    # revisões/invalidações são explícitas em notes.
+    # revisões/invalidações são explícitas em notes. Cobertura é monotônica
+    # salvo evidência nova: rebaixamento (covered/partial -> estado inferior)
+    # cujas referências não incluem material incorporado após a avaliação
+    # anterior é rejeitado (o assessor não pode mudar de ideia sobre o
+    # mesmo corpus sem fato novo). contradictory/blocked continuam livres
+    # (juízo novo sobre conflito ou bloqueio de acesso).
+    _RANK = {"uninvestigated": 0, "insufficient": 1, "partial": 2,
+             "covered": 3}
     try:
         _merged: dict[tuple, dict] = {}
         for _prev in (state.get("evaluations", []) or []):
             if isinstance(_prev, dict) and "criterion_id" in _prev:
                 _merged[(_prev.get("criterion_id"),
                          _prev.get("entity_id"))] = _prev
+        _seen_keys = set(state.get("_assessed_evidence_keys") or [])
+        _new_urls = set(dict(state.get("evidence", {}) or {})) - _seen_keys
         for _ev in applied:
             _key = (_ev.get("criterion_id"), _ev.get("entity_id"))
             _old = _merged.get(_key)
             if _old is not None and _old.get("state") != _ev.get("state"):
+                _orank = _RANK.get(_old.get("state"))
+                _nrank = _RANK.get(_ev.get("state"))
+                _refs = {(r or {}).get("url", (r or {}).get("doc_id", ""))
+                         for r in (_ev.get("references", []) or [])
+                         if isinstance(r, dict)}
+                _refs.discard("")
+                if (_orank is not None and _nrank is not None
+                        and _nrank < _orank and not (_refs & _new_urls)):
+                    state["notes"].append(
+                        f"downgrade without new evidence rejected for "
+                        f"{_key}: kept {_old.get('state')} "
+                        f"(assessor said {_ev.get('state')})")
+                    continue
                 state["notes"].append(
                     f"evaluation revised for {_key}: "
                     f"{_old.get('state')} -> {_ev.get('state')} "
                     f"(origin={_ev.get('origin', '')[:80]})")
             _merged[_key] = _ev
-        state["evaluations"] = list(_merged.values())
+        # O ledger é alimentado com as avaliações mescladas (pós-monotonia),
+        # nunca com as brutas: proporção/bloco refletem os estados mantidos.
+        # Inválidas estruturais (ex. ref irresolvível) viram insuficiência,
+        # nunca cobertura — mesmo invariante de antes, aplicado no merge.
+        _final: list[dict] = []
+        for _key, _ev in _merged.items():
+            try:
+                ledger.evaluate(_ev["criterion_id"], _ev.get("state", ""),
+                                _ev.get("justification", ""),
+                                _ev.get("origin", ""),
+                                _ev.get("references", []),
+                                _ev.get("entity_id"))
+                _final.append(_ev)
+            except (ValueError, KeyError):
+                state["notes"].append(
+                    f"assessor evaluation for {_ev.get('criterion_id')} "
+                    f"rejected ({_ev.get('state')}): kept as insufficiency")
+        state["evaluations"] = _final
+        state["_assessed_evidence_keys"] = sorted(
+            set(dict(state.get("evidence", {}) or {})))
     except Exception:
         state["evaluations"] = applied
     # Counts after evaluations: analyzed/used reflect what was applied.
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
     state["gaps"] = list(block.get("gaps") or [])
-    return applied, block
+    return list(state.get("evaluations", []) or []), block
 
 
 def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
