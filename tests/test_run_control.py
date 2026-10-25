@@ -55,6 +55,13 @@ class StatusFile(unittest.TestCase):
         self.control.status_path.write_text("{not json", encoding="utf-8")
         self.assertIsNone(self.control.read_status())
 
+    def test_explicit_run_id_overrides_dirname(self):
+        control = rc.RunControl(self.run_dir / "control",
+                                run_id="hermdemo2")
+        payload = control.write_status(phase="round", round_no=0)
+        self.assertEqual(payload["run_id"], "hermdemo2")
+        self.assertEqual(control.read_status()["run_id"], "hermdemo2")
+
 
 class ControlFile(unittest.TestCase):
     def setUp(self):

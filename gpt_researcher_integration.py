@@ -452,13 +452,13 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
         _resolved = _ac.resolve_adaptive(_a.depth, _overrides)
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")
-        return
+        raise SystemExit(2)
     _budget = run_budget.install(_resolved["profile"], _resolved.get("budget"))
     if _a.resume:
         _run_id = _a.run_id or os.environ.get("RUN_ID")
         if not _run_id:
             print("[ADAPTIVE] --resume needs --run-id (or RUN_ID)")
-            return
+            raise SystemExit(2)
     else:
         _run_id = (_a.run_id or os.environ.get("RUN_ID")
                    or run_trace.new_run_id(_a.query))
@@ -489,7 +489,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
         print(f"[ADAPTIVE] cannot create run dir {_run_dir}: {_e}")
         return
     import run_control as _run_control
-    _control = _run_control.RunControl(_control_dir)
+    _control = _run_control.RunControl(_control_dir, run_id=_run_id)
     _researcher = None
     if _a.transport == "native":
         import native_transport as _nt
@@ -571,7 +571,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                 overrides=_overrides, resume=_a.resume, control=_control))
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")
-        return
+        raise SystemExit(2)
     print(f"[ADAPTIVE] stop={_result['stop']} "
           f"coverage={_result['question_coverage'].get('status')} "
           f"proportion={_result['question_coverage'].get('proportion')} "

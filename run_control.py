@@ -50,12 +50,12 @@ def _atomic_write(path: Path, payload: dict) -> None:
 class RunControl:
     """Controle de UM run dir; sem estado global e sem apagar o run dir."""
 
-    def __init__(self, run_dir):
+    def __init__(self, run_dir, run_id=None):
         self.run_dir = Path(run_dir)
         self.status_path = self.run_dir / "status.json"
         self.control_path = self.run_dir / "control.json"
         self.taken_path = self.run_dir / "control.taken.json"
-        self.run_id = self.run_dir.name
+        self.run_id = run_id or self.run_dir.name
 
     # -- status ---------------------------------------------------------
     def write_status(self, *, phase: str, round_no: int | None = None,
