@@ -52,8 +52,12 @@ class WebFallbackTest(unittest.TestCase):
             called["query"] = query
             return fallback_hits
 
+        def searxng_down(query, **kw):
+            raise RuntimeError("searxng fora (teste)")
+
         search_fn, _, _ = nt.build_native_transports(
-            web_search_fn=_gateway_down, web_fallback_fn=fallback)
+            web_search_fn=_gateway_down, searxng_search_fn=searxng_down,
+            web_fallback_fn=fallback)
         self.assertEqual(search_fn("rag"), fallback_hits)
         self.assertEqual(called["query"], "rag")
 
@@ -81,6 +85,104 @@ class WebFallbackTest(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("retriever_unavailable", message)
         self.assertIn("fallback failed", message)
+
+
+class SearxngRouteTest(unittest.TestCase):
+    def test_searxng_serves_when_gateway_fails(self):
+        searxng_hits = [{"url": "https://e.org/sx", "title": "t",
+                         "snippet": "s", "via": "searxng",
+                         "engine": "dummy"}]
+        called = {}
+
+        def searxng(query, **kw):
+            called["query"] = query
+            return searxng_hits
+
+        def fallback(query, **kw):  # pragma: no cover - must not run
+            raise AssertionError("ddgs must not run when searxng serves")
+
+        search_fn, _, _ = nt.build_native_transports(
+            web_search_fn=_gateway_down, searxng_search_fn=searxng,
+            web_fallback_fn=fallback)
+        self.assertEqual(search_fn("q"), searxng_hits)
+        self.assertEqual(called["query"], "q")
+
+    def test_searxng_empty_falls_through_to_ddgs(self):
+        order = []
+
+        def searxng(query, **kw):
+            order.append("searxng")
+            raise RuntimeError("no usable results")
+
+        def fallback(query, **kw):
+            order.append("ddgs")
+            return [{"url": "https://e.org/d", "title": "t",
+                     "snippet": "s", "via": "ddgs-fallback"}]
+
+        search_fn, _, _ = nt.build_native_transports(
+            web_search_fn=_gateway_down, searxng_search_fn=searxng,
+            web_fallback_fn=fallback)
+        self.assertEqual(search_fn("q")[0]["via"], "ddgs-fallback")
+        self.assertEqual(order, ["searxng", "ddgs"])
+
+    def test_triple_failure_names_all_causes(self):
+        search_fn, _, _ = nt.build_native_transports(
+            web_search_fn=_gateway_down,
+            searxng_search_fn=lambda q, **kw: (_ for _ in ()).throw(
+                RuntimeError("searxng fora (teste)")),
+            web_fallback_fn=lambda q, **kw: (_ for _ in ()).throw(
+                RuntimeError("no ddgs here")))
+        with self.assertRaises(Exception) as ctx:
+            search_fn("q", "web")
+        message = str(ctx.exception)
+        self.assertIn("retriever_unavailable", message)
+        self.assertIn("searxng failed", message)
+        self.assertIn("fallback failed", message)
+
+    def test_searxng_search_labels_via_and_engine(self):
+        import json as _json
+        from unittest import mock as _mock
+
+        body = _json.dumps({"results": [
+            {"url": "https://e.org/a", "title": "A", "content": "c",
+             "engine": "dummy"},
+            {"title": "sem url"},
+        ]}).encode()
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return body
+
+        with _mock.patch.object(nt, "urlopen", return_value=FakeResp()):
+            hits = nt._searxng_search("q", base_url="http://x:8888")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["via"], "searxng")
+        self.assertEqual(hits[0]["engine"], "dummy")
+
+    def test_searxng_search_empty_is_honest_failure(self):
+        import json as _json
+        from unittest import mock as _mock
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return _json.dumps({"results": []}).encode()
+
+        with _mock.patch.object(nt, "urlopen", return_value=FakeResp()):
+            with self.assertRaises(Exception) as ctx:
+                nt._searxng_search("q", base_url="http://x:8888")
+        self.assertIn("no usable results", str(ctx.exception))
 
 
 class SameRepoLinksTest(unittest.TestCase):

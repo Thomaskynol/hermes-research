@@ -273,10 +273,13 @@ def _relevant_excerpt(text: str, limit: int,
     the sections that answer the criteria (acadrun: 131K chars containing
     the full body, assessor saw "summary up to 4.4"). Terms come from the
     plan (criterion/entity labels); matching is case-insensitive substring
-    over ~600-char paragraph windows. Best window first, then head as
-    context, then further windows until `limit`. No term hits -> head cut
-    (same as _substantive_excerpt). Returns (excerpt, stripped, windows).
-    Deterministic (stdlib only): stable sort by (-hits, offset).
+    over sliding character windows (size ~600, stride ~300: single-line
+    HTML-to-text bodies have no paragraph breaks — acadrun4's 131K FAIR-RAG
+    body had zero newlines, so paragraph splitting collapsed to one head
+    chunk). Best window first, then further windows until `limit`. No term
+    hits -> head cut (same as _substantive_excerpt). Returns (excerpt,
+    stripped, windows). Deterministic (stdlib only): stable sort by
+    (-distinct, -total, offset).
     """
     body, stripped = _substantive_body(text)
     if not body.strip():
@@ -288,45 +291,52 @@ def _relevant_excerpt(text: str, limit: int,
         stripped += max(0, len(body) - len(head))
         return head, stripped, ("cabeca (sem termos ou corpo curto)"
                                 if not norm_terms else "corpo integral")
-    paras: list[str] = []
-    cur = ""
-    for line in body.splitlines():
-        if line.strip():
-            cur = (cur + "\n" + line) if cur else line
-        elif cur:
-            paras.append(cur)
-            cur = ""
-    if cur:
-        paras.append(cur)
+    low = body.lower()
+    WSIZE, STRIDE = 600, 300
     scored = []
-    for idx, para in enumerate(paras):
-        low = para.lower()
-        hits = sum(1 for t in norm_terms if t in low)
-        if hits:
-            scored.append((-hits, idx, para))
+    for start in range(0, len(body), STRIDE):
+        window = low[start:start + WSIZE]
+        if not window.strip():
+            continue
+        distinct = sum(1 for t in norm_terms if t in window)
+        if distinct:
+            total = sum(window.count(t) for t in norm_terms)
+            scored.append((-distinct, -total, start))
     scored.sort()
     if not scored:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
         return head, stripped, "cabeca (termos sem ocorrencia)"
-    # Windows of ~2 paragraphs around each hit, in relevance order.
-    used: set[int] = set()
+    # Top windows, skipping ones overlapping an already chosen span.
+    used: list[tuple[int, int]] = []
     parts: list[str] = []
     total = 0
     winlog: list[str] = []
-    for _neg, idx, _para in scored:
-        for j in (idx, idx + 1):
-            if j < len(paras) and j not in used:
-                chunk = paras[j][:1200]
-                sep_cost = 5 if parts else 0
-                if total + len(chunk) + sep_cost > limit:
-                    break
-                used.add(j)
-                parts.append(chunk)
-                total += len(chunk) + 5
-                winlog.append(f"janela@{j}")
+    for _negd, _negt, start in scored:
+        end = min(len(body), start + WSIZE)
+        if any(start < uend and u > start for u, uend in used):
+            continue
+        chunk = body[start:end]
+        sep_cost = 5 if parts else 0
+        if total + len(chunk) + sep_cost > limit:
+            # Fill leftover budget with a truncated tail window (>=200
+            # chars of new material) instead of leaving it empty.
+            room = limit - total - sep_cost
+            if room >= 200:
+                chunk = chunk[:room]
+                end = start + room
+            else:
+                continue
+        used.append((start, end))
+        parts.append(chunk)
+        total += len(chunk) + sep_cost
+        winlog.append(f"@{start}")
         if total >= limit:
             break
+    if not parts:
+        head = body[:limit]
+        stripped += max(0, len(body) - len(head))
+        return head, stripped, "cabeca (janelas nao couberam)"
     excerpt = "\n[...]\n".join(parts)
     stripped += max(0, len(body) - len(excerpt))
     return excerpt, stripped, f"relevancia ({'+'.join(winlog)})"

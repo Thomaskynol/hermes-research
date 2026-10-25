@@ -295,3 +295,25 @@ class BilingualBridgeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SlidingWindowTest(unittest.TestCase):
+    def test_single_line_body_lands_on_deep_window(self):
+        body = ("abstract intro words. " * 40
+                + "failure modes analysis limitations section numbers 63.5 here. "
+                + ("filler words. " * 400))
+        body = body.replace("\n", " ")
+        self.assertNotIn("\n", body)
+        ex, stripped, windows = ac._relevant_excerpt(
+            body, 1200, ["failure", "limitations"])
+        self.assertIn("failure modes", ex)
+        self.assertTrue(windows.startswith("relevancia (@"))
+        self.assertNotEqual(ex, body[:1200])
+
+    def test_partial_fill_packs_leftover_budget(self):
+        body = ("head words. " * 100
+                + "failure modes limitations deep content second window here. "
+                + ("tail words. " * 100)).replace("\n", " ")
+        ex, _, _ = ac._relevant_excerpt(body, 1200, ["failure"])
+        self.assertGreater(len(ex), 900)
+        self.assertLessEqual(len(ex), 1205)
