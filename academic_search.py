@@ -92,7 +92,7 @@ def classify_identifier(identifier: str) -> tuple[str, str] | None:
         if host.endswith("doi.org") and path:
             return ("doi", path) if _DOI_RE.match(path) else None
         if host.endswith("arxiv.org") and path:
-            for prefix in ("abs/", "pdf/"):
+            for prefix in ("abs/", "pdf/", "html/"):
                 if path.startswith(prefix):
                     candidate = path[len(prefix):].removesuffix(".pdf")
                     return ("arxiv", candidate) if _is_arxiv_id(candidate) else None

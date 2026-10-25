@@ -124,14 +124,44 @@ def _visible_text(raw: str) -> tuple[str, int]:
     return text, max(0, len(raw) - len(text))
 
 
-def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
-    """Head excerpt skipping markdown/HTML boilerplate lines.
+def _internal_url_re() -> "re.Pattern[str]":
+    """URL-shaped matches of research-infra hosts (never evidence).
 
-    README heads are often badges/logos/nav (shields, <img>, empty
-    headers): a head-only cut shows the model boilerplate instead of
-    substance. Skipped lines are generic document hygiene (image-only,
-    badge-link, pure-tag, empty-header lines), never content selection
-    by topic. Returns (excerpt, stripped_chars).
+    Evidence URLs are public; tool endpoints (SearXNG base, loopback, RFC
+    1918) that leak into attempt notes or snippets must never reach a model
+    prompt as citable sources. Matches URL shapes only (scheme://host...),
+    so a bare word like "localhost" inside evidence text is preserved.
+    """
+    import os as _os
+    import re as _re
+    bases = [str(_os.environ.get("SEARXNG_URL") or "").strip(),
+             "http://127.0.0.1:8888"]
+    alts = []
+    for b in bases:
+        if b:
+            alts.append(_re.escape(b.rstrip("/")))
+    alts.append(r"https?://localhost(?::\d+)?(?:/[^\s]*)?")
+    alts.append(r"https?://127\.\d+\.\d+\.\d+(?::\d+)?(?:/[^\s]*)?")
+    alts.append(r"https?://10\.\d+\.\d+\.\d+(?::\d+)?(?:/[^\s]*)?")
+    alts.append(r"https?://192\.168\.\d+\.\d+(?::\d+)?(?:/[^\s]*)?")
+    alts.append(r"https?://172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+(?::\d+)?(?:/[^\s]*)?")
+    return _re.compile("|".join(a for a in alts if a))
+
+
+def _redact_internal_urls(text: str) -> str:
+    """Replace infra-tool URLs with [infra-local] (never a citable source)."""
+    try:
+        return _internal_url_re().sub("[infra-local]", text or "")
+    except Exception:
+        return text or ""
+
+
+def _substantive_body(text: str) -> tuple[str, int]:
+    """Visible body with boilerplate lines removed (no head cut).
+
+    Shared pipeline: HTML->text, then drop image-only/badge-link/pure-tag/
+    empty-header lines. Returns (body, stripped_chars). Never selects by
+    topic; relevance windowing happens in _relevant_excerpt.
     """
     raw = text or ""
     raw, html_stripped = _visible_text(raw)
@@ -139,7 +169,12 @@ def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
     stripped = html_stripped
     for line in raw.splitlines():
         s = line.strip()
-        if not s or set(s) <= set("#-_*|> "):
+        if not s:
+            # Preserva a fronteira de parágrafo (o recorte por relevância
+            # divide o corpo em parágrafos); não conta como removido.
+            kept.append("")
+            continue
+        if set(s) <= set("#-_*|> "):
             stripped += len(line) + 1
             continue
         low = s.lower()
@@ -155,7 +190,87 @@ def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
             stripped += len(line) + 1
             continue
         kept.append(line)
-    body = "\n".join(kept)
+    return "\n".join(kept), stripped
+
+
+def _relevant_excerpt(text: str, limit: int,
+                      terms: "list[str] | tuple[str, ...] | None" = None
+                      ) -> tuple[str, int, str]:
+    """Excerpt centered on relevance windows, not on the document head.
+
+    A head-only cut of a long document shows the abstract/intro and hides
+    the sections that answer the criteria (acadrun: 131K chars containing
+    the full body, assessor saw "summary up to 4.4"). Terms come from the
+    plan (criterion/entity labels); matching is case-insensitive substring
+    over ~600-char paragraph windows. Best window first, then head as
+    context, then further windows until `limit`. No term hits -> head cut
+    (same as _substantive_excerpt). Returns (excerpt, stripped, windows).
+    Deterministic (stdlib only): stable sort by (-hits, offset).
+    """
+    body, stripped = _substantive_body(text)
+    if not body.strip():
+        return "", stripped, "vazio"
+    norm_terms = sorted({t.strip().lower() for t in (terms or [])
+                         if t and len(t.strip()) >= 4})
+    if not norm_terms or len(body) <= limit:
+        head = body[:limit]
+        stripped += max(0, len(body) - len(head))
+        return head, stripped, ("cabeca (sem termos ou corpo curto)"
+                                if not norm_terms else "corpo integral")
+    paras: list[str] = []
+    cur = ""
+    for line in body.splitlines():
+        if line.strip():
+            cur = (cur + "\n" + line) if cur else line
+        elif cur:
+            paras.append(cur)
+            cur = ""
+    if cur:
+        paras.append(cur)
+    scored = []
+    for idx, para in enumerate(paras):
+        low = para.lower()
+        hits = sum(1 for t in norm_terms if t in low)
+        if hits:
+            scored.append((-hits, idx, para))
+    scored.sort()
+    if not scored:
+        head = body[:limit]
+        stripped += max(0, len(body) - len(head))
+        return head, stripped, "cabeca (termos sem ocorrencia)"
+    # Windows of ~2 paragraphs around each hit, in relevance order.
+    used: set[int] = set()
+    parts: list[str] = []
+    total = 0
+    winlog: list[str] = []
+    for _neg, idx, _para in scored:
+        for j in (idx, idx + 1):
+            if j < len(paras) and j not in used:
+                chunk = paras[j][:1200]
+                sep_cost = 5 if parts else 0
+                if total + len(chunk) + sep_cost > limit:
+                    break
+                used.add(j)
+                parts.append(chunk)
+                total += len(chunk) + 5
+                winlog.append(f"janela@{j}")
+        if total >= limit:
+            break
+    excerpt = "\n[...]\n".join(parts)
+    stripped += max(0, len(body) - len(excerpt))
+    return excerpt, stripped, f"relevancia ({'+'.join(winlog)})"
+
+
+def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
+    """Head excerpt skipping markdown/HTML boilerplate lines.
+
+    README heads are often badges/logos/nav (shields, <img>, empty
+    headers): a head-only cut shows the model boilerplate instead of
+    substance. Skipped lines are generic document hygiene (image-only,
+    badge-link, pure-tag, empty-header lines), never content selection
+    by topic. Returns (excerpt, stripped_chars).
+    """
+    body, stripped = _substantive_body(text)
     excerpt = body[:limit]
     stripped += max(0, len(body) - len(excerpt))
     return excerpt, stripped
@@ -570,18 +685,35 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # rotate as _sent grows.
         ordered = [u for u in evidence if u not in _sent] + \
                   [u for u in evidence if u in _sent]
+        # Relevance terms from the plan (criterion/entity labels): long
+        # documents are windowed around what the criteria ask, never
+        # head-only (a 131K-char paper hides §5/§6 from a head cut).
+        _terms: list[str] = []
+        try:
+            for _c in (plan or {}).get("criteria", []) or []:
+                for _k in ("label", "id"):
+                    if _c.get(_k):
+                        _terms.extend(str(_c[_k]).split())
+            for _e in (plan or {}).get("entities", []) or []:
+                for _k in ("label", "id"):
+                    if _e.get(_k):
+                        _terms.extend(str(_e[_k]).split())
+        except Exception:
+            _terms = []
         # Real selection: complete units within the JSON budget.
         items, cuts = [], []
         used_budget = 0
         for url in ordered[:max_docs]:
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
-            excerpt, _stripped = _substantive_excerpt(text, excerpt_chars)
+            excerpt, _stripped, _windows = _relevant_excerpt(
+                text, excerpt_chars, _terms)
             if _stripped:
                 cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
             if len(text or "") > len(excerpt) + _stripped:
                 cuts.append(f"truncado {url} "
-                            f"{len(text)}->{len(excerpt)} chars")
+                            f"{len(text)}->{len(excerpt)} chars "
+                            f"({_windows})")
             entry = {
                 "url": url,
                 "excerpt": excerpt,
@@ -612,7 +744,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "uma lista de avaliações.\n"
             f"Plano: {_json.dumps(plan, ensure_ascii=False)[:6000]}\n"
             f"Material selecionado: {_json.dumps(items, ensure_ascii=False)}\n"
-            f"Tentativas: {_json.dumps(attempts, ensure_ascii=False)[:3000]}\n"
+            f"Tentativas: {_redact_internal_urls(_json.dumps(attempts, ensure_ascii=False)[:3000])}\n"
             "Cada avaliação: {criterion_id, entity_id?, state "
             "(covered|partial|insufficient|contradictory|blocked), "
             "justification, origin, references:[{url}], "
@@ -731,7 +863,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
-            f"Cobertura: {_json.dumps(cov, ensure_ascii=False)[:4000]}\n"
+            f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
             f"Corpus selecionado:\n{corpus_s}\n"
             "Retorne SOMENTE o relatório em markdown."
         )
@@ -2356,7 +2488,8 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
         text = payload.get("text", "") or ""
         qual = {k: payload[k] for k in ("status", "reason", "usable_text",
                                        "excluded", "title", "evidence_type",
-                                       "content_kind", "content_bearing")
+                                       "content_kind", "content_bearing",
+                                       "read_level")
                 if k in payload}
         status = str(qual.get("status", "") or "").strip().lower()
         # Pure error payloads are never usable evidence by default, even

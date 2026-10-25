@@ -225,8 +225,18 @@ def _payload(result) -> dict:
         return {"text": "", "status": "empty",
                 "reason": reason or f"no_usable_text:{qualification or status}",
                 "usable_text": "", "excluded": True}
-    return {"text": text, "status": qualification, "reason": reason,
-            "usable_text": text, "excluded": False}
+    payload = {"text": text, "status": qualification, "reason": reason,
+               "usable_text": text, "excluded": False}
+    # Rastreabilidade R11.6/R10.5: nível de leitura e URL usada viajam com o
+    # payload até a qualificação (nunca inventados: só quando presentes).
+    for key in ("read_level", "used_url", "title"):
+        value = getattr(result, key, None)
+        if value:
+            payload[key] = value
+    metadata = getattr(result, "metadata", {}) or {}
+    if isinstance(metadata, dict) and metadata.get("read_level"):
+        payload["read_level"] = metadata["read_level"]
+    return payload
 
 
 def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEOUT_S,
