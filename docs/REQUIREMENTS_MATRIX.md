@@ -168,11 +168,11 @@ validação RAG_001 estão em "Validação real RAG_001 — promoções".
 | ID | Requisito | Implementação | Evidência | Estado |
 |---|---|---|---|---|
 | R14.1 | run_id + estado persistente | `adaptive_state` | teste | IMPL |
-| R14.2 | Progresso observável | `run_control.status.json` (fase/rodada/contadores/elapsed) | `test_run_control` + `test_control_integration` | IMPL |
-| R14.3 | Pausa/retomada/cancelamento | `run_control` + hooks no coordenador + `--resume` | `test_control_integration` (pausa real via arquivo) | IMPL |
+| R14.2 | Progresso observável | `run_control.status.json` (fase/rodada/contadores/elapsed) | `test_run_control` + `test_control_integration` + status.json ao vivo (hermdemo5/6/7, `run_id` real) | REAL |
+| R14.3 | Pausa/retomada/cancelamento | `run_control` + hooks no coordenador + `--resume` | `test_control_integration` + demo ao vivo hermdemo6 (paused→resume→rounds) e hermdemo7 (cancelled), guarda runs-never-mix (exit 2) | REAL |
 | R14.4 | Registro de config/código/entradas/modelos/artefatos | `run_manifest.write_manifest` (hashes, artefatos, modelos sem chave) | `test_control_integration.ManifestTest` | IMPL |
 | R14.5 | Simulado ≠ real identificado | `simulated: bool` obrigatório (erro se ausente) | idem | IMPL |
-| R14.6 | Interrupção preserva obtido; retomada não duplica | `_reconcile_resume` | R08/S06 | IMPL |
+| R14.6 | Interrupção preserva obtido; retomada não duplica | `_reconcile_resume` | R08/S06 + resume hermdemo6 (0→4 rounds, sem re-obtenção) | REAL |
 | R14.7 | Tentativas limitadas com espera | retry policy | teste | IMPL |
 | R14.8 | Consumo não medido = desconhecido | `unknown` explícito | teste | PARCIAL |
 
@@ -198,6 +198,11 @@ Execução registrada em `docs/VALIDACAO_REAL_RAG_001.md` (artefatos em
 | R13.1–R13.3, R13.5–R13.8 | `report.md` PT-BR 9 seções, refs do corpus, lacunas explícitas |
 | R14.1, R14.4, R14.5 | `state.json` + `manifest.json` (`simulated=false`, modelo sem chave) |
 | R9.6 (ext.) | sem regressão de cobertura sem evidência nova (ledger reflete o merge) | uvrun6 (0.2 mantido no round sem ganho) + `test_monotonic_coverage` | REAL |
+| R8.5, R8.6, R9.2 | coleta→avaliação→nova coleta por lacuna no caminho real | acadrun5 (10 ev, 1 round certeiro) | REAL |
+| R9.6, R9.8 | STOP `criteria_ok` 1.0 + parcial identificável quando há lacuna | acadrun5 (`stop.reason=criteria_ok`); hermdemo6/7 (`paused`/`cancelled`) | REAL |
+| R12.1–R12.4 | 4 dimensões ao vivo: review ACCEPTED (3 claims, 9 blocos), support estrito | acadrun5 `verification.json` (overall=failed por rigor do support, dimensões inspecionáveis) | REAL |
+| R13.1–R13.3, R13.5–R13.8 | relatório responde critérios com substância + declara o não-respondido | acadrun5 `report.md` (c-fail com números; gpt-researcher em GAP-1 honesto) | REAL |
+| R14.2, R14.3, R14.6 | acompanhamento/pausa/retomada/cancel ao vivo via arquivos | `docs/HERMES_E2E_DEMO.md` (hermdemo5/6/7) | REAL |
 | §16 | pesquisa acadêmica REAL; bloqueio/erro/limite→parcial honesto REAL |
 
 Seguem IMPL (offline): R2.1 (gateway local fora do ar), R6.5, R8.7, R10.3–R10.6,

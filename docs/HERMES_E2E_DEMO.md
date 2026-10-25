@@ -58,3 +58,25 @@ Assert: `stop.reason == "cancelled"` + estado preservado até o cancelamento.
   pausa chegou tarde (finalize) — run completou; status.json só tinha o
   write inicial + run_id="control" (basename). Correções aplicadas:
   `RunControl(run_dir, run_id=...)` + teste `test_explicit_run_id_overrides_dirname`.
+- hermdemo4 (uv, 4 rounds): pausa emitida no round 2 NUNCA consumida
+  (`control.taken.json` ausente, run completou `rounds`) + status.json só com
+  o write inicial. Causa raiz: caminho novo chamava `_resume_loop(...)` SEM
+  `control=control` (só a via resume passava). Fix em `adaptive_coordinator`
+  + regressão `test_pause_in_gap_round_reaches_finalize_and_done`
+  (vermelho→verde comprovado: FAIL sem o fix, OK com o fix). Commit `de403b2`.
+- hermdemo5 (uv, status): `status.json` com `phase=done`, `run_id=hermdemo5`
+  após a correção — status acompanha o run de verdade no caminho integrado.
+- hermdemo6 (uv, PAUSA real): pause aos ~20s, no meio da coleta →
+  `stop.reason="paused"` ("control pause requested"), parcial, rounds=0 com
+  6 evidências preservadas, `control.taken.json` consumido, artefatos
+  parciais completos (report/result/verification/counters/manifest),
+  `status.json` done/paused, processo saiu limpo.
+- hermdemo6 retomada (pergunta+plano idênticos): continuou 0→4 rounds,
+  STOP `rounds` parcial 0.2, elapsed 217s, sem re-obtenção (fontes concluídas
+  reutilizadas). Guarda "runs never mix" (pergunta diferente → recusa,
+  saída 2, sem gastar modelo) provada na hermdemo1.
+- hermdemo7 (uv, CANCEL real): cancel aos ~25s → `stop.reason="cancelled"`
+  ("control cancel requested"), parcial, rounds=1, artefatos parciais
+  completos, taken consumido, `status.json` done/cancelled, processo saiu.
+
+Artefatos das demos em `/tmp/hermes-real-run/hermdemo{5,6,7}/` (fora do Git).
