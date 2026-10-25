@@ -386,6 +386,69 @@ def classify_hit(state: dict, url: str, text: str) -> str:
 
 _SAME_REPO_LINK_LIMIT = 4
 _URL_FINDER = re.compile(r"https?://[^\s)\"'<>`]+")
+_DISCOVERY_CANDIDATE_CAP = 64
+_FETCH_SUFFIX_RE = re.compile(r" #\d+$")
+_REPO_URL_RE = re.compile(
+    r"https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
+
+
+def _strip_fetch_suffix(url: str) -> str:
+    """Remove o sufixo de dedupe intra-lote (' #1', ' #2') do alvo.
+
+    O select_ops sufixa alvos byte-idênticos para não repeti-los no lote;
+    o despacho lê a URL limpa (sem corromper o fetch com o sufixo).
+    """
+    return _FETCH_SUFFIX_RE.sub("", (url or "").strip()).strip()
+
+
+def _normalize_fetch_key(url: str) -> str:
+    """Chave de comparação p/ exclusão de re-fetch: strip + sem ' #N' +
+    host minúsculo (path preservado). Determinística, sem rede."""
+    base = _strip_fetch_suffix(url)
+    match = re.match(r"^([a-zA-Z][a-zA-Z0-9+.-]*://[^/]*)?(.*)$", base,
+                     re.DOTALL)
+    if not match:
+        return base.lower()
+    return (match.group(1) or "").lower() + (match.group(2) or "")
+
+
+def _extract_repo_candidates(text: str, limit: int = 4,
+                              source_url: str = "") -> list[str]:
+    """Minera owner/repo de QUALQUER texto de evidência (sem lista fixa).
+
+    Regex github.com/<owner>/<repo> sobre awesome-lists, READMEs, docs —
+    não só do mesmo repositório. Retorna raízes canônicas
+    ``https://github.com/<owner>/<repo>`` (bounded ≤4 por chamada,
+    dedup case-insensitive); exclui a própria fonte quando owner/name
+    iguais. Sem nomes codificados.
+    """
+    try:
+        sparts = urlsplit(str(source_url or ""))
+        host = (sparts.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        ssegs = [s for s in sparts.path.split("/") if s]
+        same = ((ssegs[0].lower(), ssegs[1].lower())
+                if host == "github.com" and len(ssegs) >= 2 else None)
+    except Exception:
+        same = None
+    found: list[str] = []
+    seen: set[tuple] = set()
+    for match in _REPO_URL_RE.finditer(text or ""):
+        owner = (match.group(1) or "").strip(".,;:!?")
+        repo = (match.group(2) or "").strip(".,;:!?")
+        if not owner or not repo:
+            continue
+        key = (owner.lower(), repo.lower())
+        if same is not None and key == same:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(f"https://github.com/{owner}/{repo}")
+        if len(found) >= max(1, int(limit)):
+            break
+    return found
 
 
 def _extract_same_repo_links(text: str, repo_url: str,
@@ -466,6 +529,23 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
                         cands.append(link)
                         state["notes"].append(
                             f"link-following: {link[:80]} (de {url[:60]})")
+                # Mineração geral (§D): awesome-lists/docs citam repos de
+                # terceiros (owner/repo arbitrários, sem lista fixa); viram
+                # candidatos p/ read_source via select_ops. Bounded por
+                # chamada + teto total; falha vira nota, nunca derruba.
+                for link in _extract_repo_candidates(text or "",
+                                                     source_url=url):
+                    cands = state["discovery"].setdefault("candidates", [])
+                    if link in cands or link in state["evidence"]:
+                        continue
+                    if len(cands) >= _DISCOVERY_CANDIDATE_CAP:
+                        state["notes"].append(
+                            f"discovery cheio ({_DISCOVERY_CANDIDATE_CAP}): "
+                            f"{link[:60]} ignorado")
+                        break
+                    cands.append(link)
+                    state["notes"].append(
+                        f"repo minerado: {link[:80]} (de {url[:60]})")
         except Exception as exc:
             state["notes"].append(f"link-following skipped: {exc}")
     elif kind == "duplicate":
@@ -631,6 +711,49 @@ def _short_gap_query(state: dict, gap: dict) -> str:
     return (q[:140] + "…") if len(q) > 140 else q
 
 
+def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
+    """Tokens do label do critério + label da entidade (minúsculos,
+    sem acento, >=3 chars). Determinístico; sem rede/modelo."""
+    import unicodedata as _ud
+
+    def toks(text) -> list[str]:
+        norm = "".join(c for c in _ud.normalize(
+            "NFKD", str(text or "").lower()) if not _ud.combining(c))
+        return [w for w in re.split(r"[^a-z0-9]+", norm) if len(w) >= 3]
+
+    cid = gap.get("criterion_id", "")
+    out = toks(gap.get("label") or cid)
+    try:
+        applies: list = []
+        for crit in (state.get("plan") or {}).get("criteria") or []:
+            if isinstance(crit, dict) and crit.get("id") == cid:
+                ap = crit.get("applies_to") or []
+                applies = [ap] if isinstance(ap, str) else list(ap)
+                break
+        for ent in (state.get("plan") or {}).get("entities") or []:
+            if isinstance(ent, dict) and ent.get("id") in applies:
+                out.extend(toks(ent.get("label") or ent.get("id")))
+    except Exception:
+        pass
+    seen: set[str] = set()
+    return [w for w in out if not (w in seen or seen.add(w))]
+
+
+def _rank_unfetched(state: dict, unfetched: list[str], gap: dict) -> list[str]:
+    """Ordena candidatos por sobreposição de termos do gap (estável).
+
+    Mais termos do gap presentes na URL primeiro; empate mantém a ordem
+    original (determinístico).
+    """
+    terms = _gap_overlap_terms(state, gap)
+    scored = []
+    for i, cand in enumerate(unfetched):
+        low = cand.lower()
+        scored.append(( -sum(1 for t in terms if t in low), i, cand))
+    scored.sort()
+    return [c for _, _, c in scored]
+
+
 def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     """One specific op per top gap; vary channel/target after flat attempts.
 
@@ -640,25 +763,33 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     """
     ops = []
     seen_targets: set[tuple] = set()
+    failed_targets = set()
+    for _att in state.get("attempts", {}).values():
+        for _a in _att or []:
+            if isinstance(_a, dict) and _a.get("outcome") == "failed" \
+                    and _a.get("target"):
+                # Chave normalizada: strip + sem sufixo ' #N' + host
+                # minúsculo (o sufixo de dedupe nunca reabre um re-fetch).
+                failed_targets.add(_normalize_fetch_key(_a["target"]))
+    unfetched_all = [c for c in state["discovery"].get("candidates", [])
+                     if c not in state["evidence"]
+                     and _normalize_fetch_key(c) not in failed_targets]
+    used_in_batch: set[str] = set()  # gaps do lote consomem distintos
     for gap in gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
         attempts = state["attempts"].get(cid, [])
         last_channel = attempts[-1].get("channel") if attempts else None
         last_outcome = attempts[-1].get("outcome") if attempts else None
         n = len(attempts)
-        failed_targets = set()
-        for _att in state.get("attempts", {}).values():
-            for _a in _att or []:
-                if isinstance(_a, dict) and _a.get("outcome") == "failed" \
-                        and _a.get("target"):
-                    failed_targets.add(_a["target"])
-        unfetched = [c for c in state["discovery"].get("candidates", [])
-                     if c not in state["evidence"]
-                     and c not in failed_targets]
         base_q = _short_gap_query(state, gap)
+        # Rotação: gaps do lote consomem candidatos distintos, ordenados
+        # por sobreposição de termos do gap (nunca unfetched[0] p/ todos).
+        unfetched = [c for c in _rank_unfetched(state, unfetched_all, gap)
+                     if _normalize_fetch_key(c) not in used_in_batch]
         if unfetched and (attempts and last_outcome in ("failed", "nogain")):
             kind, channel = "read_source", (last_channel or CHANNELS[0])
             target = unfetched[0]
+            used_in_batch.add(_normalize_fetch_key(target))
         elif not attempts:
             kind, channel = "gap_query", CHANNELS[0]
             target = base_q
@@ -2165,7 +2296,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
         kind = op.get("kind", "gap_query")
         # --- read_source: direct target read, no search -----------------
         if kind == "read_source":
-            target = op.get("target", "")
+            target = _strip_fetch_suffix(op.get("target", ""))
             if not isinstance(target, str) or not target:
                 op["status"], op["outcome"] = "failed", "failed"
                 state["attempts"].setdefault(
@@ -2331,12 +2462,15 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
 
 def _record_op_outcome(state: dict, op: dict, status: str, outcome: str,
                        note: str | None = None,
-                       attempt_note: str | None = None) -> None:
+                       attempt_note: str | None = None,
+                       target: str | None = None) -> None:
     """Apply one op outcome (status/outcome/attempt/pending) deterministically."""
     op["status"], op["outcome"] = status, outcome
     if note:
         state["notes"].append(note)
     attempt = {"channel": op.get("channel"), "outcome": outcome}
+    if target:
+        attempt["target"] = target
     if attempt_note:
         attempt["note"] = attempt_note
     state["attempts"].setdefault(op.get("criterion_id", ""), []).append(attempt)
@@ -2391,7 +2525,7 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
             continue
         kind = op.get("kind", "gap_query")
         if kind == "read_source":
-            target = op.get("target", "")
+            target = _strip_fetch_suffix(op.get("target", ""))
             if not isinstance(target, str) or not target:
                 item["skip"] = "failed"
                 item["note"] = "read_source without target"
@@ -2508,7 +2642,7 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
                                note=item.get("note"))
             continue
         if item["mode"] == "read":
-            target = op["target"]
+            target = _strip_fetch_suffix(op["target"])
             result = item["fetches"].get(target)
             if result is None:
                 _record_op_outcome(state, op, "failed", "time",
@@ -2523,7 +2657,8 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
                     note=(f"op {op['op_id']} read_source failure "
                           f"(canal {op.get('channel')}) for {target[:80]}: "
                           f"{payload}"),
-                    attempt_note=f"canal {op.get('channel')}: {payload[:160]}")
+                    attempt_note=f"canal {op.get('channel')}: {payload[:160]}",
+                    target=target)
                 continue
             text, qual = _coerce_payload(payload, target)
             outcome = incorporate(state, target, text, op["op_id"], round_no,
@@ -2621,6 +2756,7 @@ def _run_search(search_fn, op: dict) -> list:
 def _run_fetch(fetch_fn, op: dict, url: str):
     if fetch_fn is None:
         raise TransportError("no fetch_fn injected (offline: nothing to read)")
+    url = _strip_fetch_suffix(url)  # sufixo ' #N' de dedupe nunca vai à rede
     try:
         return fetch_fn(url)
     except TransportError:
