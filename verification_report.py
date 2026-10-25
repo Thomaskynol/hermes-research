@@ -255,8 +255,21 @@ def verify_support(state: dict, report_text: str,
         "unsupported_claims": unsupported,
         "corpus_size": len(corpus),
     }
+    # Informational (never fails): cited in the report but outside the
+    # writer-declared synthesis base. Both are observed events; a gap here
+    # means findings reference material the writer did not list as base.
+    try:
+        used = set(((state.get("counters") or {}).get("documents") or {})
+                   .get("used_in_synthesis") or [])
+        beyond = sorted(set(resolved) - {ca.normalize_url(u) for u in used
+                                         if ca.normalize_url(u)})
+    except Exception:
+        beyond = []
+    evidence["cited_beyond_synthesis"] = beyond
     notes = []
-    if unknown:
+    if beyond:
+        notes.append("citação no relatório fora da base declarada de síntese: "
+                     + ", ".join(beyond[:5]))
         notes.append("citação fora do corpus (não é fonte): "
                      + ", ".join(sorted(set(unknown))[:5]))
     if unsupported:

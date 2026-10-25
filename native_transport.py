@@ -47,6 +47,31 @@ def _default_web_search(query: str, **kw):
     return agent_reach.search(query, **kw)
 
 
+def _ddgs_fallback_search(query: str, *, limit: int = SEARCH_LIMIT) -> list[dict]:
+    """Busca web via ddgs (DuckDuckGo, sem chave, sem API comercial).
+
+    Fallback honesto quando o gateway local está indisponível: levanta
+    erro visível se o pacote não estiver instalado ou a rede falhar.
+    """
+    try:
+        from ddgs import DDGS  # noqa: PLC0415
+    except Exception as exc:
+        raise _error(f"web fallback unavailable: ddgs not installed ({exc})") from exc
+    try:
+        rows = DDGS().text(query, max_results=max(1, int(limit or SEARCH_LIMIT)))
+    except Exception as exc:  # noqa: BLE001 - rede/bloqueio viram erro honesto
+        raise _error(f"web fallback failed: {type(exc).__name__}") from exc
+    hits: list[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("href"):
+            continue
+        hits.append({"url": str(row["href"]),
+                     "title": str(row.get("title") or ""),
+                     "snippet": str(row.get("body") or "")[:500],
+                     "via": "ddgs-fallback"})
+    return hits
+
+
 def _read_work(url: str, *, timeout: float):
     import academic_search  # noqa: PLC0415
     return academic_search.read_work(url, full_text=True, timeout=timeout)
@@ -156,14 +181,18 @@ def _payload(result) -> dict:
 
 def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEOUT_S,
                             github_token: str | None = None, page_transport=None,
-                            academic_search_fn=None, web_search_fn=None):
+                            academic_search_fn=None, web_search_fn=None,
+                            web_fallback_fn=None):
     """(search_fn, fetch_fn, model_client) sem gpt_researcher.
 
     ``describe()`` fica anexado a search_fn/fetch_fn com canais e limites
-    efetivos (web depende do gateway local e pode estar indisponível).
+    efetivos. O canal web usa o gateway local (``agent_reach.search``); se
+    ele falhar, tenta o fallback ``web_fallback_fn`` (padrão: ddgs, sem
+    chave) e rotula os hits com ``via`` — origem sempre identificável.
     """
     academic_search_fn = academic_search_fn or _default_academic_search
     web_search_fn = web_search_fn or _default_web_search
+    web_fallback_fn = web_fallback_fn or _ddgs_fallback_search
 
     def search_fn(query: str, channel: str = "web") -> list[dict]:
         name = str(channel or "web").lower()
@@ -178,8 +207,17 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
         if name == "github":
             return _github_search(query, timeout=timeout, token=github_token)
         if name == "web":
-            return _web_hits(web_search_fn(
-                query, limit=SEARCH_LIMIT, channel="web"))
+            try:
+                return _web_hits(web_search_fn(
+                    query, limit=SEARCH_LIMIT, channel="web"))
+            except Exception as primary_exc:
+                try:
+                    return web_fallback_fn(query, limit=SEARCH_LIMIT)
+                except Exception as fallback_exc:
+                    raise _error(
+                        "web search unavailable: gateway failed "
+                        f"({primary_exc}); fallback failed ({fallback_exc})"
+                    ) from fallback_exc
         if name == "youtube":
             # No search connector for YouTube in native scope: discovery of
             # videos needs web search (unavailable here); known URLs can
@@ -210,7 +248,8 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
         return {
             "kind": "native",
             "channels": {
-                "web": "agent_reach.search (gateway local; may be unavailable)",
+                "web": ("agent_reach.search (gateway local) "
+                        "com fallback ddgs sem chave (hits rotulados via)"),
                 "academic": "academic_search.search_works (openalex+arxiv)",
                 "github": "api.github.com/search/repositories"
                           + (" (token)" if github_token else " (no token: rate limited)"),

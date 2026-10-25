@@ -35,7 +35,9 @@ otherwise recorded as "unknown".
 from __future__ import annotations
 
 import hashlib
+import re
 import time
+from urllib.parse import urlsplit
 
 import adaptive_planner as _planner
 import adaptive_state as _state
@@ -162,6 +164,42 @@ def classify_hit(state: dict, url: str, text: str) -> str:
     return "new_useful"
 
 
+_SAME_REPO_LINK_LIMIT = 4
+_URL_FINDER = re.compile(r"https?://[^\s)\"'<>`]+")
+
+
+def _extract_same_repo_links(text: str, repo_url: str,
+                             limit: int = _SAME_REPO_LINK_LIMIT) -> list[str]:
+    """Links do mesmo repositório GitHub encontrados no texto incorporado.
+
+    Bounded (≤4 por fonte): alimenta ``discovery candidates`` para que
+    ``select_ops`` os busque via ``read_source`` — "acompanhar referências"
+    (§8 da modelagem). Só o mesmo ``owner/name``; a própria URL é excluída.
+    """
+    try:
+        parts = urlsplit(str(repo_url or ""))
+        segs = [s for s in parts.path.split("/") if s]
+        if parts.hostname != "github.com" or len(segs) < 2:
+            return []
+        prefix = f"https://github.com/{segs[0]}/{segs[1]}".lower()
+    except Exception:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _URL_FINDER.findall(text or ""):
+        cleaned = match.rstrip(".,;:")
+        low = cleaned.lower().rstrip("/")
+        if not low.startswith(prefix) or low == prefix:
+            continue
+        if low in seen:
+            continue
+        seen.add(low)
+        found.append(cleaned)
+        if len(found) >= max(1, int(limit)):
+            break
+    return found
+
+
 def incorporate(state: dict, url: str, text: str, op_id: str,
                 round_no: int, qualification: dict | None = None) -> str:
     """Add obtained material; returns the classification. Duplicates are
@@ -189,6 +227,27 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
             _counters.register_relation(
                 state, url, url, "version",
                 f"trecho distinto da mesma URL ({len(prior)} anterior(es))")
+        # Concluída nunca volta ao pool: virar evidência remove de candidates.
+        try:
+            cands = state.get("discovery", {}).get("candidates", [])
+            if url in cands:
+                cands.remove(url)
+        except Exception:
+            pass
+        # Link-following (§8 "acompanhar referências"): evidência de repo
+        # GitHub pode apontar p/ arquivos/docs do mesmo repo (blob URLs,
+        # docs). Extração bounded p/ discovery candidates; select_ops os
+        # busca via read_source após falha/nogain. Nunca re-obtém o contido.
+        try:
+            if state.get("discovery", {}).get("open"):
+                for link in _extract_same_repo_links(text or "", url):
+                    cands = state["discovery"].setdefault("candidates", [])
+                    if link not in cands and link not in state["evidence"]:
+                        cands.append(link)
+                        state["notes"].append(
+                            f"link-following: {link[:80]} (de {url[:60]})")
+        except Exception as exc:
+            state["notes"].append(f"link-following skipped: {exc}")
     elif kind == "duplicate":
         digest = _content_hash(text or "")
         same = next((s for s in state["segments"]
