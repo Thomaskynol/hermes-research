@@ -23,6 +23,8 @@ def offline_guard(event, args):
 sys.addaudithook(offline_guard)
 
 import adaptive_coordinator as ac
+import adaptive_state as state_api
+import coverage_ledger as cl
 
 
 def long_doc():
@@ -159,3 +161,105 @@ class ArxivHtmlAndReadLevelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _english_long_doc() -> str:
+    head = "Abstract. This paper studies adaptive retrieval. " * 40
+    body = ("Section 5.2.4 Failure analysis. Component-level errors account "
+            "for 63.5 percent of all errors, while architectural failures "
+            "are 36.5 percent. Section 6.1 Limitations. The method needs "
+            "more diverse benchmarks. ")
+    return head + "\n\n" + body * 6
+
+
+class QueryTermsHookTest(unittest.TestCase):
+    def test_op_target_terms_extracts_query_tokens(self):
+        state = {"pending_ops": [
+                    {"target": "FAIR-RAG failure modes limitations adaptive RAG"}],
+                 "rounds": [{"ops": [
+                     {"target": "Quais modos de falha relatados"}]}]}
+        terms = ac._op_target_terms(state)
+        # note: "rag" (3 chars) is dropped by the >=4 noise rule
+        for w in ("fair", "failure", "limitations", "adaptive",
+                  "falha", "relatados"):
+            self.assertIn(w, terms)
+        # short tokens dropped, order stable, no duplicates
+        self.assertNotIn("de", terms)
+        self.assertEqual(len(terms), len(set(terms)))
+
+    def test_assess_round_feeds_hook_english_terms(self):
+        # PT plan + EN issued queries: the hook must surface the deep EN
+        # window (63.5) that PT-only terms ("falha") would miss.
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            return "[]"
+
+        assess = ac.make_model_assessor(fake_client)
+        state = state_api.new_state("modos de falha?")
+        state["plan"] = {
+            "plan_id": "p", "version": 1,
+            "entities": [{"id": "fair-rag", "required": True}],
+            "criteria": [{"id": "c-fail", "label": "modos de falha relatados",
+                          "required": True, "applies_to": ["fair-rag"]}],
+            "initial_paths": []}
+        state["evidence"] = {"https://example.org/paper": _english_long_doc()}
+        state["qualification"] = {"https://example.org/paper": {
+            "status": "usable", "excluded": False,
+            "usable_text": _english_long_doc()}}
+        state["pending_ops"] = [
+            {"target": "FAIR-RAG failure modes limitations adaptive RAG"}]
+        ledger = cl.Ledger(state["plan"])
+        resolved = ac.resolve_adaptive("light")
+        try:
+            ac._assess_round(state, assess, ledger, resolved)
+        except Exception:
+            pass
+        self.assertIn("63.5", seen.get("prompt", ""),
+                      "hook-fed EN query terms must surface the deep window")
+
+    def test_writer_hook_surfaces_relevant_window(self):
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            return "# Relatorio\n\nTexto com [1] citacao."
+
+        write = ac.make_model_writer(fake_client)
+        write.set_relevance_terms(["failure", "limitations"])
+        view = {"question": "modos de falha?",
+                "plan": {"criteria": [{"id": "c",
+                                       "label": "modos de falha relatados"}],
+                         "entities": []},
+                "evidence": {"https://example.org/paper": _english_long_doc()},
+                "question_coverage": {}}
+        text, selection = write(view)
+        self.assertIn("63.5", seen.get("prompt", ""),
+                      "writer prompt must carry the relevance window")
+        self.assertTrue(any("janela de relevancia" in c
+                            for c in (selection.get("cuts") or "").split(";")))
+
+    def test_no_hook_assessor_still_works(self):
+        # custom assessor without set_relevance_terms: hasattr guard
+        def custom(plan, evidence, qualification, attempts=None):
+            return [{"criterion_id": "c", "entity_id": "e", "state": "partial",
+                     "justification": "j", "origin": "o",
+                     "references": [{"url": "https://example.org/paper"}]}]
+
+        self.assertFalse(hasattr(custom, "set_relevance_terms"))
+        state = state_api.new_state("q?")
+        state["plan"] = {
+            "plan_id": "p", "version": 1,
+            "entities": [{"id": "e", "required": True}],
+            "criteria": [{"id": "c", "label": "modos",
+                          "required": True, "applies_to": ["e"]}],
+            "initial_paths": []}
+        state["evidence"] = {"https://example.org/paper": "some text here"}
+        state["qualification"] = {"https://example.org/paper": {
+            "status": "usable", "excluded": False, "usable_text": "some text here"}}
+        state["pending_ops"] = [{"target": "something"}]
+        ledger = cl.Ledger(state["plan"])
+        resolved = ac.resolve_adaptive("light")
+        evals, _block = ac._assess_round(state, custom, ledger, resolved)
+        self.assertTrue(any(e.get("state") == "partial" for e in evals))

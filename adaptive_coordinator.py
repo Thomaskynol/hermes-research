@@ -193,6 +193,32 @@ def _substantive_body(text: str) -> tuple[str, int]:
     return "\n".join(kept), stripped
 
 
+def _op_target_terms(state: dict) -> list[str]:
+    """Tokens from issued op targets (queries), for relevance windowing.
+
+    Plans/questions are often Portuguese while the corpus and the issued
+    search queries are English ("FAIR-RAG failure modes limitations...").
+    Plan labels alone ("modos de falha") never match the English body, so
+    excerpting falls back to head-only. Op targets are observed execution
+    data (not a fixed dictionary): tokenize on non-letters, keep >=4 chars.
+    Deterministic.
+    """
+    toks: list[str] = []
+    try:
+        ops: list[dict] = []
+        ops.extend(state.get("pending_ops") or [])
+        for r in state.get("rounds") or []:
+            ops.extend((r or {}).get("ops") or [])
+        for op in ops:
+            t = str((op or {}).get("target") or "")
+            toks.extend(w.lower() for w in re.split(r"[^A-Za-zÀ-ÖØ-öø-ÿ]+", t)
+                        if len(w) >= 4)
+    except Exception:
+        return []
+    seen: set[str] = set()
+    return [w for w in toks if not (w in seen or seen.add(w))]
+
+
 def _relevant_excerpt(text: str, limit: int,
                       terms: "list[str] | tuple[str, ...] | None" = None
                       ) -> tuple[str, int, str]:
@@ -674,6 +700,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
     import json as _json
 
     _sent: set[str] = set()
+    _extra_terms: list[str] = []
+
+    def set_relevance_terms(terms) -> None:
+        """Extra excerpt terms (e.g. issued query tokens); plan labels stay primary."""
+        try:
+            _extra_terms[:] = [str(t) for t in (terms or []) if str(t).strip()]
+        except Exception:
+            pass
 
     def assess(plan, evidence, qualification, attempts=None):
         evidence = dict(evidence or {})
@@ -707,7 +741,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
             excerpt, _stripped, _windows = _relevant_excerpt(
-                text, excerpt_chars, _terms)
+                text, excerpt_chars, list(_terms) + list(_extra_terms))
             if _stripped:
                 cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
             if len(text or "") > len(excerpt) + _stripped:
@@ -800,6 +834,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
         return out
 
     assess.last_selection = None  # type: ignore[attr-defined]
+    assess.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
     return assess
 
 
@@ -814,10 +849,37 @@ def make_model_writer(model_client, max_chars: int = 12000):
     """
     import json as _json
 
+    _w_extra_terms: list[str] = []
+
+    def set_relevance_terms(terms) -> None:
+        """Extra excerpt terms (e.g. issued query tokens); plan labels stay primary."""
+        try:
+            _w_extra_terms[:] = [str(t) for t in (terms or []) if str(t).strip()]
+        except Exception:
+            pass
+
     def write(view: dict):
         question = view.get("question", "")
         cov = view.get("question_coverage", {}) or {}
+        plan = view.get("plan", {}) or {}
         evidence = dict(view.get("evidence", {}) or {})
+        # Relevance terms: plan labels + issued-query tokens fed via hook
+        # (same language-mismatch rationale as the assessor: PT labels vs
+        # EN corpus). Long documents are windowed around the criteria,
+        # never head-only.
+        _wterms: list[str] = []
+        try:
+            for _c in (plan or {}).get("criteria", []) or []:
+                for _k in ("label", "id"):
+                    if _c.get(_k):
+                        _wterms.extend(str(_c[_k]).split())
+            for _e in (plan or {}).get("entities", []) or []:
+                for _k in ("label", "id"):
+                    if _e.get(_k):
+                        _wterms.extend(str(_e[_k]).split())
+        except Exception:
+            _wterms = []
+        _wterms = list(_wterms) + list(_w_extra_terms)
         # Real selection, rastreável: unidades completas por documento,
         # corte de 2000 chars por documento SEMPRE registrado; limites
         # contam cabeçalhos+separadores reais; included_urls só com
@@ -830,7 +892,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
         for url in sorted(evidence):
             text = evidence[url] or ""
             raw_len = len(text)
-            chunk = text[:per_doc]
+            chunk, _wstrip, _wwin = _relevant_excerpt(
+                text, per_doc, _wterms)
+            if _wwin.startswith("relevancia"):
+                cuts.append(f"janela de relevancia {url}: {_wwin}")
             if raw_len > len(chunk):
                 cuts.append(f"truncado {url} {raw_len}->{len(chunk)} chars "
                             f"(corte por documento {per_doc})")
@@ -880,6 +945,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
                      "fallback": False,
                      "chars": len(corpus_s)}
         return text, selection
+
+    write.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
 
     return write
 
@@ -985,6 +1052,15 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     # execução: uma só chamada, nunca retentativa após TypeError interno.
     # Falhas internas contam (budget já debitado), nunca geram chamadas
     # ocultas.
+    # Relevance terms from issued op targets (often English queries for
+    # a PT question): feed the assessor hook when it offers one. Custom
+    # assessors without the hook are unaffected (hasattr guard).
+    try:
+        _hook = getattr(assess_fn, "set_relevance_terms", None)
+        if callable(_hook):
+            _hook(_op_target_terms(state))
+    except Exception:
+        pass
     import inspect as _inspect
     try:
         _sig = _inspect.signature(assess_fn)
@@ -2566,6 +2642,12 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                              " | reserva: teto esgotado, fallback sem chamar modelo")
     else:
         _note_model_call(state)
+        try:
+            _whook = getattr(write, "set_relevance_terms", None)
+            if callable(_whook):
+                _whook(_op_target_terms(state))
+        except Exception:
+            pass
         try:
             report_text, selection = write(view)
         except TransportError as exc:
