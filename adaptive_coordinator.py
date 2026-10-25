@@ -99,6 +99,42 @@ def _content_hash(text: str) -> str:
                                               "replace")).hexdigest()[:16]
 
 
+def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
+    """Head excerpt skipping markdown/HTML boilerplate lines.
+
+    README heads are often badges/logos/nav (shields, <img>, empty
+    headers): a head-only cut shows the model boilerplate instead of
+    substance. Skipped lines are generic document hygiene (image-only,
+    badge-link, pure-tag, empty-header lines), never content selection
+    by topic. Returns (excerpt, stripped_chars).
+    """
+    raw = text or ""
+    kept: list[str] = []
+    stripped = 0
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or set(s) <= set("#-_*|> "):
+            stripped += len(line) + 1
+            continue
+        low = s.lower()
+        if low.startswith(("<div", "<img", "<p ", "<p>", "<br", "<a ",
+                            "<!--", "</div", "</p", "<h1", "<hr")):
+            stripped += len(line) + 1
+            continue
+        nospace = "".join(s.split())
+        if nospace.startswith("![") or nospace.startswith("[!["):
+            stripped += len(line) + 1
+            continue
+        if "img.shields.io" in low or "shields.io" in low:
+            stripped += len(line) + 1
+            continue
+        kept.append(line)
+    body = "\n".join(kept)
+    excerpt = body[:limit]
+    stripped += max(0, len(body) - len(excerpt))
+    return excerpt, stripped
+
+
 def classify_hit(state: dict, url: str, text: str) -> str:
     """new_useful | confirmed | duplicate | nogain (no fabrication).
 
@@ -436,8 +472,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
         for url in ordered[:max_docs]:
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
-            excerpt = (text or "")[:excerpt_chars]
-            if len(text or "") > len(excerpt):
+            excerpt, _stripped = _substantive_excerpt(text, excerpt_chars)
+            if _stripped:
+                cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
+            if len(text or "") > len(excerpt) + _stripped:
                 cuts.append(f"truncado {url} "
                             f"{len(text)}->{len(excerpt)} chars")
             entry = {

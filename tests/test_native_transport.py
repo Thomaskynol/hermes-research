@@ -175,12 +175,14 @@ class FetchDispatch(unittest.TestCase):
                                    "reason": "", "usable_text": "paper text",
                                    "excluded": False})
 
-    def test_github_dispatches_to_read_repo_with_token(self):
+    def test_github_dispatches_to_read_repo_without_token_kwarg(self):
+        # Contrato real: agent_reach.read_repo(url, timeout, transport) não
+        # aceita token (usa GITHUB_TOKEN do env). Regressão RAG_003: o
+        # transporte passava token= e toda leitura de repo falhava.
         _, fetch_fn, _ = nt.build_native_transports(github_token="tok")
         payload = fetch_fn("https://github.com/o/r")
         self.repo.assert_called_once_with("https://github.com/o/r",
-                                          timeout=nt.DEFAULT_TIMEOUT_S,
-                                          token="tok")
+                                          timeout=nt.DEFAULT_TIMEOUT_S)
         self.page.assert_not_called()
         self.assertEqual(payload["status"], "partial")
         self.assertFalse(payload["excluded"])

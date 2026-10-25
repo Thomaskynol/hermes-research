@@ -495,3 +495,34 @@ class StateRetrocompatTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class SubstantiveExcerptTest(unittest.TestCase):
+    def test_skips_badges_and_keeps_substance(self):
+        text = ("\n".join([
+            '<div align="center" id="top">',
+            '<img src="https://x/logo.png" alt="Logo" width="80">',
+            "####",
+            "[![Website](https://img.shields.io/badge/x)](https://x)",
+            "",
+            "## Features",
+            "",
+            "Adaptive routing picks the retrieval strategy per query.",
+        ]))
+        excerpt, stripped = ac._substantive_excerpt(text, 1200)
+        self.assertGreater(stripped, 0)
+        self.assertIn("Adaptive routing", excerpt)
+        self.assertNotIn("img.shields.io", excerpt)
+        self.assertNotIn("<div", excerpt)
+
+    def test_plain_text_untouched(self):
+        text = "line one\nline two\nline three"
+        excerpt, stripped = ac._substantive_excerpt(text, 1200)
+        self.assertEqual(excerpt, text)
+        self.assertEqual(stripped, 0)
+
+    def test_limit_still_applies_after_strip(self):
+        text = "[![a](https://img.shields.io/b)]\n" + "x" * 2000
+        excerpt, stripped = ac._substantive_excerpt(text, 100)
+        self.assertEqual(len(excerpt), 100)
+        self.assertGreater(stripped, 1000)

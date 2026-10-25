@@ -452,3 +452,16 @@ class RealNetworkTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DirectReadFallbackTest(unittest.TestCase):
+    def test_direct_failure_preserves_reason(self):
+        out = ar._direct_read("http://127.0.0.1:9/unused", 2.0, "cascade_unavailable: X")
+        self.assertEqual(out["text"], "")
+        self.assertIn("cascade_unavailable: X", out["error"])
+        self.assertIn("direct_failed", out["error"])
+
+    def test_read_page_uses_injected_transport_first(self):
+        r = ar.read_page("https://example.org/a",
+                         transport=lambda u, t: {"text": "x" * 3000})
+        self.assertEqual(r.status, "obtained")

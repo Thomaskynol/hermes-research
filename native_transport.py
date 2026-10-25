@@ -54,7 +54,8 @@ def _read_work(url: str, *, timeout: float):
 
 def _read_repo(url: str, *, timeout: float, token: str | None = None):
     import agent_reach  # noqa: PLC0415
-    return agent_reach.read_repo(url, timeout=timeout, token=token)
+    # read_repo não aceita token (usa GITHUB_TOKEN do env); token ignorado.
+    return agent_reach.read_repo(url, timeout=timeout)
 
 
 def _read_page(url: str, *, timeout: float, transport=None):
@@ -193,7 +194,7 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
         if host.endswith("arxiv.org"):
             result = _read_work(target, timeout=timeout)
         elif host == "github.com" or host.endswith(".github.com"):
-            result = _read_repo(target, timeout=timeout, token=github_token)
+            result = _read_repo(target, timeout=timeout)
         else:
             result = _read_page(target, timeout=timeout,
                                 transport=page_transport)

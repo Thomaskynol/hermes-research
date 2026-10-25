@@ -466,8 +466,8 @@ def _cascade_read(url: str, timeout: float) -> dict[str, Any]:
             sys.path.insert(0, str(CASCADE_DIR))
         from cascade_fetcher import fetch
     except Exception as exc:  # noqa: BLE001 - dependência opcional ausente
-        return {"status": None, "text": "", "level": 0, "from_cache": False,
-                "error": f"cascade_unavailable: {type(exc).__name__}: {exc}"}
+        return _direct_read(url, timeout,
+                            f"cascade_unavailable: {type(exc).__name__}: {exc}")
 
     async def _run() -> Any:
         return await asyncio.wait_for(fetch(url), timeout=timeout)
@@ -489,6 +489,34 @@ def _cascade_read(url: str, timeout: float) -> dict[str, Any]:
         "url": getattr(result, "url", url),
         "error": None,
     }
+
+
+def _direct_read(url: str, timeout: float, why: str) -> dict[str, Any]:
+    """Fallback stdlib (urllib) quando a cascata local está indisponível.
+
+    Sem dependências novas e sem serviço pago: requisição direta com
+    User-Agent, limite de 300 KB, charset do cabeçalho ou utf-8. O status
+    HTTP é observado de verdade (respeita R10: só registra o observado).
+    Falha preserva o motivo da cascata + o motivo direto.
+    """
+    try:
+        req = Request(url, headers={"User-Agent": "hermes-research/1.0"})
+        with urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", None)
+            raw = resp.read(300 * 1024)
+            ctype = (resp.headers.get_content_charset()
+                     if hasattr(resp.headers, "get_content_charset") else None)
+            text = raw.decode(ctype or "utf-8", errors="replace")
+        if not text.strip():
+            return {"status": None, "text": "", "level": 0, "from_cache": False,
+                    "error": f"{why}; direct_empty (http {status})",
+                    "http_status": status}
+        return {"status": None, "text": text, "level": 1, "from_cache": False,
+                "reason": f"direct_read ({why})", "url": url, "error": None,
+                "http_status": status}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": None, "text": "", "level": 0, "from_cache": False,
+                "error": f"{why}; direct_failed: {type(exc).__name__}: {exc}"}
 
 
 def _visible_text(raw: str) -> str:
