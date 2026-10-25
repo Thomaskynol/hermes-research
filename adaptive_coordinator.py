@@ -630,6 +630,11 @@ def _update_ledger_counts(state: dict, ledger) -> None:
         ev = state.get("evidence", {}) or {}
         qual = state.get("qualification", {}) or {}
         cands = state.get("discovery", {}).get("candidates", []) or []
+        # user://context/* é contexto do usuário, não documento obtido.
+        ev = {u: t for u, t in ev.items()
+              if not (isinstance(u, str) and u.startswith("user://"))}
+        cands = [u for u in cands
+                 if not (isinstance(u, str) and u.startswith("user://"))]
         evals = state.get("evaluations", []) or []
         obtained = sum(1 for t in ev.values()
                        if isinstance(t, str) and t.strip())
@@ -862,6 +867,13 @@ def _default_writer(view: dict) -> tuple[str, dict]:
         lines.append("Insufficient / pending: " +
                      ", ".join(g.get("criterion_id", "?") for g in gaps))
     lines.append("")
+    _uc = view.get("user_context") or {}
+    _facts = _uc.get("facts", {}) if isinstance(_uc, dict) else {}
+    if isinstance(_facts, dict) and _facts:
+        lines.append("Contexto informado pelo usuário (não evidência):")
+        for _k, _v in _facts.items():
+            lines.append(f"- {_k}: {_v}")
+        lines.append("")
     lines.append("_Fallback parcial determinístico: template por critérios; "
                  "corpo do corpus não sintetizado aqui._")
     return "\n".join(lines), {"included_urls": sorted(view.get("evidence", {})),
@@ -935,16 +947,22 @@ def make_model_assessor(model_client, max_docs: int = 24,
         except Exception:
             pass
 
-    def assess(plan, evidence, qualification, attempts=None):
+    def assess(plan, evidence, qualification, attempts=None,
+               user_context=None):
         evidence = dict(evidence or {})
         qualification = dict(qualification or {})
         attempts = dict(attempts or {})
+        facts = dict(user_context or {})
+        # Contexto do usuário nunca é evidência: fora da seleção, em bloco
+        # separado (chaves user://context/CHAVE, origin user-provided).
+        ctx_urls = {u for u in evidence
+                    if isinstance(u, str) and u.startswith("user://")}
         # Order: unsent first (new material from later rounds reaches the
         # model in bounded batches), then already-sent, each in insertion
         # order (stable; no name-based rules). No fixed prefix: batches
         # rotate as _sent grows.
-        ordered = [u for u in evidence if u not in _sent] + \
-                  [u for u in evidence if u in _sent]
+        ordered = [u for u in evidence if u not in _sent and u not in ctx_urls] + \
+                  [u for u in evidence if u in _sent and u not in ctx_urls]
         # Relevance terms from the plan (criterion/entity labels): long
         # documents are windowed around what the criteria ask, never
         # head-only (a 131K-char paper hides §5/§6 from a head cut).
@@ -1018,7 +1036,20 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "propose_entity?: {entity:{id,label?}, criteria?}}. "
             "Sem evidência utilizável -> insufficient/blocked; "
             "divergência real -> contradictory; nunca invente cobertura. "
-            "Referencie SOMENTE urls do material selecionado acima."
+            "Referencie SOMENTE urls do material selecionado acima"
+            + ("; para fato do usuário, referencie user://context/CHAVE "
+               "com origin user-provided (capa em partial, nunca covered)."
+               if facts else ".")
+            + " Quando o material selecionado listar projetos/ferramentas "
+            "nomeados pertinentes à pergunta, emita propose_entity para "
+            "cada novo candidato (entity {id,label}, criteria?) para "
+            "versionar o plano."
+            + (f"\nContexto informado pelo usuário (NÃO é evidência; nunca "
+               f"cite como fonte; critério sustentado SÓ por este contexto "
+               f"capa em partial, nunca covered; use origin "
+               f"\"user-provided\"): "
+               f"{_json.dumps(facts, ensure_ascii=False)[:2000]}"
+               if facts else "")
         )
         try:
             raw = model_client(prompt)
@@ -1096,6 +1127,11 @@ def make_model_writer(model_client, max_chars: int = 12000):
         cov = view.get("question_coverage", {}) or {}
         plan = view.get("plan", {}) or {}
         evidence = dict(view.get("evidence", {}) or {})
+        # Contexto do usuário: separado do corpus, rotulado como informado
+        # pelo usuário (nunca evidência coletada). Sustenta no máximo
+        # partial (o teto vive no _assess_round); aqui só rotulagem honesta.
+        ctx_urls = sorted(u for u in evidence if u.startswith("user://"))
+        corpus_urls = sorted(u for u in evidence if u not in ctx_urls)
         # Relevance terms: plan labels + issued-query tokens fed via hook
         # (same language-mismatch rationale as the assessor: PT labels vs
         # EN corpus). Long documents are windowed around the criteria,
@@ -1122,7 +1158,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
         parts = []
         total = 0
         sep = "\n\n"
-        for url in sorted(evidence):
+        for url in corpus_urls:
             text = evidence[url] or ""
             raw_len = len(text)
             chunk, _wstrip, _wwin = _relevant_excerpt(
@@ -1144,16 +1180,23 @@ def make_model_writer(model_client, max_chars: int = 12000):
                             f"(cabeçalho+separador contam)")
                 if not chunk.strip():
                     cuts.append(f"teto de seleção {budget} chars atingido; "
-                                f"{len(evidence)-len(included)} fontes fora")
+                                f"{len(corpus_urls)-len(included)} fontes fora")
                     break
             parts.append(block)
             included.append(url)
             total += len(block) + (len(sep) if parts else 0)
             if total >= budget:
                 cuts.append(f"teto de seleção {budget} chars atingido; "
-                            f"{len(evidence)-len(included)} fontes fora")
+                            f"{len(corpus_urls)-len(included)} fontes fora")
                 break
         corpus_s = sep.join(parts)
+        ctx_s = ""
+        if ctx_urls:
+            ctx_lines = [f"{u}: {(evidence.get(u) or '')[:500]}"
+                         for u in ctx_urls]
+            ctx_s = ("\nContexto informado pelo usuário (NÃO evidência "
+                     "coletada; ao usar, rotule como informado pelo "
+                     "usuário):\n" + "\n".join(ctx_lines) + "\n")
         # Sem corte arbitrário no JSON/serialização: unidades completas;
         # qualquer teto já foi aplicado por bloco acima e registrado.
         prompt = (
@@ -1162,7 +1205,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
-            f"Corpus selecionado:\n{corpus_s}\n"
+            f"Corpus selecionado:\n{corpus_s}\n{ctx_s}"
             "Retorne SOMENTE o relatório em markdown."
         )
         try:
@@ -1258,6 +1301,40 @@ def _default_auditor(report: str, evidence: dict, review_fn=None,
     return result
 
 
+def _inject_user_fact(state: dict, key: str, value: str) -> None:
+    """Registra um fato do usuário como entrada user://context/KEY.
+
+    Não é evidência coletada (assessor/writer a recebem em bloco separado,
+    rotulada); a qualificação usable permite referenciá-la com origin
+    user-provided, sempre capada em partial.
+    """
+    if not value:
+        return
+    url = f"user://context/{key}"
+    if url in state.get("evidence", {}):
+        return
+    state["evidence"][url] = (f"[contexto informado pelo usuário] "
+                               f"{key}: {value}")
+    state["qualification"][url] = {
+        "status": "usable",
+        "reason": "user-provided context (não evidência coletada)",
+        "usable_text": str(value), "excluded": False}
+
+
+def _only_user_context(ev: dict) -> bool:
+    """True quando TODAS as referências são contexto do usuário (user://).
+
+    Critério sustentado só por contexto capa em partial, nunca covered.
+    Referências mistas (corpus + contexto) não são "só contexto".
+    """
+    refs = ev.get("references", []) or []
+    if not refs:
+        return False
+    return all(isinstance(r, dict)
+               and str(r.get("url", r.get("doc_id", ""))).startswith("user://")
+               for r in refs)
+
+
 def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                   ) -> tuple[list, dict]:
     """Feed the ledger with the REAL corpus/qualification, apply ONLY the
@@ -1295,6 +1372,10 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     except Exception:
         pass
     import inspect as _inspect
+    _uc = state.get("user_context") or {}
+    _facts = _uc.get("facts", {}) if isinstance(_uc, dict) else {}
+    if not isinstance(_facts, dict):
+        _facts = {}
     try:
         _sig = _inspect.signature(assess_fn)
         _params = list(_sig.parameters.values())
@@ -1303,11 +1384,17 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         _n_pos = sum(1 for p in _params if p.kind in (
             _inspect.Parameter.POSITIONAL_ONLY,
             _inspect.Parameter.POSITIONAL_OR_KEYWORD))
+        _use_five = _has_var or _n_pos >= 5
         _use_four = _has_var or _n_pos >= 4
     except (TypeError, ValueError):
-        _use_four = True
+        _use_five, _use_four = False, True
     try:
-        if _use_four:
+        if _use_five:
+            evals = assess_fn(state["plan"], dict(state["evidence"]),
+                              dict(state["qualification"]),
+                              dict(state.get("attempts", {})),
+                              dict(_facts)) or []
+        elif _use_four:
             evals = assess_fn(state["plan"], dict(state["evidence"]),
                               dict(state["qualification"]),
                               dict(state.get("attempts", {}))) or []
@@ -1355,13 +1442,31 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             _refs = ev.get("references", []) or []
             _ref_urls = {(r or {}).get("url", (r or {}).get("doc_id", ""))
                          for r in _refs if isinstance(r, dict)}
-            if not _ref_urls or not _ref_urls.issubset(_sel_urls):
+            # user://context/* nunca entra na seleção (não é evidência);
+            # é endereçável mesmo assim, com origin user-provided.
+            _ctx_urls = {u for u in _ref_urls
+                         if isinstance(u, str) and u.startswith("user://")}
+            if not _ref_urls or not _ref_urls.issubset(_sel_urls | _ctx_urls):
                 state["notes"].append(
                     f"assessor evaluation for {ev.get('criterion_id')} "
                     f"references material outside the analyzed selection: "
                     f"kept as insufficiency")
                 continue
         applied.append(ev)
+    # Teto do contexto do usuário: critério sustentado SÓ por contexto
+    # capa em partial, nunca covered (origin user-provided não cobre).
+    for i, ev in enumerate(applied):
+        if ev.get("state") == "covered" and _only_user_context(ev):
+            capped = dict(ev)
+            capped["state"] = "partial"
+            capped["justification"] = (
+                str(ev.get("justification", "")) +
+                " [cap parcial: sustentado só por contexto do usuário "
+                "(user-provided), nunca covered]")
+            applied[i] = capped
+            state["notes"].append(
+                f"user-context cap: {ev.get('criterion_id')} "
+                f"covered -> partial (só contexto do usuário)")
     # Open discovery: the assessor (model in production) may propose entities
     # the plan did not know. The coordinator only applies them as a new,
     # validated plan version — user requirements never shrink (enforced).
@@ -1635,9 +1740,14 @@ def run_adaptive(question: str, *, profile: str = "light",
                  clock=None, budget=None, run_dir=None, run_id: str = "",
                  overrides: dict | None = None,
                  quantitative: list | None = None,
+                 user_context: dict | None = None,
                  checkpoint=None, resume: bool = False,
                  control=None) -> dict:
     """Execute the adaptive loop. All external effects are injected.
+
+    user_context: fatos do usuário {KEY: VALUE} (origem user-provided):
+    vão a state["user_context"], viram entradas user://context/KEY
+    endereçáveis (nunca evidência coletada) e capam cobertura em partial.
 
     resume=True continues a persisted run_dir state (checkpoint): completed
     work is kept (duplicates detected, never double-counted), interrupted ops
@@ -1657,6 +1767,13 @@ def run_adaptive(question: str, *, profile: str = "light",
     t_start = now()
     resolved = resolve_adaptive(profile, overrides)
     budget_given = budget is not None
+    # user_context: só dict {KEY: VALUE}; origem sempre user-provided.
+    _facts: dict = {}
+    if user_context is not None:
+        if not isinstance(user_context, dict):
+            raise ValueError("[ADAPTIVE] user_context must be a dict")
+        for _k, _v in user_context.items():
+            _facts[str(_k)] = str(_v)
     if budget is None:
         budget = _run_budget.Budget(resolved.get("budget"), profile=resolved["profile"])
     # Reconcile persisted consumption/time on resume: accumulated values
@@ -1719,6 +1836,16 @@ def run_adaptive(question: str, *, profile: str = "light",
             _reconcile_resume(state, checkpoint, run_dir)
         except Exception as exc:
             state["notes"].append(f"resume reconcile note failed: {exc}")
+        # Resume keeps stored user_context; new facts merge additively.
+        _stored_uc = state.setdefault(
+            "user_context", {"facts": {}, "origin": "user-provided"})
+        _stored_facts = _stored_uc.setdefault("facts", {})
+        for _k, _v in _facts.items():
+            if _k not in _stored_facts:
+                _stored_facts[_k] = _v
+                _inject_user_fact(state, _k, _v)
+                state["notes"].append(
+                    f"resume: contexto do usuário adicionado: {_k}")
         state["notes"].append("resumed from checkpoint; completed work kept, "
                               "interrupted ops marked, no silent repetition")
         _control_status(control, state, "plan")
@@ -1814,6 +1941,15 @@ def run_adaptive(question: str, *, profile: str = "light",
     state["plan_meta"] = plan_meta
     disc = (plan.get("open_discovery") or {})
     state["discovery"]["open"] = bool(disc.get("needed", False))
+    # Fatos do usuário: origem user-provided, endereçáveis via
+    # user://context/KEY (nunca evidência coletada).
+    state["user_context"] = {"facts": dict(_facts), "origin": "user-provided"}
+    for _k, _v in _facts.items():
+        _inject_user_fact(state, _k, _v)
+    if _facts:
+        state["notes"].append(
+            f"contexto do usuário registrado: {len(_facts)} fato(s) "
+            f"(não evidência coletada)")
     if run_dir is not None:
         _state.save(run_dir, state)
 
@@ -2859,6 +2995,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
+            "user_context": state.get("user_context") or {},
             "question_coverage": block, "stop": state["stop"],
             "rounds": state["rounds"]}
     # -- write (1 model-boundary call when a real writer is used) ----

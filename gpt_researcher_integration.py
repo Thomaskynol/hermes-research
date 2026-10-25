@@ -299,6 +299,7 @@ def adaptive_entry(*, question: str, profile: str = "light",
                      run_dir=None, run_id: str = "",
                      overrides: dict | None = None,
                      budget=None, clock=None, resume: bool = False,
+                     user_context: dict | None = None,
                      control=None) -> dict:
     """Testable adaptive entry: real planner/assessor/writer/coordinator.
 
@@ -335,7 +336,7 @@ def adaptive_entry(*, question: str, profile: str = "light",
         fetch_fn=fetch_transport, assess_fn=assess, writer_fn=writer,
         auditor_fn=auditor_fn, clock=clock, budget=budget,
         run_dir=run_dir, run_id=run_id, overrides=overrides,
-        resume=resume, control=control)
+        user_context=user_context, resume=resume, control=control)
 
 
 def write_adaptive_manifest(run_dir, *, result: dict, question: str = "",
@@ -391,6 +392,27 @@ def write_adaptive_manifest(run_dir, *, result: dict, question: str = "",
         model_info=models, environment=env, artifacts=artifacts)
 
 
+def parse_user_context(items) -> dict:
+    """Parse --context KEY=VALUE (repetível) p/ fatos do usuário.
+
+    Formato inválido (sem '=') -> exit 2 com mensagem (contrato da CLI).
+    """
+    facts: dict = {}
+    for item in items or []:
+        text = str(item)
+        if "=" not in text:
+            print(f"[ADAPTIVE] --context precisa de KEY=VALUE "
+                  f"(recebido {text!r})")
+            raise SystemExit(2)
+        key, value = text.split("=", 1)
+        if not key.strip():
+            print(f"[ADAPTIVE] --context precisa de KEY=VALUE "
+                  f"(recebido {text!r})")
+            raise SystemExit(2)
+        facts[key.strip()] = value.strip()
+    return facts
+
+
 async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                          env_file=None):
     """Adaptive entry: our coordinator owns plan/state/coverage/rounds/budget.
@@ -429,6 +451,9 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                     help="retoma o run existente (--run-id ou RUN_ID)")
     _p.add_argument("--run-id", default=None,
                     help="run id explícito (necessário com --resume)")
+    _p.add_argument("--context", action="append", default=None,
+                    help="fato do usuário KEY=VALUE (repetível; origem "
+                         "user-provided, capa em partial, nunca covered)")
     try:
         _a = _p.parse_args(argv)
     except SystemExit:
@@ -476,6 +501,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
     os.environ["RETRIEVER_ARG_BUDGET_TIME_S"] = str(
         _budget.limits.get("time_s", 0))
     _run_dir = Path(_out_base) / f"adaptive_{_run_id}"
+    _user_context = parse_user_context(_a.context)
     print(f"[ADAPTIVE] query={_a.query!r} profile={_resolved['profile']} "
           f"max_rounds={_resolved['max_rounds']} run={_run_id}")
 
@@ -568,7 +594,8 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                 search_transport=_search_fn, fetch_transport=_fetch_fn,
                 auditor_fn=_auditor_fn,
                 budget=_budget, run_dir=str(_run_dir), run_id=_run_id,
-                overrides=_overrides, resume=_a.resume, control=_control))
+                overrides=_overrides, user_context=_user_context,
+                resume=_a.resume, control=_control))
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")
         raise SystemExit(2)
