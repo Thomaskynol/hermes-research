@@ -694,20 +694,35 @@ def _untried_channels(state: dict, gaps: list[dict]) -> list[str]:
     return [c for c in CHANNELS if c not in tried]
 
 
+_ANCHOR_STOPWORDS = frozenset((
+    # Common question verbs/fillers (PT/EN, normalized form): anchors exist
+    # to disambiguate (proper nouns), never to repeat the interrogative
+    # scaffolding (accept4: 'descubra considere investigue justifique use').
+    "descubra", "considere", "investigue", "justifique", "use", "usem",
+    "descobrir", "comparar", "diferenciar", "investigar", "responda",
+    "explique", "liste", "mostre",
+    "como", "quais", "qual", "para", "entre", "sobre", "esse", "essa",
+    "este", "esta", "isso", "sao", "dos", "das", "nos", "uma",
+    "what", "which", "with", "from", "that", "this", "these", "those",
+    "compare", "explain", "list", "show", "find", "describe",
+))
+
+
 def _question_anchors(question: str) -> list[str]:
     """Distinctive anchors: capitalized tokens (>=3 chars) of the question.
 
     Short plan-derived gap queries drop the proper nouns that disambiguate
     them ('cobertura ... OpenCode' drifts to a health-insurance corpus
     without the 'OpenCode' anchor). General heuristic (capitalization,
-    never a fixed word list). Deterministic, stdlib only.
+    never a fixed word list) minus interrogative scaffolding. Deterministic,
+    stdlib only.
     """
     out: list[str] = []
     seen: set[str] = set()
     for raw in re.split(r"[^A-Za-zÀ-ÖØ-öø-ÿ0-9]+", str(question or "")):
         if len(raw) >= 3 and raw[:1].isupper():
             for norm in _norm_tokens(raw):
-                if norm not in seen:
+                if norm not in seen and norm not in _ANCHOR_STOPWORDS:
                     seen.add(norm)
                     out.append(norm)
     return out
@@ -1585,8 +1600,26 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         eid = entity.get("id")
         if not isinstance(eid, str) or not eid.strip():
             return
-        if any(e.get("id") == eid for e in state["plan"].get("entities", [])):
+        collided_from = None
+        label_norm = str(entity.get("label", eid)).strip().lower()
+        if any(str(e.get("label", e.get("id"))).strip().lower() == label_norm
+               for e in state["plan"].get("entities", [])):
             return  # already tracked: no duplicate, no version spam
+        if any(e.get("id") == eid for e in state["plan"].get("entities", [])):
+            # Id reutilizado para outra coisa (accept4: auto-plan criou
+            # e1-e5 genéricos e o assessor propôs e1/e2/e3 para repos):
+            # remapeia para um id fresco em vez de descartar a descoberta.
+            collided_from = eid
+            import re as _re2
+            base = _re2.sub(r"[^a-z0-9]+", "-",
+                            eid.strip().lower()).strip("-") or "proposed"
+            taken = {e.get("id") for e in state["plan"].get("entities", [])}
+            n = 1
+            while f"{base}-{n}" in taken:
+                n += 1
+            eid = f"{base}-{n}"
+            state["notes"].append(
+                f"discovery id remapped on collision: now {eid}")
         new_plan = _copy.deepcopy(state["plan"])
         new_plan.setdefault("entities", []).append({
             "id": eid, "label": entity.get("label", eid),
@@ -1596,6 +1629,22 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                 c = dict(c)
                 c.setdefault("applies_to", [eid])
                 new_plan.setdefault("criteria", []).append(c)
+        if collided_from is not None:
+            # Remapeado por colisão: o assessor reutilizou o id de X mirando
+            # o escopo de X (ex.: item concreto de entidade-bloco). A nova
+            # entidade herda as relações de cobertura de X; sem isso,
+            # avaliações para (critério, nova entidade) seriam rejeitadas
+            # pelo ledger (coverage_ledger.evaluate exige entity em
+            # applies_to) e a descoberta nunca viraria cobertura. Só no
+            # remap: ids frescos sem colisão não herdam nada.
+            for c in new_plan.get("criteria", []):
+                ap = c.get("applies_to") or []
+                ap = [ap] if isinstance(ap, str) else list(ap)
+                if collided_from in ap and eid not in ap:
+                    c["applies_to"] = ap + [eid]
+                    state["notes"].append(
+                        f"discovery: critério {c.get('id')} estendido a "
+                        f"{eid} (herdado de {collided_from})")
         from coverage_ledger import validate_plan as _validate
         _validate(new_plan)
         _state.record_plan_version(

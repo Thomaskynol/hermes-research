@@ -49,8 +49,9 @@ class ShortGapQueryTest(unittest.TestCase):
             st, {"criterion_id": "c1", "label": "Melhoria de planejamento"})
         # accept3: a pergunta traz o nome próprio distintivo (OpenCode);
         # a query curta o preserva como âncora (antes derivava p/ genérico).
+        # stopwords: scaffolding interrogativo ('descubra') é filtrado.
         self.assertEqual(q, "Candidato 1 Melhoria de planejamento "
-                            "descubra opencode")
+                            "opencode")
         self.assertLess(len(q), len(st["question"]))
 
     def test_query_never_contains_full_question(self):
@@ -72,7 +73,7 @@ class ShortGapQueryTest(unittest.TestCase):
                   "label": "Melhoria de planejamento"}], 1)
         self.assertEqual(ops[0]["target"],
                          "Candidato 1 Melhoria de planejamento "
-                         "descubra opencode")
+                         "opencode")
 
     def test_failed_fetch_target_never_reoffered(self):
         st = state()

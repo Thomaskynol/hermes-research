@@ -245,5 +245,83 @@ class UserContextTest(unittest.TestCase):
         self.assertTrue(res["partial"])
 
 
+def collision_state():
+    st = state_api.new_state("colisão")
+    st["plan"] = {
+        "plan_id": "col-1", "version": 1, "question": "Compare plugins",
+        "entities": [{"id": "e1", "label": "slot generico",
+                      "required": True}],
+        "criteria": [{"id": "c0", "label": "função demonstrada",
+                      "required": True, "applies_to": ["e1"]}],
+    }
+    st["discovery"] = {"candidates": [], "open": True}
+    st["evidence"] = {"https://example.org/r": "texto util"}
+    st["qualification"] = {"https://example.org/r": {
+        "status": "usable", "usable_text": "texto util",
+        "excluded": False}}
+    return st
+
+
+class RemapCollisionTest(unittest.TestCase):
+    def test_a1_colisao_remapeia_em_vez_de_descartar(self):
+        import coverage_ledger as cl
+        st = collision_state()
+        ledger = cl.Ledger(st["plan"])
+        ledger.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        ac._apply_discovery(
+            st, ledger,
+            {"entity": {"id": "e1", "label": "Real Plugin",
+                        "repo": "o/real"}},
+            {"criterion_id": "c0", "url": "https://example.org/r"})
+        ids = [e["id"] for e in st["plan"]["entities"]]
+        self.assertIn("e1-1", ids)
+        self.assertEqual(len(st["plan_versions"]), 1)
+        self.assertTrue(any("remapped" in str(n) for n in st["notes"]))
+
+    def test_a2_remap_herda_criterios_e_avaliacao_resolve(self):
+        import coverage_ledger as cl
+        st = collision_state()
+        ledger = cl.Ledger(st["plan"])
+        ledger.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        ac._apply_discovery(
+            st, ledger,
+            {"entity": {"id": "e1", "label": "Real Plugin",
+                        "repo": "o/real"}},
+            {"criterion_id": "c0", "url": "https://example.org/r"})
+        # Sem herança, evaluate(c0, ..., entity e1-1) levantaria ValueError
+        # (entity fora de applies_to) e a descoberta nunca viraria cobertura.
+        out = ledger.evaluate(
+            "c0", "partial", "função vista no README", "material_selecionado",
+            [{"url": "https://example.org/r"}], "e1-1")
+        self.assertEqual(out["state"], "partial")
+
+    def test_a3_label_duplicado_continua_descartado(self):
+        import coverage_ledger as cl
+        st = collision_state()
+        ledger = cl.Ledger(st["plan"])
+        ledger.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        n = len(st["plan"]["entities"])
+        ac._apply_discovery(
+            st, ledger,
+            {"entity": {"id": "e1-1", "label": "slot generico"}},
+            {"criterion_id": "c0", "url": "https://example.org/r"})
+        self.assertEqual(len(st["plan"]["entities"]), n)
+        self.assertEqual(len(st["plan_versions"]), 0)
+
+
+class AnchorStopwordsTest(unittest.TestCase):
+    def test_b1_stopwords_removidas_nomes_mantidos(self):
+        anchors = ac._question_anchors(
+            "Descubra e compare plugins no OpenCode. Considere a versão.")
+        self.assertIn("opencode", [a.lower() for a in anchors])
+        for junk in ("descubra", "considere", "compare", "versao"):
+            self.assertNotIn(junk, [a.lower() for a in anchors])
+
+    def test_b2_sem_ancora_nao_quebra_query_curta(self):
+        st = {"question": "o que há?", "plan": {"criteria": [], "entities": []}}
+        self.assertTrue(ac._short_gap_query(
+            st, {"criterion_id": "c0", "label": "x"}))
+
+
 if __name__ == "__main__":
     unittest.main()
