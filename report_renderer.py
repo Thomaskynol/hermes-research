@@ -259,6 +259,35 @@ def _source_rows(state: dict) -> list[dict]:
     return rows
 
 
+def _channel_line(state: dict, labels: dict) -> str:
+    """User-visible collection outcome per channel (accept1 honesty gap).
+
+    Transport failures lived only in verification.json; the user-facing
+    report never said web search had failed 9 times. Counts come from the
+    observed round ops (channel/outcome), never inferred.
+    """
+    seen: dict = {}
+    for rnd in state.get("rounds") or []:
+        for op in (rnd or {}).get("ops") or []:
+            if not isinstance(op, dict):
+                continue
+            ch = op.get("channel") or "?"
+            bucket = seen.setdefault(ch, {"ok": 0, "fail": 0, "other": 0})
+            out = op.get("outcome")
+            if out in ("new_useful", "confirmed", "duplicate"):
+                bucket["ok"] += 1
+            elif out == "failed":
+                bucket["fail"] += 1
+            else:
+                bucket["other"] += 1
+    if not seen:
+        return f"- **Coleta por canal:** {labels.get('unknown', 'desconhecida')}"
+    parts = [f"{ch}: {b['ok']} ok / {b['fail']} falha(s)"
+             + (f" / {b['other']} outro(s)" if b["other"] else "")
+             for ch, b in sorted(seen.items())]
+    return "- **Coleta por canal:** " + "; ".join(parts)
+
+
 def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     config = dict(state.get("config_applied") or {})
     resolved = dict(state.get("resolved") or {})
@@ -287,7 +316,8 @@ def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
              f"tokens={consumption.get('tokens', 'unknown')}; "
              f"custo={consumption.get('cost_usd', 'unknown')}",
              f"- **{labels['criteria']}:** {len(criteria)} | "
-             f"**{labels['entities']}:** {len(entities)}"]
+             f"**{labels['entities']}:** {len(entities)}",
+             _channel_line(state, labels), ""]
     if verbose:
         if criteria:
             lines.append("")

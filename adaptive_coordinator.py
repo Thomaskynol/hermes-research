@@ -597,6 +597,40 @@ def _untried_channels(state: dict, gaps: list[dict]) -> list[str]:
     return [c for c in CHANNELS if c not in tried]
 
 
+def _short_gap_query(state: dict, gap: dict) -> str:
+    """Short search query for a gap (never the whole question).
+
+    accept1 used the full NL question as every gap_query target: providers
+    truncate/ignore it and repeated rounds burned budget on equivalent
+    requests. Query = entity label + criterion label (both short and
+    plan-derived); only when both are missing, the question truncated to
+    140 chars. Deterministic, no model call.
+    """
+    cid = gap.get("criterion_id", "")
+    label = (gap.get("label") or cid).strip()
+    ent = ""
+    try:
+        plan = state.get("plan") or {}
+        crits = plan.get("criteria") or []
+        applies: list = []
+        for c in crits:
+            if isinstance(c, dict) and c.get("id") == cid:
+                ap = c.get("applies_to") or []
+                applies = [ap] if isinstance(ap, str) else list(ap)
+                break
+        for e in plan.get("entities") or []:
+            if isinstance(e, dict) and e.get("id") in applies:
+                ent = (e.get("label") or e.get("id") or "").strip()
+                break
+    except Exception:
+        ent = ""
+    short = f"{ent} {label}".strip()
+    if len(short) >= 12:
+        return short
+    q = (state.get("question") or "").strip()
+    return (q[:140] + "…") if len(q) > 140 else q
+
+
 def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     """One specific op per top gap; vary channel/target after flat attempts.
 
@@ -612,10 +646,16 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
         last_channel = attempts[-1].get("channel") if attempts else None
         last_outcome = attempts[-1].get("outcome") if attempts else None
         n = len(attempts)
+        failed_targets = set()
+        for _att in state.get("attempts", {}).values():
+            for _a in _att or []:
+                if isinstance(_a, dict) and _a.get("outcome") == "failed" \
+                        and _a.get("target"):
+                    failed_targets.add(_a["target"])
         unfetched = [c for c in state["discovery"].get("candidates", [])
-                     if c not in state["evidence"]]
-        base_label = gap.get("label", cid)
-        base_q = f"{state['question']} — {base_label}"
+                     if c not in state["evidence"]
+                     and c not in failed_targets]
+        base_q = _short_gap_query(state, gap)
         if unfetched and (attempts and last_outcome in ("failed", "nogain")):
             kind, channel = "read_source", (last_channel or CHANNELS[0])
             target = unfetched[0]
@@ -2172,6 +2212,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                 state["attempts"].setdefault(
                     op.get("criterion_id", ""), []).append(
                     {"channel": op.get("channel"), "outcome": "failed",
+                     "target": target,
                      "note": f"canal {op.get('channel')}: {str(exc)[:160]}"})
                 state["notes"].append(
                     f"op {op['op_id']} read_source failure "
