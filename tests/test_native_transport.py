@@ -82,6 +82,50 @@ class SearchChannels(unittest.TestCase):
             search_fn("q", "academic")
         self.assertIn("academic", str(ctx.exception))
 
+    def test_arxiv_falls_back_to_openalex_with_honest_label(self):
+        calls = []
+
+        def academic(query, **kw):
+            calls.append(kw.get("source"))
+            if kw.get("source") == "arxiv":
+                raise RuntimeError("arxiv: HTTP 429")
+            return FakeResult(metadata={"works": [
+                {"title": "T", "url": "https://example.org/t",
+                 "abstract": "abs"},
+            ]})
+
+        search_fn, _, _ = nt.build_native_transports(
+            academic_search_fn=academic)
+        hits = search_fn("rag limitations", "arxiv")
+        self.assertEqual(calls, ["arxiv", "openalex"])
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["via"], "openalex-fallback")
+
+    def test_arxiv_labels_hits_when_primary_serves(self):
+        def academic(query, **kw):
+            self.assertEqual(kw.get("source"), "arxiv")
+            return FakeResult(metadata={"works": [
+                {"title": "T", "url": "https://example.org/t",
+                 "abstract": "abs"},
+            ]})
+
+        search_fn, _, _ = nt.build_native_transports(
+            academic_search_fn=academic)
+        hits = search_fn("rag limitations", "arxiv")
+        self.assertEqual(hits[0]["via"], "arxiv")
+
+    def test_arxiv_double_failure_names_both_causes(self):
+        def academic(query, **kw):
+            raise RuntimeError(f"{kw.get('source')}: boom")
+
+        search_fn, _, _ = nt.build_native_transports(
+            academic_search_fn=academic)
+        with self.assertRaises(Exception) as ctx:
+            search_fn("q", "arxiv")
+        message = str(ctx.exception)
+        self.assertIn("arxiv failed", message)
+        self.assertIn("openalex fallback failed", message)
+
     def test_github_search_uses_api_and_maps_items(self):
         requests = []
 
@@ -117,19 +161,24 @@ class SearchChannels(unittest.TestCase):
         self.assertIn("403", message)
 
     def test_web_unavailable_raises_with_reason(self):
-        # Contrato: quando gateway E fallback falham, o erro nomeia as duas
-        # causas. Fallback injetado como falha determinística: o default real
-        # (ddgs) depende de pacote/rede do ambiente e não pertence ao teste
-        # offline.
+        # Contrato: quando gateway, searxng E fallback falham, o erro nomeia
+        # as três causas. Searxng e fallback injetados como falhas
+        # determinísticas: os defaults reais dependem de rede do ambiente e
+        # não pertencem ao teste offline.
         search_fn, _, _ = nt.build_native_transports(
             web_search_fn=lambda q, **kw: FakeResult(
                 status="unavailable", qualification="none",
                 reason="retriever_unavailable", ok=False),
+            searxng_search_fn=lambda q, limit: (_ for _ in ()).throw(
+                nt._error("searxng indisponível (offline)")),
             web_fallback_fn=lambda q, limit: (_ for _ in ()).throw(
                 nt._error("ddgs indisponível (offline)")))
         with self.assertRaises(Exception) as ctx:
             search_fn("q", "web")
-        self.assertIn("retriever_unavailable", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn("retriever_unavailable", message)
+        self.assertIn("searxng failed", message)
+        self.assertIn("fallback failed", message)
 
     def test_web_maps_results(self):
         def web(query, **kw):

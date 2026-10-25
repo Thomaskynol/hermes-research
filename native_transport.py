@@ -13,6 +13,7 @@ importável, usa ``NativeTransportError`` (mesma semântica).
 from __future__ import annotations
 
 import json
+import os
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
@@ -20,6 +21,10 @@ from urllib.request import Request, urlopen
 DEFAULT_TIMEOUT_S = 45.0
 SEARCH_LIMIT = 8
 GITHUB_API = "https://api.github.com/search/repositories"
+# Instância SearXNG autohospedada (nossa infraestrutura). O host alcança o
+# container pelo IP da bridge; o default tenta o loop local (caso da pesquisa
+# rodando dentro do container) e o operador fixa SEARXNG_URL no ambiente.
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8888").rstrip("/")
 
 
 class NativeTransportError(RuntimeError):
@@ -45,6 +50,48 @@ def _default_academic_search(query: str, **kw):
 def _default_web_search(query: str, **kw):
     import agent_reach  # noqa: PLC0415
     return agent_reach.search(query, **kw)
+
+
+def _searxng_search(query: str, *, limit: int = SEARCH_LIMIT,
+                   base_url: str | None = None) -> list[dict]:
+    """Busca web via SearXNG autohospedado (nossa infraestrutura).
+
+    Rota intermediária do canal web: o gateway local continua primário; se
+    ele falhar, tenta o SearXNG antes do ddgs. Hits carregam ``via`` e o
+    ``engine`` que o SearXNG identifica — origem e motor sempre visíveis.
+    Zero resultados conta como falha (recua para o ddgs); rede/instância
+    fora levantam erro honesto com a base usada.
+    """
+    base = (base_url or SEARXNG_URL).rstrip("/")
+    url = f"{base}/search?q={quote(query, safe='')}&format=json&language=all"
+    request = Request(url, headers={"User-Agent": "hermes-native-transport",
+                                    "Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=DEFAULT_TIMEOUT_S) as response:
+            body = response.read()
+    except Exception as exc:  # noqa: BLE001 - qualquer falha vira erro honesto
+        raise _error(f"searxng search unavailable at {base}: "
+                     f"{type(exc).__name__}") from exc
+    try:
+        payload = json.loads(body.decode("utf-8", "replace")
+                             if isinstance(body, bytes) else str(body))
+    except (ValueError, AttributeError) as exc:
+        raise _error("searxng search returned invalid JSON") from exc
+    rows = (payload.get("results") if isinstance(payload, dict) else None) or []
+    hits: list[dict] = []
+    for row in rows[:max(1, int(limit or SEARCH_LIMIT))]:
+        if not isinstance(row, dict) or not row.get("url"):
+            continue
+        hit = {"url": str(row["url"]),
+               "title": str(row.get("title") or ""),
+               "snippet": str(row.get("content") or "")[:500],
+               "via": "searxng"}
+        if row.get("engine"):
+            hit["engine"] = str(row["engine"])
+        hits.append(hit)
+    if not hits:
+        raise _error(f"searxng search at {base} returned no usable results")
+    return hits
 
 
 def _ddgs_fallback_search(query: str, *, limit: int = SEARCH_LIMIT) -> list[dict]:
@@ -121,7 +168,7 @@ def _github_search(query: str, *, timeout: float, token: str | None) -> list[dic
     return hits
 
 
-def _academic_hits(result) -> list[dict]:
+def _academic_hits(result, via: str | None = None) -> list[dict]:
     works = (getattr(result, "metadata", {}) or {}).get("works") or []
     hits: list[dict] = []
     for work in works:
@@ -133,8 +180,11 @@ def _academic_hits(result) -> list[dict]:
                    if work.get("doi") else "")
         if not url:
             continue
-        hits.append({"url": str(url), "title": str(work.get("title") or ""),
-                     "snippet": str(work.get("abstract") or "")[:500]})
+        hit = {"url": str(url), "title": str(work.get("title") or ""),
+               "snippet": str(work.get("abstract") or "")[:500]}
+        if via:
+            hit["via"] = via
+        hits.append(hit)
     if not hits:
         raise _error("academic search returned no usable works: "
                      f"{getattr(result, 'reason', None) or getattr(result, 'status', '')}")
@@ -182,16 +232,18 @@ def _payload(result) -> dict:
 def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEOUT_S,
                             github_token: str | None = None, page_transport=None,
                             academic_search_fn=None, web_search_fn=None,
-                            web_fallback_fn=None):
+                            searxng_search_fn=None, web_fallback_fn=None):
     """(search_fn, fetch_fn, model_client) sem gpt_researcher.
 
     ``describe()`` fica anexado a search_fn/fetch_fn com canais e limites
     efetivos. O canal web usa o gateway local (``agent_reach.search``); se
-    ele falhar, tenta o fallback ``web_fallback_fn`` (padrão: ddgs, sem
-    chave) e rotula os hits com ``via`` — origem sempre identificável.
+    ele falhar, tenta o SearXNG autohospedado (``searxng_search_fn``) e por
+    fim o fallback ``web_fallback_fn`` (padrão: ddgs, sem chave). Cada etapa
+    rotula os hits com ``via`` — origem sempre identificável.
     """
     academic_search_fn = academic_search_fn or _default_academic_search
     web_search_fn = web_search_fn or _default_web_search
+    searxng_search_fn = searxng_search_fn or _searxng_search
     web_fallback_fn = web_fallback_fn or _ddgs_fallback_search
 
     def search_fn(query: str, channel: str = "web") -> list[dict]:
@@ -201,9 +253,23 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
                 query, limit=SEARCH_LIMIT, source="both"))
         if name == "arxiv":
             # Coordinator channel for the academic family; native serves it
-            # with the arXiv slice of the academic connector.
-            return _academic_hits(academic_search_fn(
-                query, limit=SEARCH_LIMIT, source="arxiv"))
+            # with the arXiv slice of the academic connector. arXiv
+            # rate-limits (HTTP 429) while OpenAlex serves the same family,
+            # so on arXiv failure we fall back to OpenAlex and label the
+            # hits with their real origin (never relabelled as arXiv).
+            try:
+                return _academic_hits(academic_search_fn(
+                    query, limit=SEARCH_LIMIT, source="arxiv"), via="arxiv")
+            except Exception as arxiv_exc:
+                try:
+                    return _academic_hits(academic_search_fn(
+                        query, limit=SEARCH_LIMIT, source="openalex"),
+                        via="openalex-fallback")
+                except Exception as oa_exc:
+                    raise _error(
+                        "academic search unavailable: arxiv failed "
+                        f"({arxiv_exc}); openalex fallback failed ({oa_exc})"
+                    ) from oa_exc
         if name == "github":
             return _github_search(query, timeout=timeout, token=github_token)
         if name == "web":
@@ -212,12 +278,16 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
                     query, limit=SEARCH_LIMIT, channel="web"))
             except Exception as primary_exc:
                 try:
-                    return web_fallback_fn(query, limit=SEARCH_LIMIT)
-                except Exception as fallback_exc:
-                    raise _error(
-                        "web search unavailable: gateway failed "
-                        f"({primary_exc}); fallback failed ({fallback_exc})"
-                    ) from fallback_exc
+                    return searxng_search_fn(query, limit=SEARCH_LIMIT)
+                except Exception as searxng_exc:
+                    try:
+                        return web_fallback_fn(query, limit=SEARCH_LIMIT)
+                    except Exception as fallback_exc:
+                        raise _error(
+                            "web search unavailable: gateway failed "
+                            f"({primary_exc}); searxng failed ({searxng_exc}); "
+                            f"fallback failed ({fallback_exc})"
+                        ) from fallback_exc
         if name == "youtube":
             # No search connector for YouTube in native scope: discovery of
             # videos needs web search (unavailable here); known URLs can
@@ -249,7 +319,8 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
             "kind": "native",
             "channels": {
                 "web": ("agent_reach.search (gateway local) "
-                        "com fallback ddgs sem chave (hits rotulados via)"),
+                        "-> searxng autohospedado (SEARXNG_URL, hits com "
+                        "via/engine) -> fallback ddgs sem chave"),
                 "academic": "academic_search.search_works (openalex+arxiv)",
                 "github": "api.github.com/search/repositories"
                           + (" (token)" if github_token else " (no token: rate limited)"),
