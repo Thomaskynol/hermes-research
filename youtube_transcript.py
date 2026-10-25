@@ -85,9 +85,10 @@ YTDLP_CHILD_PATH: Final[str] = os.pathsep.join(
     )
 )
 
-# O arquivo de cookie e Netscape (curl) e o yt-dlp so aceita esse formato; sem
-# ele a legenda e a propria origem do bloqueio, entao a ausencia do arquivo e
-# tratada como "sem legenda", nunca como erro fatal.
+# O arquivo de cookie e Netscape (curl) e o yt-dlp so aceita esse formato; ele
+# ajuda quando o player nega a legenda, mas nao e obrigatorio -- o YouTube
+# serve legendas sem sessao em muitos casos, entao a ausencia do arquivo vira
+# tentativa best-effort, nunca "sem legenda" sem tentar a rede.
 YT_COOKIE_FILE: Final[str] = os.environ.get(
     "VAST_YT_COOKIES", "/opt/data/secrets/youtube_cookies.txt"
 )
@@ -401,7 +402,7 @@ def _sub_langs(lang: str) -> str:
     return lang
 
 
-def _ytdlp_argv(url: str, lang: str, outdir: Path) -> list[str]:
+def _ytdlp_argv(url: str, lang: str, outdir: Path, cookies: str | None = None) -> list[str]:
     """Comando do yt-dlp, na ordem em que o yt-dlp le.
 
     Cada flag esta aqui por uma razao:
@@ -412,12 +413,16 @@ def _ytdlp_argv(url: str, lang: str, outdir: Path) -> list[str]:
       --skip-download      o vast quer o texto, nao os 40MB de video
       --no-playlist         uma URL de video nunca vira uma lista de videos
       --no-warnings         o stderr e usado como motivo; aviso nao e motivo
-      --cookies             sem sessao o player nega a legenda (429)
+      --cookies             sessao ajuda quando o player nega a legenda (429);
+                            omitido quando o arquivo nao existe -- o YouTube
+                            serve legendas sem sessao em muitos casos (medido),
+                            entao tentar sem cookie e melhor que declarar
+                            indisponivel sem tentar
       --sleep-subtitles 2   o yt-dlp cobra 2s entre downloads de legenda; sem
                             isso ele nem faz a pausa e leva 429 na segunda
     Sem shell: a URL vai como argumento, nunca interpolada numa string.
     """
-    return [
+    argv = [
         YTDLP,
         "--sub-langs", lang,
         "--write-auto-subs",
@@ -426,11 +431,16 @@ def _ytdlp_argv(url: str, lang: str, outdir: Path) -> list[str]:
         "--skip-download",
         "--no-playlist",
         "--no-warnings",
-        "--cookies", YT_COOKIE_FILE,
+    ]
+    cookie_file = cookies if cookies is not None else YT_COOKIE_FILE
+    if cookie_file and os.path.exists(cookie_file):
+        argv += ["--cookies", cookie_file]
+    argv += [
         "--sleep-subtitles", "2",
         "-o", str(outdir / "yt.%(ext)s"),
         url,
     ]
+    return argv
 
 
 async def _kill(proc: asyncio.subprocess.Process) -> None:
@@ -579,7 +589,10 @@ async def _fetch_live(url: str, key_url: str, lang: str, timeout: float) -> Tran
         # faixa em outro idioma. Honesto e vazio, com o motivo.
         return _miss(lang, f"legenda em {lang} sem texto ({len(raw)} chars de VTT)")
 
-    await asyncio.to_thread(_cache_put_sync, key_url, text, lang, segments, dupes)
+    try:
+        await asyncio.to_thread(_cache_put_sync, key_url, text, lang, segments, dupes)
+    except Exception as exc:  # noqa: BLE001 - cache e acelerador; falhar em guardar nao invalida o texto obtido
+        logger.warning("transcricao obtida mas nao guardada no cache (%s: %s)", type(exc).__name__, exc)
     logger.info(
         "transcricao ok %s: %d chars, %d segmentos, %d duplicadas, %.1fs",
         url, len(text), segments, dupes, elapsed,
@@ -594,11 +607,12 @@ async def fetch_transcript(url: str, *, lang: str = "en", timeout: float = DEFAU
     """Transcricao de um video do YouTube. Nunca levanta e nunca inventa texto.
 
     A ordem e deliberada: cache primeiro (acerto de cache nao custa yt-dlp nem
-    45s de timeout, e nao precisa de cookie), depois conferida do arquivo de
-    cookies, so entao a rede. Qualquer falha -- binario ausente, cookie
-    ausente, rc != 0, timeout, VTT nao produzido, legenda sem fala -- vira
-    `text=""` com o motivo no `reason`. Um video sem legenda e um resultado
-    legitimo e unhelpful; uma transcricao inventada e mentira com confianca.
+    45s de timeout), depois a rede via yt-dlp -- com cookies quando o arquivo
+    existe, sem cookies (best-effort) quando nao existe. Qualquer falha --
+    binario ausente, rc != 0, timeout, VTT nao produzido, legenda sem fala --
+    vira `text=""` com o motivo no `reason`. Um video sem legenda e um
+    resultado legitimo e unhelpful; uma transcricao inventada e mentira com
+    confianca.
     """
     if not url or not url.strip():
         return _miss(lang, "url vazia")
@@ -620,10 +634,9 @@ async def fetch_transcript(url: str, *, lang: str = "en", timeout: float = DEFAU
         )
 
     if not os.path.exists(YT_COOKIE_FILE):
-        # Sem cookie o player nega a legenda. Isso e configuracao, nao erro do
-        # video: aviso unico e segue, para nao encher o log de 12 linhas iguais.
-        logger.warning("transcricao indisponivel: cookies ausentes em %s", YT_COOKIE_FILE)
-        return _miss(lang, f"cookies ausentes em {YT_COOKIE_FILE}")
+        # Sem cookie o yt-dlp tenta mesmo assim: o YouTube serve legendas sem
+        # sessao em muitos casos. So a falha de rede declara indisponivel.
+        logger.info("transcricao sem cookies (%s ausente); tentativa best-effort", YT_COOKIE_FILE)
 
     try:
         return await _fetch_live(url, key_url, lang, timeout)

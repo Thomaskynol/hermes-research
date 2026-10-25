@@ -22,6 +22,7 @@ sys.addaudithook(deny_network)
 import adaptive_coordinator as ac  # noqa: E402
 import adaptive_state as state_api  # noqa: E402
 import native_transport as nt  # noqa: E402
+import youtube_transcript as ytmod  # noqa: E402
 
 
 class FakeResult:
@@ -142,6 +143,27 @@ class SameRepoLinksTest(unittest.TestCase):
                                       "usable_text": "conteúdo do doc"})
         self.assertNotIn(link, state["discovery"]["candidates"])
         self.assertEqual(state["discovery"]["candidates"], [])
+
+
+class YtBestEffortArgvTest(unittest.TestCase):
+    """--cookies condicional: sem arquivo tenta sem cookie, nunca declara
+    indisponivel sem tentar a rede."""
+
+    def test_argv_without_cookie_file_omits_cookies_flag(self):
+        argv = ytmod._ytdlp_argv(
+            "https://www.youtube.com/watch?v=x", "en", Path("/tmp"),
+            cookies="/caminho/que/nao/existe/cookies.txt")
+        self.assertNotIn("--cookies", argv)
+        self.assertIn("https://www.youtube.com/watch?v=x", argv)
+
+    def test_argv_with_cookie_file_keeps_cookies_flag(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".txt") as f:
+            argv = ytmod._ytdlp_argv(
+                "https://www.youtube.com/watch?v=x", "en", Path("/tmp"),
+                cookies=f.name)
+        self.assertIn("--cookies", argv)
+        self.assertEqual(argv[argv.index("--cookies") + 1], f.name)
 
 
 if __name__ == "__main__":
