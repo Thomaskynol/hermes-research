@@ -526,3 +526,23 @@ class SubstantiveExcerptTest(unittest.TestCase):
         excerpt, stripped = ac._substantive_excerpt(text, 100)
         self.assertEqual(len(excerpt), 100)
         self.assertGreater(stripped, 1000)
+
+    def test_raw_html_single_line_yields_visible_text(self):
+        html = ('<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8"/>'
+                '<title>ignore me</title><script>var x=1;</script>'
+                '<style>.a{color:red}</style></head><body><nav>Menu</nav>'
+                '<h1>Como o uv gerencia cache</h1><p>O cache fica em ~/.cache/uv.</p>'
+                '</body></html>')
+        excerpt, stripped = ac._substantive_excerpt(html, 1200)
+        self.assertIn("Como o uv gerencia cache", excerpt)
+        self.assertIn("~/.cache/uv", excerpt)
+        self.assertNotIn("<meta", excerpt)
+        self.assertNotIn("var x=1", excerpt)
+        self.assertNotIn("color:red", excerpt)
+        self.assertGreater(stripped, 0)
+
+    def test_visible_text_only_for_html(self):
+        text = "plain <b>bold</b> text"
+        visible, removed = ac._visible_text(text)
+        self.assertEqual(visible, text)
+        self.assertEqual(removed, 0)

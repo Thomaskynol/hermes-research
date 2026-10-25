@@ -117,10 +117,16 @@ class SearchChannels(unittest.TestCase):
         self.assertIn("403", message)
 
     def test_web_unavailable_raises_with_reason(self):
+        # Contrato: quando gateway E fallback falham, o erro nomeia as duas
+        # causas. Fallback injetado como falha determinística: o default real
+        # (ddgs) depende de pacote/rede do ambiente e não pertence ao teste
+        # offline.
         search_fn, _, _ = nt.build_native_transports(
             web_search_fn=lambda q, **kw: FakeResult(
                 status="unavailable", qualification="none",
-                reason="retriever_unavailable", ok=False))
+                reason="retriever_unavailable", ok=False),
+            web_fallback_fn=lambda q, limit: (_ for _ in ()).throw(
+                nt._error("ddgs indisponível (offline)")))
         with self.assertRaises(Exception) as ctx:
             search_fn("q", "web")
         self.assertIn("retriever_unavailable", str(ctx.exception))

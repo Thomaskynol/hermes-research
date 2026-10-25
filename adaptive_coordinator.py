@@ -101,6 +101,29 @@ def _content_hash(text: str) -> str:
                                               "replace")).hexdigest()[:16]
 
 
+def _visible_text(raw: str) -> tuple[str, int]:
+    """Extrai texto visivel de HTML cru (uma linha gigante de markup).
+
+    Paginas Next.js/SSR chegam como HTML bruto: head, scripts e CSS ocupam
+    os primeiros milhares de chars e o corte head-only vira metadado, nunca
+    conteudo. Remove blocos <head>/<script>/<style> inteiros, depois as tags,
+    decodifica entidades e colapsa espacos. So atua quando o texto parece
+    HTML (`<html`, `<head>` ou `<!DOCTYPE`); texto simples/markdown passa
+    intacto. Retorna (texto, chars_removidos).
+    """
+    low = raw.lower()
+    if "<html" not in low and "<head" not in low and "<!doctype" not in low:
+        return raw, 0
+    import re as _re
+    import html as _html
+    no_block = _re.sub(r"<(head|script|style)\b.*?</\1\s*>", " ",
+                       raw, flags=_re.DOTALL | _re.IGNORECASE)
+    no_tags = _re.sub(r"<[^>]+>", " ", no_block)
+    text = _re.sub(r"[ \t\xa0]+", " ", _html.unescape(no_tags))
+    text = _re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", text).strip()
+    return text, max(0, len(raw) - len(text))
+
+
 def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
     """Head excerpt skipping markdown/HTML boilerplate lines.
 
@@ -111,8 +134,9 @@ def _substantive_excerpt(text: str, limit: int) -> tuple[str, int]:
     by topic. Returns (excerpt, stripped_chars).
     """
     raw = text or ""
+    raw, html_stripped = _visible_text(raw)
     kept: list[str] = []
-    stripped = 0
+    stripped = html_stripped
     for line in raw.splitlines():
         s = line.strip()
         if not s or set(s) <= set("#-_*|> "):
