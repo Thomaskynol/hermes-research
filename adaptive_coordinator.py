@@ -223,6 +223,18 @@ _PT_EN_RESEARCH: dict[str, tuple[str, ...]] = {
 }
 
 
+def _norm_tokens(text, min_len: int = 3) -> list[str]:
+    """Normalized tokens: lowercase, accent-stripped, kept >= min_len.
+
+    Shared tokenizer for gap overlap, question anchors and the snippet
+    relevance gate (same rules everywhere; deterministic, stdlib only).
+    """
+    import unicodedata as _ud
+    norm = "".join(c for c in _ud.normalize(
+        "NFKD", str(text or "").lower()) if not _ud.combining(c))
+    return [w for w in re.split(r"[^a-z0-9]+", norm) if len(w) >= min_len]
+
+
 def _expand_terms_en(tokens: "list[str] | tuple[str, ...]") -> list[str]:
     """Expand PT research tokens with EN equivalents (accent-insensitive)."""
     import unicodedata as _ud
@@ -682,6 +694,25 @@ def _untried_channels(state: dict, gaps: list[dict]) -> list[str]:
     return [c for c in CHANNELS if c not in tried]
 
 
+def _question_anchors(question: str) -> list[str]:
+    """Distinctive anchors: capitalized tokens (>=3 chars) of the question.
+
+    Short plan-derived gap queries drop the proper nouns that disambiguate
+    them ('cobertura ... OpenCode' drifts to a health-insurance corpus
+    without the 'OpenCode' anchor). General heuristic (capitalization,
+    never a fixed word list). Deterministic, stdlib only.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"[^A-Za-zÀ-ÖØ-öø-ÿ0-9]+", str(question or "")):
+        if len(raw) >= 3 and raw[:1].isupper():
+            for norm in _norm_tokens(raw):
+                if norm not in seen:
+                    seen.add(norm)
+                    out.append(norm)
+    return out
+
+
 def _short_gap_query(state: dict, gap: dict) -> str:
     """Short search query for a gap (never the whole question).
 
@@ -711,6 +742,15 @@ def _short_gap_query(state: dict, gap: dict) -> str:
         ent = ""
     short = f"{ent} {label}".strip()
     if len(short) >= 12:
+        # Distinctive anchors: append question proper nouns missing from
+        # the short query (accept3: plan-only queries lost 'OpenCode' and
+        # the corpus drifted to health insurance). Case-insensitive,
+        # accent-robust match on the same normalized tokens.
+        hay = " ".join(_norm_tokens(short))
+        missing = [a for a in _question_anchors(state.get("question") or "")
+                   if a not in hay]
+        if missing:
+            short = f"{short} {' '.join(missing)}"
         return short
     q = (state.get("question") or "").strip()
     return (q[:140] + "…") if len(q) > 140 else q
@@ -719,15 +759,8 @@ def _short_gap_query(state: dict, gap: dict) -> str:
 def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
     """Tokens do label do critério + label da entidade (minúsculos,
     sem acento, >=3 chars). Determinístico; sem rede/modelo."""
-    import unicodedata as _ud
-
-    def toks(text) -> list[str]:
-        norm = "".join(c for c in _ud.normalize(
-            "NFKD", str(text or "").lower()) if not _ud.combining(c))
-        return [w for w in re.split(r"[^a-z0-9]+", norm) if len(w) >= 3]
-
     cid = gap.get("criterion_id", "")
-    out = toks(gap.get("label") or cid)
+    out = _norm_tokens(gap.get("label") or cid)
     try:
         applies: list = []
         for crit in (state.get("plan") or {}).get("criteria") or []:
@@ -737,7 +770,7 @@ def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
                 break
         for ent in (state.get("plan") or {}).get("entities") or []:
             if isinstance(ent, dict) and ent.get("id") in applies:
-                out.extend(toks(ent.get("label") or ent.get("id")))
+                out.extend(_norm_tokens(ent.get("label") or ent.get("id")))
     except Exception:
         pass
     seen: set[str] = set()
@@ -2382,6 +2415,45 @@ def _persist_progress(state: dict, run_dir, checkpoint, url: str, text: str,
             state["notes"].append(f"progress persist failed: {exc}")
 
 
+def _hit_relevance_terms(state: dict, op: dict) -> list[str]:
+    """Overlap terms for the snippet gate: normalized tokens (>=3 chars)
+    from the question + the op target, plus the PT->EN research expansion.
+
+    Same normalizers as the overlap/excerpt path; deterministic, no model.
+    """
+    toks = _norm_tokens(state.get("question") or "")
+    toks += _norm_tokens(op.get("target") or "")
+    toks += [t for t in _expand_terms_en(toks) if len(t) >= 3]
+    seen: set[str] = set()
+    return [w for w in toks if not (w in seen or seen.add(w))]
+
+
+def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
+    """True when a PRESENT title/snippet shows zero term overlap.
+
+    Absent/empty snippet -> fetch normally (no verdict possible); present
+    snippet with zero overlap -> skip without spending extraction budget
+    (note appended, never failed here). Deterministic.
+    """
+    if not isinstance(hit, dict):
+        return False
+    parts = [v for k in ("title", "snippet")
+             if isinstance((v := hit.get(k)), str) and v.strip()]
+    if not parts:
+        return False
+    terms = _hit_relevance_terms(state, op)
+    if not terms:
+        return False
+    url = hit.get("url") if isinstance(hit.get("url"), str) else ""
+    hay = " ".join(_norm_tokens(" ".join(parts) + " " + str(url or "")))
+    if any(t in hay for t in terms):
+        return False
+    state["notes"].append(
+        f"op {op.get('op_id')}: hit ignorado por irrelevância "
+        f"(snippet sem sobreposição) {str(url)[:80]}")
+    return True
+
+
 def _execute_ops(state: dict, ops: list[dict], search_fn, fetch_fn, budget,
                  resolved: dict, now, t_start, checkpoint, round_no: int,
                  run_dir=None, control=None) -> str | None:
@@ -2554,6 +2626,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                 if best == "nogain":
                     best = "budget"
                 break
+            if _hit_gated_by_snippet(state, op, hit):
+                continue
             if not budget.spend("extractions"):
                 state["notes"].append(f"op {op['op_id']}: extraction budget hit")
                 if best == "nogain":
@@ -2739,6 +2813,9 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
                     f"unique_sources limit {lim} hit; skipped {url[:80]}")
                 item["budget_skips"].add(url)
                 break
+            if _hit_gated_by_snippet(state, op, hit):
+                item.setdefault("gated_skips", set()).add(url)
+                continue
             if not budget.spend("extractions"):
                 state["notes"].append(
                     f"op {op['op_id']}: extraction budget hit")
@@ -2831,6 +2908,10 @@ def _execute_ops_parallel(state: dict, ops: list[dict], search_fn, fetch_fn,
                 if best == "nogain":
                     best = "budget"
                 break
+            if url in item.get("gated_skips", ()):
+                # Snippet gate: never scheduled, never fetched (no spend);
+                # all-gated stays nogain, never failed.
+                continue
             result = item["fetches"].get(url)
             if result is None:
                 owner = claim_owner.get(url)
