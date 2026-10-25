@@ -26,6 +26,7 @@ _LONG_PARA_THRESHOLD = 600
 import json
 import os
 import re
+import time as _time
 from pathlib import Path
 
 SYSTEM = (
@@ -1328,13 +1329,21 @@ def _extract_factual_justification(s: str) -> str | None:
 
 
 def extract_claims(report: str, evidence: dict[str, str],
-                   max_claims: int = 25) -> list[dict]:
+                   max_claims: int = 25, generic: bool = False) -> list[dict]:
     """Build review items from the report, each anchored to real evidence.
 
     ``evidence`` maps URL -> the text actually obtained for it, so a claim can
     only be checked against material we really hold. Claims whose subject
     appears in no evidence are still emitted -- marked as having no anchor --
     so the reviewer can return ``gap`` rather than silently accepting them.
+
+    With ``generic=False`` (default) only package/license/free-of-charge
+    sentences become claims; factual sentences about other subjects are
+    dropped. This preserves the historical corpus contract. With
+    ``generic=True`` a factual sentence that carries a numeric citation
+    (``[n]``), an explicit URL, or matches held evidence becomes a generic
+    claim anchored to that evidence -- so factual reports produce reviewable
+    claims instead of an empty extraction.
 
     Ordering matters: a cap that keeps the FIRST 25 claims would drop the
     closing recommendation, which is where "combine X + Y + Z" accumulates the
@@ -1592,6 +1601,37 @@ def extract_claims(report: str, evidence: dict[str, str],
             continue
 
         if not (pkgs or lics) or (not is_free and not pkgs):
+            if generic:
+                _g_anchors, _g_evidence_text = _select_evidence(
+                    [], s, evidence or {}, _spoken or _last_spoken)
+                _has_cite = bool(re.search(r"\[\d+\]|https?://", s))
+                # Vacuous prose ("este relatório responde...") must not become
+                # claims: without an explicit citation, require a checkable
+                # token (a number) plus a real evidence anchor.
+                _checkable = _has_cite or (
+                    bool(_g_anchors) and bool(re.search(r"\d", s)))
+                if _checkable:
+                    norm_g = re.sub(r"\s+", " ", s).strip()
+                    key_g = "|" + norm_g
+                    if key_g not in seen:
+                        seen.add(key_g)
+                        cid = _next_claim_id()
+                        _register_claim(_bid, cid, [], "afirmação factual genérica ancorada", s, "selected")
+                        claims.append({
+                            "id": cid,
+                            "claim": s,
+                            "packages": [],
+                            "licences": [],
+                            "free_assertion": False,
+                            "priority": (1 if _has_cite else 0) + (2 if _has_spoken else 0),
+                            "anchors": _g_anchors[:3],
+                            "evidence": _g_evidence_text,
+                            "spoken_refs": (_spoken or _last_spoken),
+                            "generic": True,
+                        })
+                    else:
+                        _register_dropped(_bid, s, "duplicata genérica (mesmo texto)", "excluded_duplicate")
+                    continue
             _register_dropped(_bid, s, "sem pacote, licença ou afirmação de gratuito", "dropped")
             continue
 
@@ -1696,17 +1736,26 @@ def _load_key() -> str:
 
 
 async def _review_pass(items: list[dict], model: str,
-                       batch_size: int = 12) -> list[dict]:
-    """One full pass over the claims. See _review_batch for why votes exist."""
-    key = _load_key()
-    if not key:
+                       batch_size: int = 12, review_fn=None) -> list[dict]:
+    """One full pass over the claims. See _review_batch for why votes exist.
+
+    ``review_fn`` (optional) replaces the built-in OpenRouter transport:
+    it receives (payload, model) where payload is the list of
+    {id, claim, packages, licences, free_assertion, evidence} dicts and
+    must return a list of {id, verdict, support, correction} dicts.
+    Exceptions become per-item ``transport_error`` (never silent, never
+    favourable). Budget gating per batch still applies.
+    """
+    key = None if review_fn is not None else _load_key()
+    if key is None and review_fn is None:
         return [{"id": it["id"], "verdict": "credential_error",
                  "support": "", "correction": "sem credencial para revisão"}
                 for it in items]
-    import openai
-    import time as _time
-    client = openai.AsyncOpenAI(api_key=key,
-                                base_url="https://openrouter.ai/api/v1")
+    client = None
+    if review_fn is None:
+        import openai
+        client = openai.AsyncOpenAI(api_key=key,
+                                    base_url="https://openrouter.ai/api/v1")
     out: list[dict] = []
     for i in range(0, len(items), batch_size):
         chunk = items[i:i + batch_size]
@@ -1730,6 +1779,24 @@ async def _review_pass(items: list[dict], model: str,
                     ("id", "claim", "packages", "licences", "free_assertion",
                      "evidence")} for it in chunk]
         started = _time.monotonic()
+        if review_fn is not None:
+            try:
+                out.extend(review_fn(payload, model))
+            except Exception as exc:
+                duration_s = round(_time.monotonic() - started, 3)
+                _MODEL_CALL_METADATA.append({
+                    "requested_model": model,
+                    "returned_model": None,
+                    "id": None,
+                    "duration_s": duration_s,
+                    "finish_reason": None,
+                    "provider_usage": None,
+                    "response_content": "",
+                    "protocol_error": f"{type(exc).__name__}: {exc}",
+                })
+                out.extend({"id": it["id"], "verdict": "transport_error", "support": "",
+                            "correction": f"{type(exc).__name__}: {exc} - revisão incompleta"} for it in chunk)
+            continue
         try:
             r = await client.chat.completions.create(
                 model=model, temperature=0, max_tokens=8000,
@@ -1788,9 +1855,19 @@ _TIE_ORDER = {"sustained": 0, "partial": 1, "unsupported": 2, "gap": 3}
 
 
 async def _review_batch(items: list[dict], model: str,
-                        votes: int = 3) -> list[dict]:
-    """Review the claims, electing the majority verdict per claim."""
-    runs = [await _review_pass(items, model) for _ in range(max(1, votes))]
+                        votes: int = 3, review_fn=None) -> list[dict]:
+    """Review the claims, electing the majority verdict per claim.
+
+    The default call shape ``_review_pass(items, model)`` is preserved
+    when no injectable transport is given, so existing doubles that patch
+    ``_review_pass`` keep working unchanged.
+    """
+    if review_fn is None:
+        runs = [await _review_pass(items, model)
+                for _ in range(max(1, votes))]
+    else:
+        runs = [await _review_pass(items, model, review_fn=review_fn)
+                for _ in range(max(1, votes))]
 
     # Normalize each run: per passage, per claim, ensure exactly one result
     normalized_runs = []
@@ -1890,18 +1967,21 @@ async def _review_batch(items: list[dict], model: str,
     return out
 
 
-def _run_review(items: list[dict], model: str, votes: int = 3) -> list[dict]:
+def _run_review(items: list[dict], model: str, votes: int = 3,
+                review_fn=None) -> list[dict]:
     """Drive the review coroutine from sync OR async context."""
     try:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(_review_batch(items, model, votes=votes))
+            return asyncio.run(_review_batch(items, model, votes=votes,
+                                             review_fn=review_fn))
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(
                 lambda: asyncio.new_event_loop().run_until_complete(
-                    _review_batch(items, model, votes=votes)))
+                    _review_batch(items, model, votes=votes,
+                                  review_fn=review_fn)))
             return future.result()
     except Exception as exc:
         return [{"__audit_failure__": True, "error": f"{type(exc).__name__}: {exc}"}]
@@ -1912,13 +1992,18 @@ def review_report(report: str, evidence: dict[str, str],
                   enabled: bool = True,
                   extra_evidence: dict[str, str] | None = None,
                   votes: int = 3,
-                  max_claims: int = 25) -> dict:
+                  max_claims: int = 25,
+                  generic: bool = False,
+                  review_fn=None) -> dict:
     """Audit the claims of a finished report. Returns verdicts + a summary.
 
     ``enabled=False`` keeps the normal path untouched.
     ``extra_evidence`` maps source-URL -> text for material consulted AFTER the
     run. Merging both maps makes a corrected report reviewable against the
     evidence that actually supports it.
+    ``generic=True`` also extracts factual non-package claims (anchored to
+    citations or held evidence); ``review_fn`` replaces the built-in
+    OpenRouter transport (same contract, exceptions become transport_error).
     """
     _MODEL_CALL_METADATA.clear()
     evidence = {**(evidence or {}), **(extra_evidence or {})}
@@ -1926,7 +2011,8 @@ def review_report(report: str, evidence: dict[str, str],
         return {"enabled": False, "claims": 0, "verdicts": [], "summary": {},
                 "verdict_state": "não revisado semanticamente",
                 "model_call_metadata": []}
-    claims = extract_claims(report, evidence, max_claims=max_claims)
+    claims = extract_claims(report, evidence, max_claims=max_claims,
+                            generic=generic)
     if not claims:
         return {"enabled": True, "claims": 0, "verdicts": [],
                 "summary": {"note": "nenhuma afirmação verificável extraída",
@@ -1938,7 +2024,7 @@ def review_report(report: str, evidence: dict[str, str],
                 "partials": 0,
                 "claims_reviewed": 0,
                 "model_call_metadata": []}
-    verdicts = _run_review(claims, model, votes=votes)
+    verdicts = _run_review(claims, model, votes=votes, review_fn=review_fn)
     # Check for auditor failure
     if verdicts and isinstance(verdicts[0], dict) and verdicts[0].get("__audit_failure__"):
         return {

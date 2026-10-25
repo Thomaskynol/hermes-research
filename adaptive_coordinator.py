@@ -731,7 +731,51 @@ def make_model_writer(model_client, max_chars: int = 12000):
     return write
 
 
-def _default_auditor(report: str, evidence: dict) -> dict:
+def make_review_fn(model_client):
+    """Review transport for semantic_review.review_report (injectable).
+
+    Receives (payload, model) where payload is the list of
+    {id, claim, packages, licences, free_assertion, evidence} dicts and
+    returns a list of {id, verdict, support, correction} dicts, using the
+    same verdict protocol the built-in OpenRouter transport speaks
+    (sustained/partial/unsupported/gap + technical failures). Transport
+    failures raise (the caller converts to per-item transport_error, never
+    favourable). Budget authorization/counting lives in _finalize, which
+    wraps the auditor; this function performs one model call per batch.
+    """
+    import json as _json
+    import semantic_review as _sr
+
+    def review_fn(payload, model):
+        prompt = (
+            _sr.SYSTEM + "\n"
+            "Julge cada afirmação contra o texto de evidência fornecido. "
+            "Retorne SOMENTE uma lista JSON com {id, verdict, support, "
+            "correction}. Veredictos válidos: sustained, partial, "
+            "unsupported, gap.\n" +
+            _json.dumps(payload, ensure_ascii=False))
+        try:
+            raw = model_client(prompt)
+        except TransportError:
+            raise
+        except Exception as exc:
+            raise TransportError(f"review transport failed: {exc}")
+        raw_s = str(raw or "").strip()
+        try:
+            parsed = _extract_json(raw_s)
+        except Exception as exc:
+            raise TransportError(f"review returned invalid JSON: {exc}")
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            raise TransportError("review must return a JSON list")
+        return parsed
+
+    return review_fn
+
+
+def _default_auditor(report: str, evidence: dict, review_fn=None,
+                     generic: bool = False) -> dict:
     """Real-path auditor: lazy semantic_review with its quorum/tie/failure
     protections. Never hides question gaps (recorded separately).
 
@@ -753,7 +797,8 @@ def _default_auditor(report: str, evidence: dict) -> dict:
                 "accepted": False,
                 "note": "semantic_review unavailable; question gaps kept"}
     try:
-        result = _sr.review_report(report, dict(evidence or {}), enabled=True)
+        result = _sr.review_report(report, dict(evidence or {}), enabled=True,
+                                   review_fn=review_fn, generic=generic)
     except Exception as exc:  # failure is visible, never favourable
         return {"enabled": True, "verdict_state": "revisão incompleta",
                 "accepted": False, "note": f"auditor failure: {exc}"}

@@ -321,6 +321,13 @@ def adaptive_entry(*, question: str, profile: str = "light",
     if model_transport is not None:
         assess = _ac.make_model_assessor(model_transport)
         writer = _ac.make_model_writer(model_transport)
+        if auditor_fn is None:
+            try:
+                _review = _ac.make_review_fn(model_transport)
+                auditor_fn = (lambda _r, _e, _rf=_review: _ac._default_auditor(
+                    _r, _e, review_fn=_rf, generic=True))
+            except Exception:
+                auditor_fn = None
     return _ac.run_adaptive(
         question, profile=profile, plan=plan, plan_source=plan_source,
         purpose=purpose, constraints=constraints,
@@ -526,6 +533,17 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
           f"model_transport={_a.model_transport} "
           f"model={_model_desc.get('model_id') or _a.model or 'unresolved'} "
           f"control_dir={_control_dir}")
+    # Auditoria semântica real no caminho integrado: vereditos via o mesmo
+    # model_client (contado no teto pelo _finalize), extração genérica para
+    # relatórios factuais (claims>0 em vez de extração vazia).
+    import adaptive_coordinator as _ac
+    try:
+        _auditor_fn = (lambda _r, _e: _ac._default_auditor(
+            _r, _e, review_fn=_ac.make_review_fn(_model_client),
+            generic=True))
+    except Exception as _e:  # noqa: BLE001 - auditor nunca bloqueia a coleta
+        print(f"[ADAPTIVE] auditor wiring failed: {_e} (fallback default)")
+        _auditor_fn = None
 
     _plan_source = _a.coverage_plan
     _needs_plan = _plan_source is None and not _a.auto_plan
@@ -548,6 +566,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                 question=_a.query, profile=_a.depth,
                 plan_source=_plan_source, model_transport=_model_client,
                 search_transport=_search_fn, fetch_transport=_fetch_fn,
+                auditor_fn=_auditor_fn,
                 budget=_budget, run_dir=str(_run_dir), run_id=_run_id,
                 overrides=_overrides, resume=_a.resume, control=_control))
     except ValueError as _e:
