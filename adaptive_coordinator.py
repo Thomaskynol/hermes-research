@@ -1407,7 +1407,12 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     if not is_default_assessor:
         _note_model_call(state)
     # Contrato único com adaptação explícita de assinatura ANTES da
-    # execução: uma só chamada, nunca retentativa após TypeError interno.
+    # execução: a assinatura é inspecionada uma vez; cada tentativa faz uma
+    # só chamada, nunca retentativa após TypeError interno. Uma ÚNICA
+    # retentativa é permitida contra glitch transitório (parse ou
+    # transporte) do assessor real: conta no budget como chamada de
+    # fronteira e é registrada em notes; se persistir, falha honesta
+    # (parcial preservado, nunca aprovação forçada).
     # Falhas internas contam (budget já debitado), nunca geram chamadas
     # ocultas.
     # Relevance terms from issued op targets (often English queries for
@@ -1436,23 +1441,36 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         _use_four = _has_var or _n_pos >= 4
     except (TypeError, ValueError):
         _use_five, _use_four = False, True
-    try:
-        if _use_five:
-            evals = assess_fn(state["plan"], dict(state["evidence"]),
-                              dict(state["qualification"]),
-                              dict(state.get("attempts", {})),
-                              dict(_facts)) or []
-        elif _use_four:
-            evals = assess_fn(state["plan"], dict(state["evidence"]),
-                              dict(state["qualification"]),
-                              dict(state.get("attempts", {}))) or []
+    evals: list = []
+    for _attempt_no in (1, 2):
+        try:
+            if _use_five:
+                evals = assess_fn(state["plan"], dict(state["evidence"]),
+                                  dict(state["qualification"]),
+                                  dict(state.get("attempts", {})),
+                                  dict(_facts)) or []
+            elif _use_four:
+                evals = assess_fn(state["plan"], dict(state["evidence"]),
+                                  dict(state["qualification"]),
+                                  dict(state.get("attempts", {}))) or []
+            else:
+                evals = assess_fn(state["plan"], dict(state["evidence"]),
+                                  dict(state["qualification"])) or []
+        except TransportError as exc:
+            _assess_exc: Exception = exc
+        except Exception as exc:
+            _assess_exc = TransportError(f"assessor failed: {exc}")
         else:
-            evals = assess_fn(state["plan"], dict(state["evidence"]),
-                              dict(state["qualification"])) or []
-    except TransportError:
-        raise
-    except Exception as exc:
-        raise TransportError(f"assessor failed: {exc}")
+            break
+        if _attempt_no == 1 and not is_default_assessor \
+                and resolved is not None \
+                and _check_model_budget(state, resolved):
+            _note_model_call(state)
+            state["notes"].append(
+                "assessor transient failure, retrying once "
+                f"(budget counted): {str(_assess_exc)[:160]}")
+            continue
+        raise _assess_exc
     # Seleção analisada DAQUELA chamada (quando o assessor a expõe):
     # referência fora da seleção nunca justifica covered nessa avaliação.
     _sel_urls: set[str] | None = None
