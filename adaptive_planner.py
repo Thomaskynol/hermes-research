@@ -90,8 +90,82 @@ def build_plan_prompt(question: str, purpose: str = "",
         "criterion (nothing may disappear silently); named entities are tracked "
         "individually; open-ended requests set open_discovery.needed=true and "
         "must NOT invent candidate names; criteria that apply only to some "
-        "entities list them in applies_to (omit applies_to when global)."
+        "entities list them in applies_to (omit applies_to when global).\n"
+        "Entities must be concrete things NAMED in the question or in the "
+        "provided context. Never create placeholder entities for items still "
+        "to be discovered ('candidate 1', 'unknown', 'to be discovered'): a "
+        "discovery obligation is a criterion (e.g. 'identify N candidates'), "
+        "and criteria about the discovered set omit applies_to (global).\n"
+        "initial_paths are short web search queries (2-6 words), never local "
+        "file paths; include at least one query aimed at the discovery need."
     )
+
+
+def is_placeholder_label(label) -> bool:
+    """True when a label names something still to be discovered.
+
+    accept7: the planner emitted entities like 'plugin candidato 1 (nome a
+    descobrir via discovery)'; criteria applied to them, so 50 cells could
+    never be covered and their wording leaked into search queries. A
+    discovery obligation is a criterion, never a placeholder entity.
+    """
+    t = str(label or "").strip().lower()
+    if not t:
+        return False
+    if "?" in t:
+        return True
+    return any(m in t for m in (
+        "a descobrir", "nome a descobrir", "a definir",
+        "to be discovered", "to discover", "unknown", "tbd"))
+
+
+def drop_placeholder_entities(plan: dict, meta: dict) -> dict:
+    """Remove placeholder entities; rewrite applies_to; keep the plan valid.
+
+    Never drops the last entity (a plan without entities is invalid): in
+    that case the plan is left untouched and the issue is noted.
+    """
+    entities = [e for e in plan.get("entities") or [] if isinstance(e, dict)]
+    keep, dropped = [], []
+    for e in entities:
+        (dropped if is_placeholder_label(e.get("label") or e.get("id"))
+         else keep).append(e)
+    if not dropped or not keep:
+        if dropped:
+            meta["repair_log"].append(
+                "placeholder entities kept: dropping all would leave no "
+                "entity")
+        return plan
+    drop_ids = {e.get("id") for e in dropped}
+    candidate = dict(plan)
+    candidate["entities"] = keep
+    criteria = []
+    for c in plan.get("criteria") or []:
+        if not isinstance(c, dict):
+            criteria.append(c)
+            continue
+        applies = c.get("applies_to")
+        if applies:
+            seq = [applies] if isinstance(applies, str) else list(applies)
+            rest = [x for x in seq if x not in drop_ids]
+            c = dict(c)
+            if rest:
+                c["applies_to"] = rest
+            else:
+                c.pop("applies_to", None)
+        criteria.append(c)
+    candidate["criteria"] = criteria
+    try:
+        candidate = _ledger.validate_plan(candidate)
+    except ValueError as exc:
+        meta["repair_log"].append(
+            f"placeholder drop skipped (plan invalid afterwards): {exc}")
+        return plan
+    meta["repairs"] = meta.get("repairs", 0) + 1
+    meta["repair_log"].append(
+        "dropped placeholder entities (discovery obligation stays a "
+        "criterion): " + ", ".join(str(e.get("id")) for e in dropped))
+    return candidate
 
 
 def generate_plan(question: str, model_client, purpose: str = "",
@@ -126,6 +200,7 @@ def generate_plan(question: str, model_client, purpose: str = "",
         plan = _ledger.validate_plan(candidate)
     except ValueError as exc:
         raise PlanError(f"[PLAN] frontier plan invalid: {exc}")
+    plan = drop_placeholder_entities(plan, meta)
     if not str(plan.get("question", "")).strip():
         raise PlanError("[PLAN] frontier plan dropped the question")
     plan.setdefault("schema_version", PLAN_SCHEMA_VERSION)

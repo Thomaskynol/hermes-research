@@ -728,6 +728,34 @@ def _question_anchors(question: str) -> list[str]:
     return out
 
 
+def _query_label(text: str) -> str:
+    """Label usable in a search query.
+
+    Parenthetical asides carry instructions, not search terms ('plugin
+    candidato 1 (nome a descobrir via discovery)' searched its own wording
+    in accept7 and returned npm/package.json junk). Placeholder labels are
+    never query material: an empty string lets the caller fall back to the
+    criterion label plus question anchors.
+    """
+    raw = str(text or "")
+    if _planner.is_placeholder_label(raw):
+        return ""
+    t = re.sub(r"\([^)]*\)", " ", raw)
+    t = re.sub(r"\s+", " ", t).strip(" -–—:;,.")
+    if not t or _planner.is_placeholder_label(t):
+        return ""
+    return t
+
+
+def _looks_like_local_path(text) -> bool:
+    """Filesystem-looking target: never a web query (no local connector)."""
+    t = str(text or "").strip()
+    if not t or " " in t:
+        return False
+    return t.startswith(("~/", "./", "../", "/")) or bool(
+        re.match(r"^[A-Za-z]:[\\/]", t))
+
+
 def _short_gap_query(state: dict, gap: dict) -> str:
     """Short search query for a gap (never the whole question).
 
@@ -738,7 +766,7 @@ def _short_gap_query(state: dict, gap: dict) -> str:
     140 chars. Deterministic, no model call.
     """
     cid = gap.get("criterion_id", "")
-    label = (gap.get("label") or cid).strip()
+    label = _query_label(gap.get("label") or cid) or cid
     ent = ""
     try:
         plan = state.get("plan") or {}
@@ -751,8 +779,9 @@ def _short_gap_query(state: dict, gap: dict) -> str:
                 break
         for e in plan.get("entities") or []:
             if isinstance(e, dict) and e.get("id") in applies:
-                ent = (e.get("label") or e.get("id") or "").strip()
-                break
+                ent = _query_label(e.get("label") or e.get("id"))
+                if ent:
+                    break
     except Exception:
         ent = ""
     short = f"{ent} {label}".strip()
@@ -785,7 +814,9 @@ def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
                 break
         for ent in (state.get("plan") or {}).get("entities") or []:
             if isinstance(ent, dict) and ent.get("id") in applies:
-                out.extend(_norm_tokens(ent.get("label") or ent.get("id")))
+                lbl = _query_label(ent.get("label") or ent.get("id"))
+                if lbl:
+                    out.extend(_norm_tokens(lbl))
     except Exception:
         pass
     seen: set[str] = set()
@@ -2139,9 +2170,26 @@ def run_adaptive(question: str, *, profile: str = "light",
                 state["notes"].append(
                     f"initial path {i}: unknown channel {want!r}, "
                     f"using {CHANNELS[0]}")
+        # Local filesystem paths are not web targets (accept7: the planner
+        # emitted ~/.config/opencode and ./package.json; searching their
+        # wording returned npm/package.json tutorials). There is no local
+        # inspection connector, so skip honestly instead of fetching junk.
+        if _looks_like_local_path(target):
+            state["notes"].append(
+                f"initial path {i} is a local path, not a web query: "
+                f"{str(target)[:80]} (no local inspection connector; skipped)")
+            continue
         init_ops.append({"op_id": f"init-{i}", "kind": "initial",
                          "channel": channel, "target": target,
                          "criterion_id": "", "status": "in-progress"})
+    if not init_ops:
+        fallback = (state.get("question") or "").strip()[:140]
+        if fallback:
+            state["notes"].append(
+                "all initial paths skipped; falling back to the question")
+            init_ops.append({"op_id": "init-0", "kind": "initial",
+                             "channel": CHANNELS[0], "target": fallback,
+                             "criterion_id": "", "status": "in-progress"})
     for op in init_ops:
         state["pending_ops"].append(dict(op))
     _control_status(control, state, "round", round_no=0,
