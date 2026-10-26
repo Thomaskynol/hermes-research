@@ -830,6 +830,23 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     used_in_batch: set[str] = set()  # gaps do lote consomem distintos
     for gap in gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
+        # Célula nova com fonte própria (G1): entidade versionada por
+        # descoberta traz source_url validada; se ainda não coletada nem
+        # com falha, o gap vira read_source direto — sem depender de a
+        # query genérica do critério redescobri-la. Uma chance por round
+        # (dedupe por URL + exclusão de falha fazem o resto).
+        cell_url = (gap.get("source_url") or "").strip()
+        cell_key = _normalize_fetch_key(cell_url) if cell_url else ""
+        if cell_key and cell_url not in state.get("evidence", {}) \
+                and cell_key not in failed_targets \
+                and cell_key not in used_in_batch:
+            used_in_batch.add(cell_key)
+            ops.append({"op_id": f"r{len(state['rounds'])}-{cid}-cell",
+                        "kind": "read_source", "channel": "web",
+                        "target": cell_url, "criterion_id": cid,
+                        "entity_id": gap.get("entity_id"),
+                        "status": "in-progress"})
+            continue
         attempts = state["attempts"].get(cid, [])
         last_channel = attempts[-1].get("channel") if attempts else None
         last_outcome = attempts[-1].get("outcome") if attempts else None
@@ -1072,6 +1089,33 @@ def make_model_assessor(model_client, max_docs: int = 24,
                      "cuts": "; ".join(cuts) if cuts else "sem cortes",
                      "batch": f"{len(items)}/{len(ordered)}"}
         assess.last_selection = selection
+        # Células obrigatórias explícitas (G2): sem a lista, o assessor
+        # avalia só o blob/entidade genérica e as entidades versionadas por
+        # descoberta nunca viram avaliação por célula. Uma avaliação por
+        # par (critério, entidade exigida), entity_id explícito; agregada
+        # sem entity_id nunca cobre célula de entidade. Bounded (30).
+        _cells_txt = ""
+        try:
+            _emap2 = {e.get("id"): e for e in
+                      (plan.get("entities") or []) if isinstance(e, dict)}
+            _cell_items = []
+            for _cc in plan.get("criteria") or []:
+                if not isinstance(_cc, dict) or not _cc.get("required", True):
+                    continue
+                for _ae in _cc.get("applies_to") or []:
+                    _cell_items.append(
+                        f"{_cc.get('id')}×{_ae}"
+                        f"({_emap2.get(_ae, {}).get('label', _ae)})")
+                    if len(_cell_items) >= 30:
+                        break
+                if len(_cell_items) >= 30:
+                    break
+            if _cell_items:
+                _cells_txt = (
+                    " Células obrigatórias (uma avaliação por célula, com "
+                    "entity_id explícito): " + "; ".join(_cell_items) + ".")
+        except Exception:
+            _cells_txt = ""
         prompt = (
             "Você avalia evidências contra um plano. Retorne SOMENTE JSON: "
             "uma lista de avaliações.\n"
@@ -1090,8 +1134,11 @@ def make_model_assessor(model_client, max_docs: int = 24,
                if facts else ".")
             + " Quando o material selecionado listar projetos/ferramentas "
             "nomeados pertinentes à pergunta, emita propose_entity para "
-            "cada novo candidato (entity {id,label}, criteria?) para "
-            "versionar o plano."
+            "cada novo candidato (entity {id,label,url?}, criteria?) para "
+            "versionar o plano. A url, quando houver, deve ser UMA url do "
+            "material selecionado acima (origem do candidato); url "
+            "inventada ou fora da seleção é ignorada."
+            + _cells_txt
             + (f"\nContexto informado pelo usuário (NÃO é evidência; nunca "
                f"cite como fonte; critério sustentado SÓ por este contexto "
                f"capa em partial, nunca covered; use origin "
@@ -1638,10 +1685,27 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
             eid = f"{base}-{n}"
             state["notes"].append(
                 f"discovery id remapped on collision: now {eid}")
+        # Fonte própria da descoberta (G1): a proposta pode trazer a URL de
+        # onde o candidato foi minerado (entity.url). Só vale se for URL
+        # http(s) já vista no corpus ou nos candidatos — URL inventada pelo
+        # modelo é descartada com nota, nunca vira alvo de fetch.
+        source_url = ""
+        _proposed = str((entity.get("url") or "")).strip()
+        if _proposed.lower().startswith(("http://", "https://")):
+            _known = set(state.get("evidence", {}) or {})
+            for _c in state.get("discovery", {}).get("candidates", []) or []:
+                if isinstance(_c, str):
+                    _known.add(_c)
+            if _proposed in _known:
+                source_url = _proposed
+            else:
+                state["notes"].append(
+                    f"discovery url ignorada (fora do corpus): "
+                    f"{_proposed[:80]}")
         new_plan = _copy.deepcopy(state["plan"])
         new_plan.setdefault("entities", []).append({
             "id": eid, "label": entity.get("label", eid),
-            "required": True})
+            "required": True, **({"source_url": source_url} if source_url else {})})
         for c in criteria:
             if isinstance(c, dict) and c.get("id"):
                 c = dict(c)

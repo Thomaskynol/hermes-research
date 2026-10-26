@@ -495,6 +495,40 @@ class Ledger:
                     "next": ("investigar critério obrigatório; "
                              "tentativas anteriores preservadas acima"),
                 })
+                # Gaps por célula acionável (G1): entidade versionada por
+                # descoberta com source_url própria e célula ainda sem
+                # cobertura ganha um gap endereçado à célula — o select_ops
+                # vira read_source direto da fonte, sem depender de a query
+                # genérica do critério redescobri-la. Chaves novas
+                # (entity_id/entity_label/source_url) são aditivas: leitores
+                # antigos que só olham criterion_id seguem funcionando.
+                try:
+                    _emap = {e.get("id"): e for e in
+                             self.plan.get("entities", []) if isinstance(e, dict)}
+                    for _eid in applies or []:
+                        _ent = _emap.get(_eid) or {}
+                        _src = (_ent.get("source_url") or "").strip()
+                        if not _src or _src in (self._evidence or {}):
+                            continue
+                        _cell = (self._evals.get((c["id"], _eid)) or {}).get(
+                            "state", "uninvestigated")
+                        if _cell not in ("uninvestigated", "insufficient",
+                                         "blocked"):
+                            continue
+                        gaps.append({
+                            "criterion_id": c["id"],
+                            "entity_id": _eid,
+                            "entity_label": _ent.get("label", _eid),
+                            "source_url": _src,
+                            "label": entry["label"],
+                            "state": _cell,
+                            "justification": (
+                                f"célula ({c['id']}, {_eid}) ainda sem "
+                                f"cobertura; fonte própria: {_src[:80]}"),
+                            "next": "ler a fonte própria da entidade",
+                        })
+                except Exception:
+                    pass
         return {
             "status": status,
             "complete": complete,
