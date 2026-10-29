@@ -3575,6 +3575,94 @@ def _coerce_payload(payload, url: str) -> tuple[str, dict | None]:
                 "usable_text": "", "excluded": True}
 
 
+def _assess_synthesis_criteria(state: dict, block: dict,
+                               synthesis_text: str) -> dict | None:
+    """Assess answer-form criteria against the delivered synthesis (S1).
+
+    Criteria flagged ``"synthesis": true`` are about the shape of the answer
+    (e.g. 'separate documented features from inferences'), not about
+    evidence excerpts — no excerpt can satisfy them, so the excerpt-based
+    assessor always (and correctly) reports insufficient. When the
+    delivered synthesis visibly separates documented/inferred/gap material
+    AND cites real corpus sources, the cell becomes partial (never
+    covered): the check is on the artifact that actually carries the
+    property. Rebuilds the ledger from state evaluations plus the new
+    synthesis evaluation(s); returns the recomputed block, or None when
+    nothing changed. Never raises (caller records a note).
+    """
+    try:
+        plan = state.get("plan") or {}
+        targets = [c for c in plan.get("criteria", [])
+                   if isinstance(c, dict) and c.get("synthesis")
+                   and c.get("required", True)]
+        if not targets or not (synthesis_text or "").strip():
+            return None
+        cur = {c.get("id"): c for c in (block.get("criteria") or [])
+               if isinstance(c, dict)}
+        need = [c for c in targets
+                if (cur.get(c["id"]) or {}).get("state")
+                in ("insufficient", "uninvestigated")]
+        if not need:
+            return None
+        low = synthesis_text.lower()
+        markers = {m for m in ("documentado", "inferência", "inferencia",
+                               "lacuna") if m in low}
+        found = set(re.findall(r"https?://[^\s\)\]\"'<>]+",
+                               synthesis_text or ""))
+
+        def _norm(u: str) -> str:
+            u = (u or "").strip().lower().rstrip(".,;:")
+            if u.endswith("/") and len(u) > 8:
+                u = u[:-1]
+            return u
+        corpus = {_norm(u) for u in (state.get("evidence") or {})}
+        # Refs must use the ORIGINAL evidence keys: _resolves matches the
+        # corpus exactly, and a lowercased/trailing-slash-stripped variant
+        # would be rejected (accept13 rehearsal returned None for this).
+        orig = {}
+        for u in (state.get("evidence") or {}):
+            orig.setdefault(_norm(u), u)
+        real = sorted({orig[u] for u in (_norm(u) for u in found)
+                       if u in corpus})
+        if len(markers) < 2 or not real:
+            return None
+        fresh = _ledger.Ledger(plan, run_id=state.get("run_id"))
+        fresh.set_corpus(dict(state.get("evidence") or {}),
+                         dict(state.get("qualification") or {}))
+        for prev in state.get("evaluations", []):
+            try:
+                fresh.evaluate(prev["criterion_id"],
+                               prev.get("state", "insufficient"),
+                               prev.get("justification", ""),
+                               prev.get("origin", ""),
+                               prev.get("references", []),
+                               prev.get("entity_id"))
+            except (ValueError, KeyError):
+                pass
+        refs = [{"url": u} for u in real[:8]]
+        changed = False
+        for crit in need:
+            just = (f"Síntese entregue separa material "
+                    f"({len(markers)} marcadores: "
+                    f"{', '.join(sorted(markers))}; {len(real)} fonte(s) "
+                    f"do corpus citadas).")
+            try:
+                ev = fresh.evaluate(crit["id"], "partial", just,
+                                    "synthesis", refs, None)
+            except (ValueError, KeyError):
+                continue
+            state.setdefault("evaluations", []).append(dict(ev))
+            state["notes"].append(
+                f"synthesis criterion {crit['id']} -> partial "
+                f"(markers={len(markers)}, cited={len(real)})")
+            changed = True
+        return fresh.compute() if changed else None
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"synthesis criteria check skipped: {exc}")
+        return None
+
+
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
               write, audit, t_start: float, now, run_dir,
               control=None) -> dict:
@@ -3772,6 +3860,17 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     try:
         import report_renderer as _renderer
         import verification_report as _verify
+        # S1: answer-form criteria ("synthesis": true) are assessed against
+        # the delivered synthesis, not excerpts. Runs BEFORE verify_all so
+        # the question dimension reflects the same block the report shows.
+        try:
+            _sblock = _assess_synthesis_criteria(state, block,
+                                                 report_text or "")
+            if isinstance(_sblock, dict):
+                block = _sblock
+                state["question_coverage"] = block
+        except Exception as exc:
+            state["notes"].append(f"synthesis criteria check failed: {exc}")
         verification = _verify.verify_all(state, ledger=None, audit=semantic,
                                           report_text=None)
         report_markdown = _renderer.render_report(
