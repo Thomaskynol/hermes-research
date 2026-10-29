@@ -1134,12 +1134,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 if not isinstance(_cc, dict) or not _cc.get("required", True):
                     continue
                 for _ae in _cc.get("applies_to") or []:
+                    if not _emap2.get(_ae, {}).get("required", True):
+                        continue  # descoberta além do teto: não é célula
                     _cell_items.append(
                         f"{_cc.get('id')}×{_ae}"
                         f"({_emap2.get(_ae, {}).get('label', _ae)})")
-                    if len(_cell_items) >= 30:
+                    if len(_cell_items) >= 60:
                         break
-                if len(_cell_items) >= 30:
+                if len(_cell_items) >= 60:
                     break
             if _cell_items:
                 _cells_txt = (
@@ -1340,11 +1342,23 @@ def make_model_writer(model_client, max_chars: int = 12000):
                      "usuário):\n" + "\n".join(ctx_lines) + "\n")
         # Sem corte arbitrário no JSON/serialização: unidades completas;
         # qualquer teto já foi aplicado por bloco acima e registrado.
+        # Candidatos exigidos pelo plano (G5): alinha o conjunto comparado
+        # no texto ao que a cobertura exige (accept9: relatório escolheu 5
+        # do corpus, plano exigia outras entidades).
+        _cand_labels = [str(e.get("label") or e.get("id"))
+                        for e in (plan.get("entities") or [])
+                        if isinstance(e, dict) and e.get("discovered")
+                        and e.get("required", True)]
+        _cand_s = ("Candidatos exigidos pelo plano (use exatamente estes "
+                   "como conjunto de comparação; item sem evidência = "
+                   "LACUNA, não substitua por outro): "
+                   + "; ".join(_cand_labels) + "\n") if _cand_labels else ""
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
+            f"{_cand_s}"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
             f"Corpus selecionado:\n{corpus_s}\n{ctx_s}"
             "Retorne SOMENTE o relatório em markdown."
@@ -1749,9 +1763,26 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                     f"discovery url ignorada (fora do corpus): "
                     f"{_proposed[:80]}")
         new_plan = _copy.deepcopy(state["plan"])
+        # Teto de candidatos exigidos (G5): a pergunta pede N candidatos
+        # ("cinco plugins"); descobertas além do teto continuam rastreadas
+        # (required=false) mas não inflam o denominador de cobertura
+        # (accept9: 12 entidades -> 83 células, 1 coberta).
+        try:
+            _target = int(new_plan.get("candidate_target") or 5)
+        except (TypeError, ValueError):
+            _target = 5
+        _already = sum(1 for e in new_plan.get("entities", [])
+                       if isinstance(e, dict) and e.get("discovered")
+                       and e.get("required", True))
+        _is_required = _already < max(1, _target)
         new_plan.setdefault("entities", []).append({
             "id": eid, "label": entity.get("label", eid),
-            "required": True, **({"source_url": source_url} if source_url else {})})
+            "required": _is_required, "discovered": True,
+            **({"source_url": source_url} if source_url else {})})
+        if not _is_required:
+            state["notes"].append(
+                f"discovery: {eid} além do teto de {_target} candidatos "
+                f"(rastreado, fora da cobertura)")
         for c in criteria:
             if isinstance(c, dict) and c.get("id"):
                 c = dict(c)
@@ -1786,7 +1817,7 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
             _src_cid = str(ev.get("criterion_id") or "")
             _per = [c for c in new_plan.get("criteria", [])
                     if isinstance(c, dict) and c.get("id") == _src_cid]
-        for c in _per:
+        for c in (_per if _is_required else []):
             ap = c.get("applies_to") or []
             ap = [ap] if isinstance(ap, str) else list(ap)
             if eid not in ap:

@@ -356,6 +356,16 @@ class Ledger:
     def _required(self) -> list[dict]:
         return [c for c in self.plan["criteria"] if c.get("required", True)]
 
+    def _required_entity_ids(self) -> set[str]:
+        """Entities that count toward coverage.
+
+        Discovery may version more candidates than the question asks for
+        (accept9: 12 entities -> 83 cells, 1 covered). Extra candidates stay
+        tracked (``required: false``) but never inflate the denominator.
+        """
+        return {e.get("id") for e in self.plan.get("entities", [])
+                if isinstance(e, dict) and e.get("required", True)}
+
     def state_of(self, criterion_id: str, entity_id=None) -> str:
         if entity_id is not None:
             return self._evals.get(
@@ -367,6 +377,10 @@ class Ledger:
         if crit is None:
             return "uninvestigated"
         applies = crit.get("applies_to", None)
+        if applies:
+            applies = [applies] if isinstance(applies, str) else list(applies)
+            req = self._required_entity_ids()
+            applies = [e for e in applies if e in req] or None
         if not applies:
             for (cid, _), ev in self._evals.items():
                 if cid == criterion_id and ev.get("state") == "covered":
@@ -400,6 +414,10 @@ class Ledger:
     def _covered_pairs(self, crit: dict) -> tuple[int, int]:
         """Return (covered_pairs, total_pairs) for one criterion."""
         applies = crit.get("applies_to", None)
+        if applies:
+            applies = [applies] if isinstance(applies, str) else list(applies)
+            req = self._required_entity_ids()
+            applies = [e for e in applies if e in req] or None
         if not applies:
             total = 1
             covered = 1 if self.state_of(crit["id"]) == "covered" else 0
@@ -464,10 +482,12 @@ class Ledger:
                         ev = cand
                         break
             entity_states = None
-            if applies and len(applies) > 1:
+            _req_applies = [e for e in (applies or [])
+                            if e in self._required_entity_ids()]
+            if _req_applies and len(_req_applies) > 1:
                 entity_states = {eid: self._evals.get(
                     (c["id"], eid), {}).get("state", "uninvestigated")
-                    for eid in applies}
+                    for eid in _req_applies}
             entry = {
                 "id": c["id"],
                 "label": c.get("label", c["id"]),
@@ -507,6 +527,8 @@ class Ledger:
                              self.plan.get("entities", []) if isinstance(e, dict)}
                     for _eid in applies or []:
                         _ent = _emap.get(_eid) or {}
+                        if not _ent.get("required", True):
+                            continue  # além do teto: não gera célula
                         _src = (_ent.get("source_url") or "").strip()
                         if not _src or _src in (self._evidence or {}):
                             continue

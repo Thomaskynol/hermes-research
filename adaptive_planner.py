@@ -85,12 +85,16 @@ def build_plan_prompt(question: str, purpose: str = "",
         '"criteria": [{"id": "c1", "label": "...", "required": true, '
         '"applies_to": ["e1"]}], '
         '"open_discovery": {"needed": true/false, "need": "..."}, '
+        '"candidate_target": 5, '
         '"initial_paths": ["..."], "restrictions": "...", "premises": ["..."]}\n'
         "Rules: every user requirement must appear as a required entity or "
         "criterion (nothing may disappear silently); named entities are tracked "
         "individually; open-ended requests set open_discovery.needed=true and "
         "must NOT invent candidate names; criteria that apply only to some "
         "entities list them in applies_to (omit applies_to when global).\n"
+        "candidate_target is how many candidates the question asks to compare "
+        "(integer, e.g. 'five plugins' -> 5; 5 when the question names no "
+        "count): discovery beyond it stays tracked but out of coverage.\n"
         "Criteria that must hold for EACH discovered candidate (features, "
         "dependencies, costs, maintenance, limitations, compatibility) declare "
         "\"per_candidate\": true and omit applies_to until the candidates are "

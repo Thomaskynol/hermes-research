@@ -242,3 +242,78 @@ class WriterCitedFirstTest(unittest.TestCase):
         _, selection = write(view)
         self.assertEqual(selection.get("included_urls", [])[:1], [cited])
         self.assertIn(cited, seen.get("prompt", ""))
+
+
+class CandidateTargetTest(unittest.TestCase):
+    """G5: discovery beyond the asked count never inflates the denominator."""
+
+    def _state(self):
+        st = state_api.new_state("cinco candidatos")
+        st["plan"] = {
+            "plan_id": "g5", "version": 1, "candidate_target": 2,
+            "entities": [{"id": "e0", "label": "Alvo", "required": True}],
+            "criteria": [
+                {"id": "c0", "label": "candidato", "required": True},
+                {"id": "c1", "label": "features", "required": True,
+                 "per_candidate": True}],
+            "initial_paths": ["q"]}
+        st["evidence"] = {}
+        st["discovery"] = {"candidates": [], "open": True}
+        return st
+
+    def test_g5_alem_do_teto_fica_rastreado_fora_da_cobertura(self):
+        st = self._state()
+        led = cl.Ledger(st["plan"])
+        for n in (1, 2, 3):
+            ac._apply_discovery(
+                st, led, {"entity": {"id": f"e{n}", "label": f"Cand {n}"}},
+                {"criterion_id": "c0"})
+        ents = {e["id"]: e for e in st["plan"]["entities"]}
+        self.assertTrue(ents["e1"]["required"])
+        self.assertTrue(ents["e2"]["required"])
+        self.assertFalse(ents["e3"]["required"])
+        self.assertTrue(any("além do teto" in str(n)
+                            for n in st["notes"]))
+        # per_candidate só foi estendido aos exigidos
+        crit = next(c for c in st["plan"]["criteria"] if c["id"] == "c1")
+        self.assertNotIn("e3", crit.get("applies_to", []))
+
+    def test_g5_denominador_nao_conta_entidade_opcional(self):
+        plan = {
+            "plan_id": "g5b", "version": 1,
+            "entities": [{"id": "e0", "label": "Alvo", "required": True},
+                         {"id": "e1", "label": "Cand", "required": True},
+                         {"id": "e2", "label": "Extra", "required": False}],
+            "criteria": [{"id": "c0", "label": "x", "required": True,
+                          "applies_to": ["e0", "e1", "e2"]}],
+        }
+        block = cl.Ledger(plan).compute()
+        crit = next(c for c in block["criteria"] if c["id"] == "c0")
+        self.assertEqual(crit.get("entity_states"), {"e0": "uninvestigated",
+                                                     "e1": "uninvestigated"})
+        # 2 células exigidas, não 3
+        self.assertAlmostEqual(block["proportion"], 0.0)
+
+    def test_g5_writer_recebe_candidatos_do_plano(self):
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            return "# Relatorio"
+
+        write = ac.make_model_writer(fake_client, max_chars=2000)
+        view = {
+            "question": "comparar",
+            "plan": {"entities": [
+                {"id": "e0", "label": "Alvo", "required": True},
+                {"id": "e1", "label": "Plugin A", "required": True,
+                 "discovered": True},
+                {"id": "e2", "label": "Plugin Extra", "required": False,
+                 "discovered": True}]},
+            "evidence": {"https://a.example/x": "texto"},
+            "question_coverage": {"criteria": []},
+        }
+        write(view)
+        p = seen.get("prompt", "")
+        self.assertIn("Plugin A", p)
+        self.assertNotIn("Plugin Extra", p)
