@@ -100,6 +100,8 @@ LACUNA_DECLARATION_MARKERS = (
     "não consta", "nao consta", "sem evidência", "sem evidencia",
     "não cobre", "nao cobre", "não menciona", "nao menciona",
     "não foi encontrado", "nao foi encontrado",
+    "sem menção", "sem mencao", "sem menções", "sem mencoes",
+    "não há menção", "nao ha mencao",
     "lacuna permanece", "lacuna em aberto", "lacuna na documentação",
     "lacuna documental", "há uma lacuna", "existe uma lacuna",
 )
@@ -107,7 +109,12 @@ LACUNA_DECLARATION_MARKERS = (
 
 def is_lacuna_declaration(sentence: str) -> bool:
     lowered = str(sentence or "").lower()
-    return any(m in lowered for m in LACUNA_DECLARATION_MARKERS)
+    if any(m in lowered for m in LACUNA_DECLARATION_MARKERS):
+        return True
+    # Template do writer para célula insufficient: "sem <dimensão>
+    # demonstrad[o/a]" (ex. accept15 "sem revisão demonstrada") — afirma
+    # ausência de evidência, não fato positivo; genérico na dimensão.
+    return re.search(r"sem\s+\w+\s+demonstrad[oa]\b", lowered) is not None
 
 
 # An explicitly marked inference ("INFERÊNCIA: ...") is audited on its

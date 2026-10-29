@@ -107,6 +107,31 @@ class CheckSupportTest(unittest.TestCase):
         self.assertEqual(result["supported"], 0)
         self.assertEqual(len(result["unsupported"]), 1)
 
+    def test_sem_mencao_e_declaracao_de_lacuna(self):
+        # accept15: "**LACUNA** — sem menção a testes [1]" (citação na
+        # mesma frase; "Fonte: [n]" em frase separada é limitação
+        # conhecida do divisor de frases, registrada no relatório).
+        sentence = "**LACUNA** — sem menção a testes [1]."
+        result = verify.check_support(sentence, {URL: 1},
+                                      {URL: PARAPHRASE_DOC}, PLAN)
+        self.assertEqual(result["supported"], 1)
+        self.assertEqual(result["unsupported"], [])
+        self.assertEqual(len(result["declared"]), 1)
+
+    def test_sem_dimensao_demonstrada_e_declaracao_de_lacuna(self):
+        # Template do writer p/ insufficient: "sem <dimensão> demonstrada".
+        sentence = "`cand-x`: **insufficient** — sem revisão demonstrada [1]."
+        self.assertTrue(verify.is_lacuna_declaration(sentence))
+        result = verify.check_support(sentence, {URL: 1},
+                                      {URL: PARAPHRASE_DOC}, PLAN)
+        self.assertEqual(result["supported"], 1)
+        self.assertEqual(result["unsupported"], [])
+
+    def test_afirmacao_positiva_com_sem_nao_e_lacuna(self):
+        # "sem <X>" fora do template de ausência continua auditável.
+        self.assertFalse(verify.is_lacuna_declaration(
+            "Funciona sem planejamento prévio [1]."))
+
     def test_inference_marked_claim_audits_factual_anchor(self):
         sentence = ("`License MIT` — fonte: [1] — INFERÊNCIA autorizada: "
                     "licença sem custo de licença.")
