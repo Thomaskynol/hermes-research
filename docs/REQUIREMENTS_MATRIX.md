@@ -246,12 +246,12 @@ Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept1
 |---|---|---|---|---|
 | RA1 | Planejamento separa alvos de investigação de obrigações metodológicas | `per_candidate` no planner; entidades-placeholder proibidas; `initial_paths` são queries web, nunca caminhos locais | `tests/test_plan_placeholders.py`, `tests/test_discovery_cells.py`, plano do accept11 (12 critérios, 5 per_candidate) | REAL |
 | RA2 | Nome encontrado em lista vira candidato real com fonte própria | `propose_entity` + remap de id + `source_url` validada + `candidate_target` + gate de menção na fonte | accept11: 5 exigidos, todos com fonte no corpus ([2],[6],[4],[5],[3]) | REAL |
-| RA3 | Qualificação de contexto: lixo, espelhos, duplicatas, captura vs análise | snippet gate, dedupe por URL normalizada, alcance lido por fonte no relatório | accept11: 42 docs, 31 analisados, 7 citados; lixo analisado não citado | PARCIAL |
-| RA4 | Consistência entre relatório e registros (citações, fontes, escopo lido, rodadas, consumo) | writer prioriza fontes citadas; tabela `cited` usa o próprio render; contradição cobertura×excerto declarada | `d96a114` + re-render do `state.json` do accept11; seção 5 do relatório | PARCIAL |
-| RA5 | Entrada Hermes isolada demonstrada ponta-a-ponta | CLI única + `--control-dir` + `run_control.py status` | accept11 + status ao vivo (`phase: round`, contadores) | REAL |
-| RA6 | Generalização em outro assunto | mesmos mecanismos, pergunta FAIR-RAG | `docs/VALIDACAO_REAL_ACADRUN5.md` (criteria_ok 1.0) | REAL |
+| RA3 | Qualificação de contexto: lixo, espelhos, duplicatas, captura vs análise | snippet gate, dedupe por URL normalizada, alcance lido por fonte no relatório | accept15: 55 docs obtidos, contadores obtained/usable/analyzed/cited separados; lixo analisado não citado | REAL |
+| RA4 | Consistência entre relatório e registros (citações, fontes, escopo lido, rodadas, consumo) | writer prioriza fontes citadas; tabela `cited` usa o próprio render; numeração `[n]→URL` persistida no artefato (E2); 5ª dimensão `support` audita cada frase citada (S2) | accept15: `verification.json` support `failed` honesto com 5 `unsupported` reais sinalizados; diagnose 28/5/57 | REAL |
+| RA5 | Entrada Hermes isolada demonstrada ponta a ponta | CLI única + `--control-dir` + `run_control.py status` + pause/resume | accept11 status ao vivo + accept12: pause limpo entre rodadas e `--resume` com contadores preservados (§10) | REAL |
+| RA6 | Generalização em outro assunto | mesmos mecanismos, outra pergunta | genus1 (httpx×requests×aiohttp): 10/16=0.625 partial, SATURATION, support `ok` 37/37 + acadrun5 FAIR-RAG (§5) | REAL |
 | RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
-| RA8 | Cobertura completa da pergunta de aceite | — | 0.025 (1/40 células), parcial | PENDENTE |
+| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept15: 6/55 = 0.109 parcial; relatório responde com lacunas explícitas, sem declarar completo | PENDENTE |
 
 Pendências declaradas: gate de citação literal por avaliação (justificativa do
 assessor não é verificada contra o excerto); conector de inspeção local;
