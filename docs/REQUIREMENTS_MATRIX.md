@@ -9,9 +9,10 @@ Fonte normativa: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (SHA-256
 - **PENDENTE** — requisito obrigatório ainda não atendido.
 - **BLOQUEADO** — impedido por ambiente externo (registrado, não fingido).
 
-Atualizada em 2026-10-24. Evidências apontam para teste/comando/doc; nenhum
+Atualizada em 2026-10-29. Evidências apontam para teste/comando/doc; nenhum
 estado REAL é atribuído sem execução registrada. Promoções IMPL→REAL pela
-validação RAG_001 estão em "Validação real RAG_001 — promoções".
+validação RAG_001 estão em "Validação real RAG_001 — promoções"; as da
+reabertura do aceite estão em "Reabertura do aceite — 2026-10-29".
 
 ## §2 Duas ferramentas, uma base
 
@@ -235,3 +236,23 @@ Seguem BLOQUEADO: R3.1. Seguem PARCIAL: R6.6, R14.8 (tokens unknown).
 | Execução longa interrompida | resume + pausa/cancel via controle | IMPL |
 | Bloqueio/erro/limite → parcial honesto | R11/R12 + real RAG_001 | REAL |
 | Entrega final verificável | report.md + verification.json + manifest.json | IMPL |
+
+## Reabertura do aceite — 2026-10-29
+
+Pergunta de aceite e histórico completo: `docs/ACEITE_V1_RESULTADO.md`.
+Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept11/`).
+
+| ID | Requisito | Implementação | Evidência | Estado |
+|---|---|---|---|---|
+| RA1 | Planejamento separa alvos de investigação de obrigações metodológicas | `per_candidate` no planner; entidades-placeholder proibidas; `initial_paths` são queries web, nunca caminhos locais | `tests/test_plan_placeholders.py`, `tests/test_discovery_cells.py`, plano do accept11 (12 critérios, 5 per_candidate) | REAL |
+| RA2 | Nome encontrado em lista vira candidato real com fonte própria | `propose_entity` + remap de id + `source_url` validada + `candidate_target` + gate de menção na fonte | accept11: 5 exigidos, todos com fonte no corpus ([2],[6],[4],[5],[3]) | REAL |
+| RA3 | Qualificação de contexto: lixo, espelhos, duplicatas, captura vs análise | snippet gate, dedupe por URL normalizada, alcance lido por fonte no relatório | accept11: 42 docs, 31 analisados, 7 citados; lixo analisado não citado | PARCIAL |
+| RA4 | Consistência entre relatório e registros (citações, fontes, escopo lido, rodadas, consumo) | writer prioriza fontes citadas; tabela `cited` usa o próprio render; contradição cobertura×excerto declarada | `d96a114` + re-render do `state.json` do accept11; seção 5 do relatório | PARCIAL |
+| RA5 | Entrada Hermes isolada demonstrada ponta-a-ponta | CLI única + `--control-dir` + `run_control.py status` | accept11 + status ao vivo (`phase: round`, contadores) | REAL |
+| RA6 | Generalização em outro assunto | mesmos mecanismos, pergunta FAIR-RAG | `docs/VALIDACAO_REAL_ACADRUN5.md` (criteria_ok 1.0) | REAL |
+| RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
+| RA8 | Cobertura completa da pergunta de aceite | — | 0.025 (1/40 células), parcial | PENDENTE |
+
+Pendências declaradas: gate de citação literal por avaliação (justificativa do
+assessor não é verificada contra o excerto); conector de inspeção local;
+tokens/custos desconhecidos; canal web primário (gateway vast) fora.
