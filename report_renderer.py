@@ -545,7 +545,15 @@ def render_report(state: dict, *, synthesis_text: str,
              f"**Status da cobertura:** {_state_label(labels, status)} "
              f"(proportion={block.get('proportion')}) · "
              f"**{labels['stop']}:** {_fmt((state.get('stop') or {}).get('reason'))}",
-             "", f"## {labels['summary']}", ""]
+             ""]
+    # Definição estável da cobertura: numerador/denominador explícitos para
+    # que o percentual seja auditável contra o plano final (M6). Ausente em
+    # runs antigas -> linha omitida, nunca inventada.
+    if block.get("denominator") is not None:
+        lines += [f"**Cobertura:** {block.get('numerator')}/"
+                  f"{block.get('denominator')} células obrigatórias — "
+                  f"{block.get('definition', '')}", ""]
+    lines += [f"## {labels['summary']}", ""]
     if synthesis.strip():
         lines.append(synthesis.strip())
     else:
