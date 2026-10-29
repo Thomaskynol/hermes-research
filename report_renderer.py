@@ -198,15 +198,24 @@ def _rewrite_refs(text: str, numbers: dict[str, int],
         return f"[{label}] (fora do corpus)"
 
     def bare(match):
-        url = match.group(0).rstrip(".,;:")
+        raw = match.group(0)
+        url = raw.rstrip(".,;:\"'")
         norm = _norm(url)
         if norm in numbers:
             cited.add(norm)
             return f"[{numbers[norm]}]"
         outside.append(url)
+        # URL dentro de literal citado ("plugin": ["x@git+https://..."]) é
+        # texto documentado, não citação: preservar em vez de corromper a
+        # citação (accept9: 'superpowers@git+[fora do corpus]').
+        line_start = match.string.rfind("\n", 0, match.start()) + 1
+        prefix = match.string[line_start:match.start()]
+        if prefix.count('"') % 2 == 1 or prefix.count("`") % 2 == 1:
+            return raw.rstrip(".,;:")
         return "[fora do corpus]"
 
-    text = re.sub(r"\[([^\]]*)\]\((https?://[^)\s]+)\)", md, text or "")
+    src = text or ""
+    text = re.sub(r"\[([^\]]*)\]\((https?://[^)\s]+)\)", md, src)
     text = re.sub(r"https?://[^\s`)\]]+", bare, text)
     return text, outside
 
