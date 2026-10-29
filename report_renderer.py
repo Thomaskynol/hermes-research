@@ -448,7 +448,7 @@ def _sources_section(state: dict, labels: dict) -> list[str]:
 
 
 def _annex_section(state: dict, labels: dict, verifications: dict | None,
-                   verbose: bool) -> list[str]:
+                   verbose: bool, cited: set | None = None) -> list[str]:
     lines = [f"## {labels['annex']}", ""]
     lines.append(f"### {labels['verifications']}")
     dims = (verifications or {}).get("dimensions") or {}
@@ -472,6 +472,13 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
             for note in dim.get("notes") or []:
                 lines.append(f"- {dim.get('dimension')}: {note}")
     counters = _counters.counters_snapshot(state)
+    if cited is not None:
+        # O snapshot é lido antes de o coordinator registrar as citações
+        # (record_cited roda depois do render), então a tabela do próprio
+        # relatório mostrava cited=0 enquanto o texto citava [1]..[n]
+        # (accept11: counters.json=7, tabela=0). Conta as URLs citadas
+        # neste render.
+        counters.setdefault("counts", {})["cited"] = len(cited)
     lines.append("")
     lines.append(f"### {labels['counters']}")
     lines.append("| Estágio | Documentos |")
@@ -582,7 +589,7 @@ def render_report(state: dict, *, synthesis_text: str,
     lines.append("")
     lines.extend(_sources_section(state, labels))
     lines.append("")
-    lines.extend(_annex_section(state, labels, verifications, verbose))
+    lines.extend(_annex_section(state, labels, verifications, verbose, cited))
     lines.append("")
     lines.extend(_closure_section(state, labels, verbose))
     lines.append("")

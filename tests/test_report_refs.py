@@ -35,3 +35,16 @@ class QuotedLiteralTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnnexCitedCountTest(unittest.TestCase):
+    def test_tabela_conta_citacoes_do_proprio_render(self):
+        # accept11: counters.json=7, tabela do relatório=0 (snapshot lido
+        # antes de record_cited). A tabela deve refletir o texto renderizado.
+        state = {"run_id": "t", "question": "q", "plan": {"entities": [],
+                 "criteria": []}, "evidence": {}, "qualification": {},
+                 "discovery": {}, "attempts": {}, "rounds": [], "notes": []}
+        lines = rr._annex_section(state, rr._labels("pt-BR"), None, False,
+                                  {IN})
+        table = "\n".join(lines)
+        self.assertIn("| cited | 1 |", table)
