@@ -90,6 +90,55 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     return True, ""
 
 
+# Absence declarations ("no excerpt states X") are sustained by consultation,
+# not by word overlap: the cited source was checked and says nothing either
+# way. Bare "lacuna" is excluded: "a lacuna foi preenchida" is a positive
+# claim and must pass the overlap check.
+LACUNA_DECLARATION_MARKERS = (
+    "nenhum excerto", "nao ha excerto", "não há excerto",
+    "não afirma", "nao afirma", "não nega", "nao nega",
+    "não consta", "nao consta", "sem evidência", "sem evidencia",
+    "não cobre", "nao cobre", "não menciona", "nao menciona",
+    "não foi encontrado", "nao foi encontrado",
+    "lacuna permanece", "lacuna em aberto", "lacuna na documentação",
+    "lacuna documental", "há uma lacuna", "existe uma lacuna",
+)
+
+
+def is_lacuna_declaration(sentence: str) -> bool:
+    lowered = str(sentence or "").lower()
+    return any(m in lowered for m in LACUNA_DECLARATION_MARKERS)
+
+
+# An explicitly marked inference ("INFERÊNCIA: ...") is audited on its
+# factual anchor, not on the inference itself: strip the inference clause
+# (text from the marker on) before the overlap check. A sentence that is
+# pure inference with no anchor falls back to the full-text audit.
+INFERENCE_MARKERS = ("inferência", "inferencia", "inference", "inferido")
+
+
+def _factual_anchor(sentence: str) -> str:
+    lowered = str(sentence or "").lower()
+    cuts = [lowered.find(m) for m in INFERENCE_MARKERS]
+    cuts = [c for c in cuts if c >= 0]
+    if not cuts:
+        return sentence
+    anchor = sentence[:min(cuts)].strip(" -–—:;,.\"'`*")
+    # The anchor must carry substance on its own: markdown debris ("-",
+    # "**") is not substance, and neither is a vacuous conclusion prefix
+    # ("Sobreposição provável"). Substance = an acronym/version tag, a
+    # token with a digit, or at least three longer words. Without it the
+    # facts come after the marker — audit the full sentence.
+    region = sentence[:min(cuts)]
+    has_acronym = bool(re.search(r"\b[A-Z][A-Z0-9]{1,4}\b", region))
+    has_digit = bool(re.search(r"[0-9]", region))
+    substance = [w for w in re.split(r"[^a-zà-ú]+", lowered[:min(cuts)])
+                 if len(w) >= 4]
+    if not (has_acronym or has_digit or len(substance) >= 3):
+        return sentence
+    return anchor if len(anchor.split()) >= 3 else sentence
+
+
 def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
     """Sentence-level support audit of the synthesis (audit only, no rewrite).
 
@@ -139,6 +188,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
             entities.append(toks)
 
     claims = supported = uncited = 0
+    declared: list[dict] = []
     unsupported: list[dict] = []
     for raw in re.split(r"(?<=[.!?])\s+", text):
         sentence = raw.strip()
@@ -149,7 +199,18 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
             uncited += 1
             continue
         claims += 1
-        sent_tokens = set(_content_tokens(sentence))
+        # Absence declaration over consulted sources: sustained by the
+        # consultation itself (the cited doc was read and says nothing),
+        # never by word overlap with an empty statement.
+        if is_lacuna_declaration(sentence) and all(
+                n_to_url.get(n) and _doc_for(n_to_url[n])
+                for n in citations):
+            supported += 1
+            declared.append({"sentence": sentence, "citations": citations})
+            continue
+        # Inference-marked claim: audit the factual anchor only.
+        factual = _factual_anchor(sentence)
+        sent_tokens = set(_content_tokens(factual))
         named = [toks for toks in entities if sent_tokens & toks]
         ok = False
         reasons: list[str] = []
@@ -184,8 +245,11 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
         status = "ok"
     detail = (f"{supported}/{claims} frase(s) citada(s) sustentada(s); "
               f"{uncited} sem citação")
+    if declared:
+        detail += f"; {len(declared)} declaração(ões) de lacuna sustentada(s)"
     return {"status": status, "claims": claims, "supported": supported,
-            "uncited": uncited, "unsupported": unsupported, "detail": detail}
+            "uncited": uncited, "unsupported": unsupported, "detail": detail,
+            "declared": declared}
 
 
 def _utcnow() -> str:

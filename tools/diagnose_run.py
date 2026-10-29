@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 
 import report_renderer as renderer  # noqa: E402
 from adaptive_coordinator import _expand_terms_en, _PT_EN_RESEARCH  # noqa: E402
+from verification_report import is_lacuna_declaration  # noqa: E402
 
 # Generic dimension vocabulary (PT/EN). Not answers: only words that name a
 # research dimension so we can tell "nothing about it" from "not shown".
@@ -77,6 +78,7 @@ STOP = {
     "aos", "aas", "seu", "sua", "seus", "suas", "nao", "sim", "ele", "ela",
 }
 WORD = re.compile(r"[a-z0-9][a-z0-9+._-]*")
+ACRONYM = re.compile(r"\b[A-Z][A-Z0-9]{1,4}\b")
 
 # Extra function words for the synthesis audit only (the cell classifier keeps
 # the smaller STOP set so its bucket counts stay stable).
@@ -224,8 +226,15 @@ CITE = re.compile(r"\[(\d+)\]")
 
 
 def content_words(text: str) -> set[str]:
-    return {w for w in WORD.findall(norm_text(text))
-            if len(w) >= 4 and w not in AUDIT_STOP}
+    words = {w for w in WORD.findall(norm_text(text))
+             if len(w) >= 4 and w not in AUDIT_STOP}
+    # Acronyms and version tags ("MIT", "V2", "API") carry identifying
+    # content despite their length: keep all-uppercase tokens (len>=2)
+    # that are not stopwords. Case is read from the raw text because
+    # norm_text lowercases.
+    words |= {w.lower() for w in ACRONYM.findall(str(text or ""))
+              if len(w) >= 2 and w.lower() not in AUDIT_STOP}
+    return words
 
 
 def _number_map(state: dict) -> dict[int, str]:
@@ -323,6 +332,19 @@ def synthesis_audit(state: dict) -> dict:
                 cited_docs.append((n, doc))
         named = [(label, toks) for label, toks in entities
                  if any(t in norm_text(line) for t in toks)]
+        # Absence declaration over consulted sources: sustained by the
+        # consultation itself (mirrors verification_report.check_support).
+        if cited_docs and not missing and is_lacuna_declaration(line):
+            supported += 1
+            continue
+        # Inference-marked claim: audit the factual anchor only (mirrors
+        # verification_report._factual_anchor).
+        from verification_report import _factual_anchor as _anchor
+        anchor = _anchor(line)
+        words = content_words(anchor) if anchor != line else words
+        named = [(label, toks) for label, toks in entities
+                 if any(t in norm_text(anchor) for t in toks)] \
+            if anchor != line else named
         missing_entities = [
             label for label, toks in named
             if not any(t in doc for _, doc in cited_docs for t in toks)]

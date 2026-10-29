@@ -90,6 +90,50 @@ class CheckSupportTest(unittest.TestCase):
         self.assertEqual(result["claims"], 0)
         self.assertEqual(result["uncited"], 1)
 
+    def test_lacuna_declaration_over_consulted_doc_is_sustained(self):
+        sentence = ("Nenhum excerto do corpus em [1] afirma ou nega "
+                    "compatibilidade.")
+        result = verify.check_support(sentence, {URL: 1},
+                                      {URL: PARAPHRASE_DOC}, PLAN)
+        self.assertEqual(result["claims"], 1)
+        self.assertEqual(result["supported"], 1)
+        self.assertEqual(result["unsupported"], [])
+        self.assertEqual(len(result["declared"]), 1)
+
+    def test_lacuna_declaration_with_unresolved_citation_fails(self):
+        sentence = "Nenhum excerto do corpus em [9] afirma compatibilidade."
+        result = verify.check_support(sentence, {9: "https://x.example/y"},
+                                      {URL: PARAPHRASE_DOC}, PLAN)
+        self.assertEqual(result["supported"], 0)
+        self.assertEqual(len(result["unsupported"]), 1)
+
+    def test_inference_marked_claim_audits_factual_anchor(self):
+        sentence = ("`License MIT` — fonte: [1] — INFERÊNCIA autorizada: "
+                    "licença sem custo de licença.")
+        result = verify.check_support(sentence, {URL: 1},
+                                      {URL: PARAPHRASE_DOC}, PLAN)
+        self.assertEqual(result["supported"], 1)
+        self.assertEqual(result["unsupported"], [])
+
+    def test_pure_inference_without_anchor_still_fails(self):
+        sentence = "INFERÊNCIA: provavelmente é grátis e sem limites [1]."
+        doc = "Um texto longo sobre instalação e configuração detalhada."
+        result = verify.check_support(sentence, {URL: 1}, {URL: doc}, PLAN)
+        self.assertEqual(result["supported"], 0)
+        self.assertEqual(len(result["unsupported"]), 1)
+
+    def test_vacuous_prefix_falls_back_to_full_sentence(self):
+        sentence = ("- **Sobreposição provável (INFERÊNCIA, não fato):** "
+                    "ambos tocam plan e submit_plan [1].")
+        self.assertEqual(verify._factual_anchor(sentence), sentence)
+
+    def test_substantive_anchor_is_kept(self):
+        sentence = ("`License MIT` — fonte: [1] — INFERÊNCIA autorizada: "
+                    "licença sem custo.")
+        anchor = verify._factual_anchor(sentence)
+        self.assertNotEqual(anchor, sentence)
+        self.assertIn("License MIT", anchor)
+
 
 if __name__ == "__main__":
     unittest.main()

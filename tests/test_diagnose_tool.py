@@ -75,6 +75,18 @@ class SynthesisTest(unittest.TestCase):
         self.assertIn("Widget Beta", item["sentence"])
         self.assertIn("overlap", item["reason"])
 
+    def test_declaracao_de_lacuna_citada_e_sustentada(self):
+        state = make_state()
+        state["report"]["markdown"] += (
+            "\nNenhum excerto do corpus em [1] afirma ou nega o preço.\n")
+        out = diag.synthesis_audit(state)
+        self.assertEqual(out["supported"], 2)
+        self.assertEqual(out["unsupported"], 1)
+
+    def test_sigla_maiuscula_e_palavra_de_conteudo(self):
+        self.assertIn("mit", diag.content_words("`License MIT` — fonte: [1]"))
+        self.assertIn("v2", diag.content_words("API V2 estável"))
+
     def test_numbering_follows_obtained_order(self):
         state = make_state()
         # Persisted evidence is sorted; the obtained counter keeps the
