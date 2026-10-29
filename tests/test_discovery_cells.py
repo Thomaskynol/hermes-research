@@ -159,3 +159,86 @@ class AssessorCellsPromptTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerCandidateExtensionTest(unittest.TestCase):
+    """G3: criteria marked per_candidate cover every discovered candidate."""
+
+    def _state(self, criteria):
+        st = state_api.new_state("cells")
+        st["plan"] = {
+            "plan_id": "g3", "version": 1,
+            "entities": [{"id": "e0", "label": "Alvo", "required": True}],
+            "criteria": criteria,
+            "initial_paths": ["q"]}
+        st["evidence"] = {URL_REPO: "corpo do repo"}
+        st["discovery"] = {"candidates": [URL_OTHER], "open": True}
+        return st
+
+    def test_g3_per_candidate_estendido_ao_novo_candidato(self):
+        st = self._state([
+            {"id": "c0", "label": "funcionalidades", "required": True,
+             "per_candidate": True},
+            {"id": "c9", "label": "sintese", "required": True},
+        ])
+        led = cl.Ledger(st["plan"])
+        ac._apply_discovery(
+            st, led, {"entity": {"id": "e9", "label": "Repo Novo",
+                                 "url": URL_OTHER}}, {"criterion_id": "c0"})
+        crit = {c["id"]: c for c in st["plan"]["criteria"]}
+        self.assertEqual(crit["c0"].get("applies_to"), ["e9"])
+        self.assertNotIn("applies_to", crit["c9"])
+        cells = [(g.get("criterion_id"), g.get("entity_id"))
+                 for g in led.compute()["gaps"]]
+        self.assertIn(("c0", "e9"), cells)
+
+    def test_g3_fallback_criterio_de_origem_sem_marcacao(self):
+        st = self._state([
+            {"id": "c1", "label": "identificar candidatos", "required": True},
+            {"id": "c9", "label": "sintese", "required": True},
+        ])
+        led = cl.Ledger(st["plan"])
+        ac._apply_discovery(
+            st, led, {"entity": {"id": "e9", "label": "Repo Novo",
+                                 "url": URL_REPO}}, {"criterion_id": "c1"})
+        crit = {c["id"]: c for c in st["plan"]["criteria"]}
+        self.assertEqual(crit["c1"].get("applies_to"), ["e9"])
+        self.assertNotIn("applies_to", crit["c9"])
+        self.assertTrue(any("origem da proposta" in str(n)
+                            for n in st["notes"]))
+
+    def test_g3_prompt_do_planner_marca_per_candidate(self):
+        import adaptive_planner as ap
+        p = ap.build_plan_prompt("compare cinco plugins", "")
+        self.assertIn("per_candidate", p)
+
+
+class WriterCitedFirstTest(unittest.TestCase):
+    """G4: the writer prompt shows the material the coverage cites.
+
+    accept8: c3 was covered citing refs that the writer cut (alphabetical
+    fill + char budget), so the delivered report could not show what the
+    coverage claimed. Cited documents come first; the rest stays stable.
+    """
+
+    def test_documento_citado_pela_cobertura_vem_primeiro(self):
+        cited = "https://z.example/cited-source"
+        other = "https://a.example/other-source"
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            return "# Relatorio\n\nTexto [1]."
+
+        write = ac.make_model_writer(fake_client, max_chars=2400)
+        view = {
+            "question": "comparar",
+            "plan": {"criteria": [{"id": "c0", "label": "comparar"}],
+                     "entities": []},
+            "evidence": {other: "texto " * 400, cited: "texto " * 400},
+            "question_coverage": {
+                "criteria": [{"id": "c0", "references": [{"url": cited}]}]},
+        }
+        _, selection = write(view)
+        self.assertEqual(selection.get("included_urls", [])[:1], [cited])
+        self.assertIn(cited, seen.get("prompt", ""))

@@ -1258,6 +1258,21 @@ def make_model_writer(model_client, max_chars: int = 12000):
         # partial (o teto vive no _assess_round); aqui só rotulagem honesta.
         ctx_urls = sorted(u for u in evidence if u.startswith("user://"))
         corpus_urls = sorted(u for u in evidence if u not in ctx_urls)
+        # Ordem do corpus no prompt: primeiro o que a cobertura cita (o
+        # relatório precisa mostrar o material que sustenta o veredito),
+        # depois ordem alfabética estável. Sem isso o corte por orçamento
+        # remove justamente a fonte citada (accept8: c3 coberto com refs
+        # ausentes do texto entregue ao writer).
+        _ref_count: dict[str, int] = {}
+        try:
+            for _c in cov.get("criteria", []) or []:
+                for _r in _c.get("references", []) or []:
+                    _u = (_r or {}).get("url") if isinstance(_r, dict) else None
+                    if isinstance(_u, str) and _u:
+                        _ref_count[_u] = _ref_count.get(_u, 0) + 1
+        except Exception:
+            _ref_count = {}
+        corpus_urls.sort(key=lambda u: (-_ref_count.get(u, 0), u))
         # Relevance terms: plan labels + issued-query tokens fed via hook
         # (same language-mismatch rationale as the assessor: PT labels vs
         # EN corpus). Long documents are windowed around the criteria,
@@ -1758,6 +1773,29 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                     state["notes"].append(
                         f"discovery: critério {c.get('id')} estendido a "
                         f"{eid} (herdado de {collided_from})")
+        # per_candidate (G3): critérios que o planner marcou como "vale para
+        # cada candidato" são estendidos a toda entidade descoberta. Sem
+        # isso o candidato é versionado mas nunca vira célula: accept8 teve
+        # 14 entidades e 1 avaliação por candidato, sem leitura própria.
+        # Fallback sem marcação: o critério que originou a proposta passa a
+        # cobrir o candidato (o assessor já avalia por entidade ali), então
+        # a descoberta vira cobertura real em vez de versão órfã.
+        _per = [c for c in new_plan.get("criteria", [])
+                if isinstance(c, dict) and c.get("per_candidate")]
+        if not _per:
+            _src_cid = str(ev.get("criterion_id") or "")
+            _per = [c for c in new_plan.get("criteria", [])
+                    if isinstance(c, dict) and c.get("id") == _src_cid]
+        for c in _per:
+            ap = c.get("applies_to") or []
+            ap = [ap] if isinstance(ap, str) else list(ap)
+            if eid not in ap:
+                c["applies_to"] = ap + [eid]
+                state["notes"].append(
+                    f"discovery: critério {c.get('id')} estendido a {eid} "
+                    f"(per_candidate)" if c.get("per_candidate") else
+                    f"discovery: critério {c.get('id')} estendido a {eid} "
+                    f"(origem da proposta)")
         from coverage_ledger import validate_plan as _validate
         _validate(new_plan)
         _state.record_plan_version(
