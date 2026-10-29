@@ -3607,11 +3607,14 @@ def _assess_synthesis_criteria(state: dict, block: dict,
         low = synthesis_text.lower()
         markers = {m for m in ("documentado", "inferência", "inferencia",
                                "lacuna") if m in low}
-        found = set(re.findall(r"https?://[^\s\)\]\"'<>]+",
+        # URLs em code spans (`https://...`) são citação legítima do
+        # writer (accept14: a síntese cita fontes entre backticks e o
+        # extrator não as reconhecia) — backtick nunca faz parte da URL.
+        found = set(re.findall(r"https?://[^\s\)\]\"'<>`]+",
                                synthesis_text or ""))
 
         def _norm(u: str) -> str:
-            u = (u or "").strip().lower().rstrip(".,;:")
+            u = (u or "").strip().lower().rstrip(".,;:`")
             if u.endswith("/") and len(u) > 8:
                 u = u[:-1]
             return u

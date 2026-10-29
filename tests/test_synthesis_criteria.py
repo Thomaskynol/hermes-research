@@ -97,6 +97,21 @@ class SynthesisCriteriaTest(unittest.TestCase):
             "Diferencie funcionalidades documentadas de inferencias")
         self.assertIn("synthesis", prompt)
 
+    def test_url_em_code_span_conta_como_citacao(self):
+        # accept14: o writer cita fontes entre backticks
+        # (`https://...`); o extrator deve reconhecê-las.
+        st = synth_state()
+        led = cl.Ledger(st["plan"])
+        led.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        block = led.compute()
+        out = ac._assess_synthesis_criteria(
+            st, block,
+            "DOCUMENTADO: o plugin planeja (fonte `%s`). "
+            "INFERÊNCIA: deve escalar. LACUNA: custos." % URL)
+        self.assertIsNotNone(out)
+        row = {c["id"]: c for c in out["criteria"]}["c1"]
+        self.assertEqual(row["state"], "partial")
+
 
 if __name__ == "__main__":
     unittest.main()
