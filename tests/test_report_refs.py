@@ -33,6 +33,24 @@ class QuotedLiteralTest(unittest.TestCase):
         self.assertIn(rr._norm(IN), cited)
 
 
+class PersistedNumbersTest(unittest.TestCase):
+    def test_numero_persistido_tem_prioridade(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        import diagnose_run as dg
+        state = {"report": {"numbers": {"1": "https://a.example/x"},
+                            "markdown": "| [1] | https://b.example/y |"}}
+        got = dg._number_map(state)
+        self.assertEqual(got[1], rr._norm("https://a.example/x"))
+
+    def test_tabela_do_relatorio_e_o_fallback(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        import diagnose_run as dg
+        state = {"report": {"markdown": "| [2] | https://b.example/y |"},
+                 "evidence": {"https://b.example/y": "texto"}}
+        got = dg._number_map(state)
+        self.assertEqual(got[2], rr._norm("https://b.example/y"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

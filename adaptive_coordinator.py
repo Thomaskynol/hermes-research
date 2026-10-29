@@ -280,17 +280,30 @@ def _op_target_terms(state: dict) -> list[str]:
 #: price/...). Never names a candidate: it only keeps the dimensions the
 #: criteria ask about visible even when the criterion terms dominate the
 #: document. Used as the "ancora" group by assessor and writer.
-_ANCHOR_FACT_TERMS: tuple[str, ...] = (
-    "license", "licença", "mit", "apache", "bsd", "version", "versão",
-    "requires", "requer", "install", "instala", "npm", "bun", "node",
-    "release", "changelog", "maintainer", "mantenedor", "contributors",
-    "price", "preço", "cost", "custo", "free", "grátis", "paid", "pago",
-    "subscription", "assinatura", "compatib", "v1", "v2", "stars",
-)
+_ANCHOR_GROUPS: dict[str, tuple[str, ...]] = {
+    # Fatos que respondem dimensões inteiras e costumam viver no rodapé do
+    # README (licença) ou no cabeçalho (versão/compat): cada um é um grupo
+    # próprio para receber janela antes que termos de critério consumam o
+    # orçamento (accept12: licença MIT em 15415/15428 chars nunca vista).
+    "ancora:licenca": ("license", "licença", "licenca", "mit", "apache",
+                       "bsd", "gpl"),
+    "ancora:custo": ("price", "preço", "preco", "cost", "custo", "free",
+                     "grátis", "gratis", "paid", "pago", "subscription",
+                     "assinatura"),
+    "ancora:versao": ("version", "versão", "versao", "release", "changelog",
+                      "compatib", "v1", "v2", "stars"),
+    "ancora:instalacao": ("install", "instala", "npm", "bun", "node",
+                          "requires", "requer"),
+    "ancora:manutencao": ("maintainer", "mantenedor", "contributors",
+                          "contribuidores"),
+}
+_ANCHOR_FACT_TERMS: tuple[str, ...] = tuple(
+    t for _g in _ANCHOR_GROUPS.values() for t in _g)
 
 
 def _excerpt_windows(low: str, terms: list[str],
-                     strict_short: bool = False
+                     strict_short: bool = False,
+                     wsize: int = 600
                      ) -> list[tuple[int, int, int]]:
     """Ranked sliding windows by distinct/total term hits (stable sort).
 
@@ -298,7 +311,7 @@ def _excerpt_windows(low: str, terms: list[str],
     curated groups ("mit" must not match "limitations"); the legacy global
     ranking keeps substring matching unchanged.
     """
-    WSIZE, STRIDE = 600, 300
+    WSIZE, STRIDE = wsize, max(1, wsize // 2)
     scored = []
     for start in range(0, len(low), STRIDE):
         window = low[start:start + WSIZE]
@@ -350,7 +363,7 @@ def _criterion_groups(plan) -> dict[str, list[str]]:
                 toks.extend(str(crit[key]).split())
         toks.extend(_expand_terms_en(toks))
         groups[f"criterio:{crit['id']}"] = toks
-    groups["ancora"] = list(_ANCHOR_FACT_TERMS)
+    groups.update({k: list(v) for k, v in _ANCHOR_GROUPS.items()})
     return groups
 
 
@@ -399,8 +412,16 @@ def _relevant_excerpt(text: str, limit: int,
         return head, stripped, "corpo integral"
     low = body.lower()
     WSIZE = 600
+    # Cota por grupo (E1): com 13+ dimensões e 1200 chars, só dois grupos
+    # recebiam janela de 600 e a licença no rodapé nunca entrava. Cada grupo
+    # leva no máximo `cap` chars; grupos de fatos (ancora:*) vêm primeiro.
+    cap = WSIZE
+    if norm_groups:
+        cap = max(150, min(WSIZE, limit // 8))
+
     scored = _excerpt_windows(low, norm_terms)
-    group_scored = {name: _excerpt_windows(low, toks, strict_short=True)
+    group_scored = {name: _excerpt_windows(low, toks, strict_short=True,
+                                          wsize=cap)
                     for name, toks in norm_groups.items()}
     if not scored and not any(group_scored.values()):
         head = body[:limit]
@@ -415,10 +436,10 @@ def _relevant_excerpt(text: str, limit: int,
     # (its leftover-fill output is covered by existing regression tests).
     strict_dedupe = bool(norm_groups)
 
-    def take(start: int) -> bool:
+    def take(start: int, size: int = WSIZE) -> bool:
         """Append the window at `start` if it fits the remaining budget."""
         nonlocal total
-        end = min(len(body), start + WSIZE)
+        end = min(len(body), start + size)
         if strict_dedupe:
             overlap = any(start < uend and u < end for u, uend in used)
         else:
@@ -442,9 +463,13 @@ def _relevant_excerpt(text: str, limit: int,
         return True
 
     if norm_groups:
-        # Round-robin between dimensions: one best window per group per pass.
+        # Round-robin entre dimensões: uma janela por grupo por passada,
+        # fatos primeiro (licença/custo/versão/instalação/manutenção) para
+        # que o rodapé do README não seja engolido por termos de critério.
+        order = sorted(norm_groups,
+                       key=lambda n: (0 if n.startswith("ancora:") else 1, n))
         cursors = {name: 0 for name in norm_groups}
-        pending = [name for name in norm_groups if group_scored.get(name)]
+        pending = [name for name in order if group_scored.get(name)]
         while pending and total < limit:
             progressed = False
             for name in list(pending):
@@ -452,7 +477,7 @@ def _relevant_excerpt(text: str, limit: int,
                 while cursors[name] < len(ranked):
                     start = ranked[cursors[name]][2]
                     cursors[name] += 1
-                    if take(start):
+                    if take(start, cap):
                         progressed = True
                         break
                 if cursors[name] >= len(ranked):
@@ -464,7 +489,7 @@ def _relevant_excerpt(text: str, limit: int,
     for _negd, _negt, start in scored:
         if total >= limit:
             break
-        take(start)
+        take(start, cap)
     if not parts:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
@@ -3798,6 +3823,16 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     state["report"]["markdown"] = report_markdown
     state["report"]["markdown_sha"] = _content_hash(report_markdown)
     state["report"]["synthesis_sha"] = _content_hash(report_text or "")
+    # E2: a numeração [n] do relatório entregue é dado do artefato, não algo
+    # a reconstruir depois. O state.json ordena as chaves de evidence ao
+    # salvar, então recalcular `_numbers` numa auditoria pós-hoc aponta [n]
+    # para outro documento (accept12: 23 de 42 trocados). Persistir aqui
+    # mantém relatório, tabela e auditoria na MESMA numeração.
+    try:
+        _ln = getattr(_renderer.render_report, "last_numbers", {}) or {}
+        state["report"]["numbers"] = {str(n): u for u, n in _ln.items()}
+    except Exception as exc:
+        state["notes"].append(f"report numbers not persisted: {exc}")
     # Semantic NEVER moves question coverage: the block above is untouched.
     # Consistency: partial is true whenever mandatory gaps remain
     # (block incomplete) or the stop itself is partial. criteria_ok with

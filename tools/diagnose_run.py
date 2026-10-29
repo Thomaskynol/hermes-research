@@ -229,12 +229,31 @@ def content_words(text: str) -> set[str]:
 
 
 def _number_map(state: dict) -> dict[int, str]:
-    """Citation number -> normalized corpus URL, in renderer order.
+    """Citation number -> normalized corpus URL, in the delivered order.
 
-    The renderer numbers the corpus in acquisition order. JSON persistence
-    sorts the evidence keys, so restore the order recorded by the obtained
-    counter before asking the renderer; otherwise [n] points at the wrong doc.
+    Prefer the numbering persisted with the report (E2: ``report.numbers``).
+    Older runs lack it; the report's own source table is then authoritative
+    (it was rendered with the same numbering as the text). Rebuilding from
+    the obtained counter is the last resort and can disagree with the
+    delivered artifact (accept12: 23/42 numbers differed).
     """
+    persisted = (state.get("report") or {}).get("numbers") or {}
+    if isinstance(persisted, dict) and persisted:
+        out = {}
+        for n, url in persisted.items():
+            try:
+                out[int(n)] = renderer._norm(str(url))
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+    report = state.get("report") or {}
+    markdown = report.get("markdown") or report.get("text") or ""
+    import re as _re
+    table = {int(n): renderer._norm(u)
+             for n, u in _re.findall(r"\| \[(\d+)\] \| (\S+)", markdown)}
+    if table:
+        return table
     evidence = state.get("evidence") or {}
     obtained = ((state.get("counters") or {}).get("documents") or {}).get(
         "obtained")
