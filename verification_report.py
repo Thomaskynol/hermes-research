@@ -15,11 +15,177 @@ corpus NEVER counts as support. Unknown stays unknown, never 0.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 DIMENSIONS = ("execution", "question", "review", "support")
 STATUSES = ("ok", "partial", "failed", "not_run")
+
+#: PT/EN function words dropped from sentence/doc overlap (accent-insensitive).
+_STOPWORDS = frozenset("""
+a o e é de da do das dos que em um uma para por com não na no nas nos se ao
+aos à às como mais mas foi são ser está estão também seu sua seus suas este
+esta isso isto pelo pela entre sobre quando onde qual quais os as já não
+the a an and or of to in on at for with is are was were be been being this
+that these those it its as by from has have had not no but if then than so
+such which who whom whose will would can could may might must should do does
+did done there their they we our you your he she his her them us
+""".split())
+
+
+def _content_tokens(text) -> list[str]:
+    """Lowercase, accent-stripped content words (PT/EN stopwords removed)."""
+    import unicodedata as _ud
+    norm = "".join(c for c in _ud.normalize("NFKD", str(text or "").lower())
+                   if not _ud.combining(c))
+    return [w for w in re.split(r"[^a-z0-9]+", norm)
+            if len(w) >= 2 and w not in _STOPWORDS]
+
+
+def _doc_text(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("usable_text") or value.get("text") or "")
+    return ""
+
+
+def _n_to_url(numbers) -> dict[int, str]:
+    """Accept {url: n} (renderer) or {n: url} and return n -> url."""
+    out: dict[int, str] = {}
+    if not isinstance(numbers, dict):
+        return out
+    for key, value in numbers.items():
+        if isinstance(value, int) and not isinstance(value, bool) \
+                and isinstance(key, str):
+            out[value] = key
+        elif isinstance(key, int) and not isinstance(key, bool) \
+                and isinstance(value, str):
+            out[key] = value
+        elif isinstance(key, str) and key.isdigit() and isinstance(value, str):
+            out[int(key)] = value
+    return out
+
+
+def _sentence_supported(sentence_tokens: set[str], doc_text: str,
+                        named_entities: list[set[str]]) -> tuple[bool, str]:
+    """(supported, reason) for one sentence against one cited document."""
+    doc_tokens = set(_content_tokens(doc_text))
+    if not sentence_tokens:
+        return False, "sem sobreposição"
+    common = sentence_tokens & doc_tokens
+    ratio = len(common) / len(sentence_tokens)
+    title = set()
+    for line in str(doc_text or "").splitlines():
+        line = line.strip().lstrip("#").strip()
+        if line:
+            title = set(_content_tokens(line[:160]))
+            break
+    rare = {w for w in common if len(w) >= 6 and w not in title}
+    if ratio < 0.35 and len(rare) < 2:
+        return False, "sem sobreposição"
+    if any(not (tokens & doc_tokens) for tokens in named_entities):
+        return False, "entidade não mencionada no doc"
+    return True, ""
+
+
+def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
+    """Sentence-level support audit of the synthesis (audit only, no rewrite).
+
+    Each sentence with a ``[n]`` citation is mapped back to the cited URL
+    via ``numbers`` (renderer order) and checked against the real corpus:
+    supported when (a) >=35% of the sentence content words occur in the doc
+    or >=2 rare words (len>=6, absent from the title) are shared, and (b)
+    every plan entity named by the sentence is mentioned in the doc.
+    Uncited sentences are counted (informative, never a failure).
+    """
+    text = str(synthesis_text or "")
+    n_to_url = _n_to_url(numbers)
+    docs: dict[str, str] = {}
+    if isinstance(corpus, dict):
+        for url, value in corpus.items():
+            if isinstance(url, str):
+                docs[url] = _doc_text(value)
+    elif isinstance(corpus, (list, tuple, set)):
+        docs = {str(u): "" for u in corpus}
+    norm_docs = {}
+    try:
+        from scripts import citation_audit as ca
+    except ImportError:  # pragma: no cover
+        ca = None  # type: ignore
+    if ca is not None:
+        for url in docs:
+            norm = ca.normalize_url(url)
+            if norm:
+                norm_docs[norm] = url
+
+    def _doc_for(url: str) -> str:
+        if url in docs:
+            return docs[url]
+        if ca is not None:
+            norm = ca.normalize_url(url)
+            if norm and norm in norm_docs:
+                return docs[norm_docs[norm]]
+        return ""
+
+    entities: list[set[str]] = []
+    for ent in (plan or {}).get("entities", []) or []:
+        if not isinstance(ent, dict):
+            continue
+        toks = {t for t in _content_tokens(ent.get("label") or ent.get("id"))
+                if len(t) >= 4}
+        if toks:
+            entities.append(toks)
+
+    claims = supported = uncited = 0
+    unsupported: list[dict] = []
+    for raw in re.split(r"(?<=[.!?])\s+", text):
+        sentence = raw.strip()
+        if not sentence:
+            continue
+        citations = [int(n) for n in re.findall(r"\[(\d+)\]", sentence)]
+        if not citations:
+            uncited += 1
+            continue
+        claims += 1
+        sent_tokens = set(_content_tokens(sentence))
+        named = [toks for toks in entities if sent_tokens & toks]
+        ok = False
+        reasons: list[str] = []
+        for n in citations:
+            url = n_to_url.get(n)
+            if not url:
+                reasons.append("sem sobreposição")
+                continue
+            good, reason = _sentence_supported(
+                sent_tokens, _doc_for(url), named)
+            if good:
+                ok = True
+                break
+            reasons.append(reason)
+        if ok:
+            supported += 1
+        else:
+            reason = ("entidade não mencionada no doc"
+                      if "entidade não mencionada no doc" in reasons
+                      else "sem sobreposição")
+            unsupported.append({"sentence": sentence,
+                                "citations": citations,
+                                "reason": reason})
+    if claims == 0:
+        status = "unknown"
+    elif supported == 0:
+        # No cited sentence is sustained: the synthesis is unsupported.
+        status = "failed"
+    elif supported / claims < 0.7:
+        status = "partial"
+    else:
+        status = "ok"
+    detail = (f"{supported}/{claims} frase(s) citada(s) sustentada(s); "
+              f"{uncited} sem citação")
+    return {"status": status, "claims": claims, "supported": supported,
+            "uncited": uncited, "unsupported": unsupported, "detail": detail}
 
 
 def _utcnow() -> str:

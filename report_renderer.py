@@ -457,8 +457,7 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
     else:
         lines.append("| Dimensão | Estado | Evidência |")
         lines.append("|---|---|---|")
-        for name in ("execution", "question", "review", "support"):
-            dim = dims.get(name) or {}
+        for name, dim in dims.items():
             evidence = dim.get("evidence") or {}
             if verbose:
                 shown = ", ".join(f"{k}={v}" for k, v in evidence.items())
@@ -529,6 +528,7 @@ def render_report(state: dict, *, synthesis_text: str,
     cited: set = set()
     synthesis = synthesis_text or ""
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
+    render_report.last_synthesis = synthesis  # type: ignore[attr-defined]
     if outside:
         recorded = set(n for n in (state.get("notes") or [])
                        if isinstance(n, str))
@@ -594,7 +594,10 @@ def render_report(state: dict, *, synthesis_text: str,
     lines.extend(_closure_section(state, labels, verbose))
     lines.append("")
     render_report.last_cited_urls = sorted(cited)  # type: ignore[attr-defined]
+    render_report.last_numbers = dict(numbers)  # type: ignore[attr-defined]
     return "\n".join(lines)
 
 
 render_report.last_cited_urls = []  # type: ignore[attr-defined]
+render_report.last_numbers = {}  # type: ignore[attr-defined]
+render_report.last_synthesis = ""  # type: ignore[attr-defined]

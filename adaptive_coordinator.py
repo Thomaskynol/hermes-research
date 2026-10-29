@@ -3743,6 +3743,31 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         # renumbered/removed), keeping the other dimensions intact.
         verification["dimensions"]["support"] = _verify.verify_support(
             state, report_markdown, semantic)
+        # Sentence-level support audit of the DELIVERED text (audit only:
+        # never rewrites the synthesis, never touches question coverage).
+        _check = _verify.check_support(
+            getattr(_renderer.render_report, "last_synthesis", "") or "",
+            getattr(_renderer.render_report, "last_numbers", {}) or {},
+            dict(state.get("evidence") or {}),
+            state.get("plan") or {})
+        _support = verification["dimensions"].get("support")
+        if isinstance(_support, dict):
+            _ev = _support.setdefault("evidence", {})
+            _ev["sentence_claims"] = _check["claims"]
+            _ev["sentence_supported"] = _check["supported"]
+            _ev["sentence_uncited"] = _check["uncited"]
+            _ev["sentence_unsupported"] = _check["unsupported"]
+            _ev["sentence_support"] = _check
+            _rank = {"not_run": 0, "unknown": 0, "ok": 1,
+                     "partial": 2, "failed": 3}
+            _new = _check.get("status")
+            if _rank.get(_new, 0) > _rank.get(
+                    _support.get("status", "not_run"), 0):
+                _support["status"] = ("not_run" if _new == "unknown"
+                                      else _new)
+            if _new in ("failed", "partial"):
+                _support.setdefault("notes", []).append(
+                    f"support: {_check.get('detail')}")
         verification["overall"] = _verify.aggregate(
             verification["dimensions"])
         state["verification"] = verification
