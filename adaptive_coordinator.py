@@ -1774,15 +1774,32 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         _already = sum(1 for e in new_plan.get("entities", [])
                        if isinstance(e, dict) and e.get("discovered")
                        and e.get("required", True))
-        _is_required = _already < max(1, _target)
+        # Gate de evidência (G6): só vira candidato exigido quem tem fonte
+        # própria que REALMENTE menciona o nome no corpus. Sem isso,
+        # accept10 exigiu 5 e 3 não tinham excerto algum (propostos de
+        # listas, mas a página do próprio candidato nunca foi lida):
+        # relatório honesto, porém inútil.
+        _label_tokens = [t for t in str(entity.get("label", eid)).lower()
+                         .replace("(", " ").replace(")", " ").replace("/", " ")
+                         .replace("-", " ").split() if len(t) >= 4]
+        _ev = state.get("evidence", {}) or {}
+        if source_url and source_url in _ev:
+            _supported = any(t in str(_ev[source_url]).lower()
+                             for t in _label_tokens)
+        else:
+            # Fonte ainda não coletada (ou ausente): verificação adiada —
+            # o gap de célula manda ler e a avaliação decide.
+            _supported = True
+        _is_required = (_already < max(1, _target)) and _supported
         new_plan.setdefault("entities", []).append({
             "id": eid, "label": entity.get("label", eid),
             "required": _is_required, "discovered": True,
             **({"source_url": source_url} if source_url else {})})
         if not _is_required:
+            _why = ("sem menção na fonte própria" if not _supported
+                    else f"além do teto de {_target} candidatos")
             state["notes"].append(
-                f"discovery: {eid} além do teto de {_target} candidatos "
-                f"(rastreado, fora da cobertura)")
+                f"discovery: {eid} fora da cobertura ({_why}; rastreado)")
         for c in criteria:
             if isinstance(c, dict) and c.get("id"):
                 c = dict(c)

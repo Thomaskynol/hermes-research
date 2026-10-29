@@ -263,10 +263,12 @@ class CandidateTargetTest(unittest.TestCase):
 
     def test_g5_alem_do_teto_fica_rastreado_fora_da_cobertura(self):
         st = self._state()
+        st["evidence"] = {URL_REPO: "Cand 1 Cand 2 Cand 3 aparecem aqui"}
         led = cl.Ledger(st["plan"])
         for n in (1, 2, 3):
             ac._apply_discovery(
-                st, led, {"entity": {"id": f"e{n}", "label": f"Cand {n}"}},
+                st, led, {"entity": {"id": f"e{n}", "label": f"Cand {n}",
+                                     "url": URL_REPO}},
                 {"criterion_id": "c0"})
         ents = {e["id"]: e for e in st["plan"]["entities"]}
         self.assertTrue(ents["e1"]["required"])
@@ -277,6 +279,20 @@ class CandidateTargetTest(unittest.TestCase):
         # per_candidate só foi estendido aos exigidos
         crit = next(c for c in st["plan"]["criteria"] if c["id"] == "c1")
         self.assertNotIn("e3", crit.get("applies_to", []))
+
+    def test_g6_candidato_sem_mencao_na_fonte_fica_fora_da_cobertura(self):
+        st = self._state()
+        st["evidence"] = {URL_REPO: "texto que nao cita o candidato"}
+        led = cl.Ledger(st["plan"])
+        ac._apply_discovery(
+            st, led, {"entity": {"id": "e1", "label": "Plugin Fantasma",
+                                 "url": URL_REPO}}, {"criterion_id": "c0"})
+        ents = {e["id"]: e for e in st["plan"]["entities"]}
+        self.assertFalse(ents["e1"]["required"])
+        self.assertTrue(any("sem menção na fonte" in str(n)
+                            for n in st["notes"]))
+        crit = next(c for c in st["plan"]["criteria"] if c["id"] == "c1")
+        self.assertNotIn("e1", crit.get("applies_to", []))
 
     def test_g5_denominador_nao_conta_entidade_opcional(self):
         plan = {
