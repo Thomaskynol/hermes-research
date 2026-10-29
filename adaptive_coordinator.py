@@ -1927,6 +1927,21 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     return list(state.get("evaluations", []) or []), block
 
 
+def _record_plan_version(state: dict, plan: dict, justification: str) -> None:
+    """Record a plan version with the ledger denominator fields.
+
+    Lane C's ``plan_version_record`` exposes criteria_count/entities_required/
+    cells; merging them keeps a denominator change visible in the persisted
+    artifact. Record-only: coverage semantics are untouched.
+    """
+    _state.record_plan_version(state, plan, justification)
+    try:
+        state["plan_versions"][-1].update(_ledger.plan_version_record(plan))
+    except Exception as exc:
+        state["notes"].append(
+            f"plan version denominator fields failed: {exc}")
+
+
 def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
     """Incorporate a newly discovered candidate as a tracked entity."""
     try:
@@ -2002,8 +2017,10 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
             # o gap de célula manda ler e a avaliação decide.
             _supported = True
         _is_required = (_already < max(1, _target)) and _supported
+        _label = (_planner.normalize_entity_label(
+            entity.get("label", eid), source_url) or eid)
         new_plan.setdefault("entities", []).append({
-            "id": eid, "label": entity.get("label", eid),
+            "id": eid, "label": _label,
             "required": _is_required, "discovered": True,
             **({"source_url": source_url} if source_url else {})})
         if not _is_required:
@@ -2057,7 +2074,7 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                     f"(origem da proposta)")
         from coverage_ledger import validate_plan as _validate
         _validate(new_plan)
-        _state.record_plan_version(
+        _record_plan_version(
             state, new_plan,
             f"open discovery: candidate {eid} from {ev.get('criterion_id')}")
         # Rebuild the ledger on the new plan, re-applying prior evaluations
@@ -2428,8 +2445,8 @@ def run_adaptive(question: str, *, profile: str = "light",
                          t_start, now, run_dir, control=control)
     # model_calls already counted per-transport via the wrapper (repairs and
     # failures included); plan_meta is record-only, never double-counted.
-    _state.record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
-                               if plan_meta.get("repair_log") else "plan adopted")
+    _record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
+                         if plan_meta.get("repair_log") else "plan adopted")
     state["plan_meta"] = plan_meta
     disc = (plan.get("open_discovery") or {})
     state["discovery"]["open"] = bool(disc.get("needed", False))
