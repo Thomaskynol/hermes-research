@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 import coverage_ledger as _ledger
 
@@ -101,6 +102,11 @@ def build_plan_prompt(question: str, purpose: str = "",
         "known: every discovered candidate is added to them automatically. "
         "Synthesis criteria (combinations, overlaps, source recency, "
         "documented vs inferred) stay global (no per_candidate).\n"
+        "Entity labels: use the EXACT name of the product/repo/plugin (e.g. "
+        "'opencode-planner'), exactly as it appears in the source. Never a "
+        "description, never a sentence, never 'owner repo' glued together. "
+        "If the exact name is unknown, use the name as it appears in the "
+        "source; never invent a name.\n"
         "Entities must be concrete things NAMED in the question or in the "
         "provided context. Never create placeholder entities for items still "
         "to be discovered ('candidate 1', 'unknown', 'to be discovered'): a "
@@ -127,6 +133,40 @@ def is_placeholder_label(label) -> bool:
     return any(m in t for m in (
         "a descobrir", "nome a descobrir", "a definir",
         "to be discovered", "to discover", "unknown", "tbd"))
+
+
+def normalize_entity_label(label, source_url: str = "") -> str:
+    """Return the entity's exact name from a possibly composite label.
+
+    Discovery can join owner + repo or wrap the name in a sentence
+    (accept11: 'dzianisv plugin-testing'). Callers that know the entity's
+    source_url should pass it: the repo of a github.com URL is authoritative
+    when the label carries owner and repo. A plain name ('Plannotator') is
+    returned untouched. This never invents a name — it only extracts the one
+    already present in the label/source.
+    """
+    original = str(label or "").strip()
+    m = re.match(r"https?://(?:www\.)?github\.com/([^/?#\s]+)/([^/?#\s]+)",
+                 str(source_url or "").strip(), re.IGNORECASE)
+    repo = m.group(2) if m else ""
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if repo:
+        owner = m.group(1)
+        tokens = re.findall(r"[A-Za-z0-9._-]+", original.lower())
+        if repo.lower() in tokens and owner.lower() in tokens:
+            return repo
+    if re.fullmatch(r"[^\s/]+/[^\s/]+", original):
+        return original.split("/", 1)[1]
+    if len(original.split()) > 6:
+        compounds = [t for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]*",
+                                            original)
+                     if "-" in t or "_" in t]
+        if compounds:
+            candidate = compounds[-1].strip("._-")
+            if candidate:
+                return candidate
+    return original or repo
 
 
 def drop_placeholder_entities(plan: dict, meta: dict) -> dict:
