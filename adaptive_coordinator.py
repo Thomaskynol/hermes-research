@@ -276,8 +276,87 @@ def _op_target_terms(state: dict) -> list[str]:
     return [w for w in toks if not (w in seen or seen.add(w))]
 
 
+#: Generic fact vocabulary for excerpt windowing (license/version/install/
+#: price/...). Never names a candidate: it only keeps the dimensions the
+#: criteria ask about visible even when the criterion terms dominate the
+#: document. Used as the "ancora" group by assessor and writer.
+_ANCHOR_FACT_TERMS: tuple[str, ...] = (
+    "license", "licença", "mit", "apache", "bsd", "version", "versão",
+    "requires", "requer", "install", "instala", "npm", "bun", "node",
+    "release", "changelog", "maintainer", "mantenedor", "contributors",
+    "price", "preço", "cost", "custo", "free", "grátis", "paid", "pago",
+    "subscription", "assinatura", "compatib", "v1", "v2", "stars",
+)
+
+
+def _excerpt_windows(low: str, terms: list[str],
+                     strict_short: bool = False
+                     ) -> list[tuple[int, int, int]]:
+    """Ranked sliding windows by distinct/total term hits (stable sort).
+
+    ``strict_short`` requires whole-word matches for terms <=4 chars in the
+    curated groups ("mit" must not match "limitations"); the legacy global
+    ranking keeps substring matching unchanged.
+    """
+    WSIZE, STRIDE = 600, 300
+    scored = []
+    for start in range(0, len(low), STRIDE):
+        window = low[start:start + WSIZE]
+        if not window.strip():
+            continue
+        hits = []
+        for term in terms:
+            if strict_short and len(term) <= 4:
+                n = len(re.findall(
+                    r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])",
+                    window))
+            else:
+                n = window.count(term)
+            hits.append(n)
+        distinct = sum(1 for n in hits if n)
+        if distinct:
+            scored.append((-distinct, -sum(hits), start))
+    scored.sort()
+    return scored
+
+
+def _plan_cells(plan) -> list[tuple[str, str]]:
+    """(criterion_id, entity_id) pairs that form a mandatory coverage cell."""
+    cells: list[tuple[str, str]] = []
+    try:
+        emap = {e.get("id"): e for e in (plan or {}).get("entities", []) or []
+                if isinstance(e, dict)}
+        for crit in (plan or {}).get("criteria", []) or []:
+            if not isinstance(crit, dict) or not crit.get("required", True):
+                continue
+            for eid in crit.get("applies_to") or []:
+                if not emap.get(eid, {}).get("required", True):
+                    continue  # descoberta além do teto: não é célula
+                cells.append((str(crit.get("id")), str(eid)))
+    except Exception:
+        return []
+    return cells
+
+
+def _criterion_groups(plan) -> dict[str, list[str]]:
+    """Excerpt dimensions: one group per criterion + generic anchor facts."""
+    groups: dict[str, list[str]] = {}
+    for crit in (plan or {}).get("criteria", []) or []:
+        if not isinstance(crit, dict) or not crit.get("id"):
+            continue
+        toks: list[str] = []
+        for key in ("label", "id"):
+            if crit.get(key):
+                toks.extend(str(crit[key]).split())
+        toks.extend(_expand_terms_en(toks))
+        groups[f"criterio:{crit['id']}"] = toks
+    groups["ancora"] = list(_ANCHOR_FACT_TERMS)
+    return groups
+
+
 def _relevant_excerpt(text: str, limit: int,
-                      terms: "list[str] | tuple[str, ...] | None" = None
+                      terms: "list[str] | tuple[str, ...] | None" = None,
+                      groups: "dict[str, list[str]] | None" = None
                       ) -> tuple[str, int, str]:
     """Excerpt centered on relevance windows, not on the document head.
 
@@ -292,30 +371,38 @@ def _relevant_excerpt(text: str, limit: int,
     hits -> head cut (same as _substantive_excerpt). Returns (excerpt,
     stripped, windows). Deterministic (stdlib only): stable sort by
     (-distinct, -total, offset).
+
+    ``groups`` (optional) adds per-dimension excerpts: each group's best
+    window is taken in round-robin, so the generic fact group (license/
+    version/install/price) is seen even when criterion terms dominate the
+    document; remaining budget is filled by the global ranking (the
+    pre-existing behaviour). ``groups=None`` keeps the old output exactly.
     """
     body, stripped = _substantive_body(text)
     if not body.strip():
         return "", stripped, "vazio"
     norm_terms = sorted({t.strip().lower() for t in (terms or [])
                          if t and len(t.strip()) >= 4})
-    if not norm_terms or len(body) <= limit:
+    norm_groups: dict[str, list[str]] = {}
+    for name in sorted(groups or {}):
+        toks = sorted({str(t).strip().lower() for t in (groups.get(name) or ())
+                       if str(t).strip() and len(str(t).strip()) >= 2})
+        if toks:
+            norm_groups[str(name)] = toks
+    if not norm_terms and not norm_groups:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
-        return head, stripped, ("cabeca (sem termos ou corpo curto)"
-                                if not norm_terms else "corpo integral")
+        return head, stripped, "cabeca (sem termos ou corpo curto)"
+    if len(body) <= limit:
+        head = body[:limit]
+        stripped += max(0, len(body) - len(head))
+        return head, stripped, "corpo integral"
     low = body.lower()
-    WSIZE, STRIDE = 600, 300
-    scored = []
-    for start in range(0, len(body), STRIDE):
-        window = low[start:start + WSIZE]
-        if not window.strip():
-            continue
-        distinct = sum(1 for t in norm_terms if t in window)
-        if distinct:
-            total = sum(window.count(t) for t in norm_terms)
-            scored.append((-distinct, -total, start))
-    scored.sort()
-    if not scored:
+    WSIZE = 600
+    scored = _excerpt_windows(low, norm_terms)
+    group_scored = {name: _excerpt_windows(low, toks, strict_short=True)
+                    for name, toks in norm_groups.items()}
+    if not scored and not any(group_scored.values()):
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
         return head, stripped, "cabeca (termos sem ocorrencia)"
@@ -324,27 +411,60 @@ def _relevant_excerpt(text: str, limit: int,
     parts: list[str] = []
     total = 0
     winlog: list[str] = []
-    for _negd, _negt, start in scored:
+    # Groups dedupe real span overlap; groups=None keeps the legacy check
+    # (its leftover-fill output is covered by existing regression tests).
+    strict_dedupe = bool(norm_groups)
+
+    def take(start: int) -> bool:
+        """Append the window at `start` if it fits the remaining budget."""
+        nonlocal total
         end = min(len(body), start + WSIZE)
-        if any(start < uend and u > start for u, uend in used):
-            continue
+        if strict_dedupe:
+            overlap = any(start < uend and u < end for u, uend in used)
+        else:
+            overlap = any(start < uend and u > start for u, uend in used)
+        if overlap:
+            return False
         chunk = body[start:end]
         sep_cost = 5 if parts else 0
         if total + len(chunk) + sep_cost > limit:
             # Fill leftover budget with a truncated tail window (>=200
             # chars of new material) instead of leaving it empty.
             room = limit - total - sep_cost
-            if room >= 200:
-                chunk = chunk[:room]
-                end = start + room
-            else:
-                continue
+            if room < 200:
+                return False
+            chunk = chunk[:room]
+            end = start + room
         used.append((start, end))
         parts.append(chunk)
         total += len(chunk) + sep_cost
         winlog.append(f"@{start}")
+        return True
+
+    if norm_groups:
+        # Round-robin between dimensions: one best window per group per pass.
+        cursors = {name: 0 for name in norm_groups}
+        pending = [name for name in norm_groups if group_scored.get(name)]
+        while pending and total < limit:
+            progressed = False
+            for name in list(pending):
+                ranked = group_scored.get(name) or []
+                while cursors[name] < len(ranked):
+                    start = ranked[cursors[name]][2]
+                    cursors[name] += 1
+                    if take(start):
+                        progressed = True
+                        break
+                if cursors[name] >= len(ranked):
+                    pending.remove(name)
+                if total >= limit:
+                    break
+            if not progressed:
+                break
+    for _negd, _negt, start in scored:
         if total >= limit:
             break
+        take(start)
     if not parts:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
@@ -1023,23 +1143,43 @@ def make_model_assessor(model_client, max_docs: int = 24,
 
     Selection (auditable, per call): up to max_docs COMPLETE units
     (never an arbitrary JSON slice), each with url/excerpt/sha/status/
-    cuts. Order prioritizes not-yet-sent material (so later rounds with
-    >24 docs evaluate new evidence in bounded batches, never the same
-    fixed prefix), then insertion order. The exact selection (urls,
-    hashes, excerpts, cuts) is exposed as assess.last_selection for the
-    caller to validate references against (storage outside the selection
-    never justifies covered in that call). Open-discovery proposals
-    (propose_entity) are preserved for plan versioning.
+    cuts. Priority: (1) the source_url of each required+discovered entity
+    present in the corpus (one reserved slot per entity), (2) documents
+    referenced by previous evaluations, (3) not-yet-sent material (so
+    later rounds with >24 docs evaluate new evidence in bounded batches,
+    never the same fixed prefix), (4) already-sent, insertion order. The
+    exact selection (urls, hashes, excerpts, cuts) is exposed as
+    assess.last_selection for the caller to validate references against
+    (storage outside the selection never justifies covered in that call).
+    assess.last_stats records selection/cells requested/returned/missing.
+    Open-discovery proposals (propose_entity) are preserved for plan
+    versioning.
     """
     import json as _json
 
     _sent: set[str] = set()
     _extra_terms: list[str] = []
+    _prior_refs: list[str] = []
 
     def set_relevance_terms(terms) -> None:
         """Extra excerpt terms (e.g. issued query tokens); plan labels stay primary."""
         try:
             _extra_terms[:] = [str(t) for t in (terms or []) if str(t).strip()]
+        except Exception:
+            pass
+
+    def set_previous_evaluations(evals) -> None:
+        """Reference URLs from prior evaluations (selection priority)."""
+        try:
+            refs: list[str] = []
+            for ev in evals or []:
+                if not isinstance(ev, dict):
+                    continue
+                for ref in ev.get("references") or []:
+                    url = ref.get("url") if isinstance(ref, dict) else None
+                    if isinstance(url, str) and url:
+                        refs.append(url)
+            _prior_refs[:] = refs
         except Exception:
             pass
 
@@ -1053,12 +1193,34 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # separado (chaves user://context/CHAVE, origin user-provided).
         ctx_urls = {u for u in evidence
                     if isinstance(u, str) and u.startswith("user://")}
-        # Order: unsent first (new material from later rounds reaches the
-        # model in bounded batches), then already-sent, each in insertion
-        # order (stable; no name-based rules). No fixed prefix: batches
-        # rotate as _sent grows.
-        ordered = [u for u in evidence if u not in _sent and u not in ctx_urls] + \
-                  [u for u in evidence if u in _sent and u not in ctx_urls]
+        # Order: entity sources first (one reserved slot per required
+        # discovered entity present in the corpus), then prior-evaluation
+        # references, then unsent material (new evidence reaches the model
+        # in bounded batches, never the same fixed prefix), then sent.
+        ordered: list[str] = []
+        _picked: set[str] = set()
+
+        def _push(url) -> None:
+            if (isinstance(url, str) and url in evidence
+                    and url not in ctx_urls and url not in _picked
+                    and len(ordered) < max_docs):
+                _picked.add(url)
+                ordered.append(url)
+
+        for _e in (plan or {}).get("entities", []) or []:
+            if not isinstance(_e, dict) or _e.get("required", True) is False:
+                continue
+            if not _e.get("discovered"):
+                continue
+            _push(_e.get("source_url"))
+        for _u in _prior_refs:
+            _push(_u)
+        for _u in evidence:
+            if _u not in _sent:
+                _push(_u)
+        for _u in evidence:
+            if _u in _sent:
+                _push(_u)
         # Relevance terms from the plan (criterion/entity labels): long
         # documents are windowed around what the criteria ask, never
         # head-only (a 131K-char paper hides §5/§6 from a head cut).
@@ -1079,8 +1241,12 @@ def make_model_assessor(model_client, max_docs: int = 24,
                     if _e.get(_k):
                         _terms.extend(str(_e[_k]).split())
             _terms.extend(_expand_terms_en(_terms))
+            _terms.extend(_ANCHOR_FACT_TERMS)
         except Exception:
             _terms = []
+        # Excerpt dimensions: one group per criterion + generic fact anchor,
+        # so a fact section is not crowded out by criterion-term windows.
+        _groups = _criterion_groups(plan)
         # Real selection: complete units within the JSON budget.
         items, cuts = [], []
         used_budget = 0
@@ -1088,7 +1254,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
             excerpt, _stripped, _windows = _relevant_excerpt(
-                text, excerpt_chars, list(_terms) + list(_extra_terms))
+                text, excerpt_chars, list(_terms) + list(_extra_terms),
+                groups=_groups)
             if _stripped:
                 cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
             if len(text or "") > len(excerpt) + _stripped:
@@ -1126,23 +1293,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # par (critério, entidade exigida), entity_id explícito; agregada
         # sem entity_id nunca cobre célula de entidade. Bounded (30).
         _cells_txt = ""
+        _cells = _plan_cells(plan)
         try:
             _emap2 = {e.get("id"): e for e in
                       (plan.get("entities") or []) if isinstance(e, dict)}
-            _cell_items = []
-            for _cc in plan.get("criteria") or []:
-                if not isinstance(_cc, dict) or not _cc.get("required", True):
-                    continue
-                for _ae in _cc.get("applies_to") or []:
-                    if not _emap2.get(_ae, {}).get("required", True):
-                        continue  # descoberta além do teto: não é célula
-                    _cell_items.append(
-                        f"{_cc.get('id')}×{_ae}"
-                        f"({_emap2.get(_ae, {}).get('label', _ae)})")
-                    if len(_cell_items) >= 60:
-                        break
-                if len(_cell_items) >= 60:
-                    break
+            _cell_items = [
+                f"{_cid}×{_eid}"
+                f"({_emap2.get(_eid, {}).get('label', _eid)})"
+                for _cid, _eid in _cells[:60]]
             if _cell_items:
                 _cells_txt = (
                     " Células obrigatórias (uma avaliação por célula, com "
@@ -1223,10 +1381,33 @@ def make_model_assessor(model_client, max_docs: int = 24,
             if isinstance(ev.get("propose_entity"), dict):
                 entry["propose_entity"] = ev["propose_entity"]
             out.append(entry)
+        # Instrumentation: requested/returned cells of THIS call (missing
+        # cells are reported, never silently dropped; the merge keeps prior
+        # evaluations, so an omission never overwrites state).
+        try:
+            _req_keys = _cells
+            _ret_keys = {(str(e.get("criterion_id")), str(e.get("entity_id")))
+                         for e in out if e.get("entity_id") is not None}
+            _returned = [k for k in _req_keys if k in _ret_keys]
+            _missing = [f"{cid}×{eid}" for cid, eid in _req_keys
+                        if (cid, eid) not in _ret_keys]
+            assess.last_stats = {  # type: ignore[attr-defined]
+                "selection": list(selection.get("urls") or []),
+                "cells_requested": len(_req_keys),
+                "cells_returned": len(_returned),
+                "missing_cells": _missing,
+            }
+        except Exception:
+            assess.last_stats = {  # type: ignore[attr-defined]
+                "selection": list(selection.get("urls") or []),
+                "cells_requested": 0, "cells_returned": 0,
+                "missing_cells": []}
         return out
 
     assess.last_selection = None  # type: ignore[attr-defined]
+    assess.last_stats = None  # type: ignore[attr-defined]
     assess.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
+    assess.set_previous_evaluations = set_previous_evaluations  # type: ignore[attr-defined]
     return assess
 
 
@@ -1291,7 +1472,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         _wterms.extend(str(_e[_k]).split())
         except Exception:
             _wterms = []
-        _wterms = list(_wterms) + list(_w_extra_terms)
+        _wterms = list(_wterms) + list(_w_extra_terms) + list(_ANCHOR_FACT_TERMS)
+        _wgroups = _criterion_groups(plan)
         # Real selection, rastreável: unidades completas por documento,
         # corte de 2000 chars por documento SEMPRE registrado; limites
         # contam cabeçalhos+separadores reais; included_urls só com
@@ -1305,7 +1487,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             text = evidence[url] or ""
             raw_len = len(text)
             chunk, _wstrip, _wwin = _relevant_excerpt(
-                text, per_doc, _wterms)
+                text, per_doc, _wterms, groups=_wgroups)
             if _wwin.startswith("relevancia"):
                 cuts.append(f"janela de relevancia {url}: {_wwin}")
             if raw_len > len(chunk):
@@ -1531,6 +1713,13 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             _hook(_op_target_terms(state))
     except Exception:
         pass
+    # Prior evaluations (references) feed the assessor's selection priority.
+    try:
+        _prev_hook = getattr(assess_fn, "set_previous_evaluations", None)
+        if callable(_prev_hook):
+            _prev_hook(list(state.get("evaluations") or []))
+    except Exception:
+        pass
     import inspect as _inspect
     _uc = state.get("user_context") or {}
     _facts = _uc.get("facts", {}) if isinstance(_uc, dict) else {}
@@ -1578,6 +1767,28 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                 f"(budget counted): {str(_assess_exc)[:160]}")
             continue
         raise _assess_exc
+    # Instrumentação da chamada (M3): seleção e células pedidas/devolvidas.
+    # Célula omitida nunca sobrescreve estado (o merge abaixo preserva as
+    # avaliações anteriores); aqui só registramos a omissão.
+    try:
+        _stats = getattr(assess_fn, "last_stats", None)
+        if not isinstance(_stats, dict):
+            _last_sel = getattr(assess_fn, "last_selection", None)
+            _stats = {
+                "selection": (list(_last_sel.get("urls") or [])
+                              if isinstance(_last_sel, dict) else []),
+                "cells_requested": 0, "cells_returned": 0,
+                "missing_cells": []}
+        state.setdefault("assessments", []).append({
+            "round": len(state.get("rounds", []) or []),
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "selection": list(_stats.get("selection") or []),
+            "cells_requested": int(_stats.get("cells_requested") or 0),
+            "cells_returned": int(_stats.get("cells_returned") or 0),
+            "missing_cells": list(_stats.get("missing_cells") or []),
+        })
+    except Exception:
+        pass
     # Seleção analisada DAQUELA chamada (quando o assessor a expõe):
     # referência fora da seleção nunca justifica covered nessa avaliação.
     _sel_urls: set[str] | None = None
