@@ -38,6 +38,13 @@ from pathlib import Path
 STATES = ("uninvestigated", "insufficient", "partial",
           "covered", "contradictory", "blocked")
 
+#: Fixed coverage formula, persisted next to every computed block. Never
+#: rewrite it to raise a percentage: changing the plan requires a new
+#: registered plan version, and the denominator stays fixed per version.
+COVERAGE_DEFINITION = ("covered required (criterion, entity) cells / total "
+                       "required cells; denominator fixed by the final plan "
+                       "version")
+
 #: Pipeline stages tracked as observed counts (never inferred).
 STAGES = ("discovered", "obtained", "qualified",
           "analyzed", "used", "cited")
@@ -434,6 +441,20 @@ class Ledger:
             (crit["id"], eid), {}).get("state") == "covered")
         return covered, total
 
+    def cell_counts(self) -> tuple[int, int]:
+        """(covered, total) required cells — single source of the formula.
+
+        The denominator is every applicable (criterion, entity) pair of the
+        current plan version; it never shrinks to raise the proportion.
+        """
+        covered_n = 0
+        total = 0
+        for c in self._required():
+            cov, tot = self._covered_pairs(c)
+            covered_n += cov
+            total += tot
+        return covered_n, total
+
     def compute(self) -> dict:
         """Build the persistable ``question_coverage`` block (no fabrication).
 
@@ -441,14 +462,13 @@ class Ledger:
         mandatory criteria, including blocked/uninvestigated ones.
         Numerator = covered pairs only. A shared criterion is covered
         only when every entity in applies_to has a covering evaluation.
+
+        The formula is fixed (``COVERAGE_DEFINITION``): it is never changed
+        to improve the percentage. A plan change must be registered as a new
+        version (see ``plan_version_record``) so the new denominator is
+        visible in the artifact.
         """
-        required = self._required()
-        total = 0
-        covered_n = 0
-        for c in required:
-            cov, tot = self._covered_pairs(c)
-            covered_n += cov
-            total += tot
+        covered_n, total = self.cell_counts()
         if total == 0:
             proportion = None
             complete = False
@@ -557,6 +577,9 @@ class Ledger:
             "plan_id": self.plan.get("plan_id"),
             "plan_version": self.version,
             "run_id": self.run_id,
+            "definition": COVERAGE_DEFINITION,
+            "numerator": covered_n,
+            "denominator": total,
             "proportion": proportion,
             "criteria": criteria_out,
             "gaps": gaps,
@@ -599,6 +622,30 @@ class Ledger:
                             ev.get("references", []),
                             ev.get("entity_id"))
         return ledger
+
+
+def plan_version_record(plan: dict) -> dict:
+    """Denominator fields every ``plan_versions`` record must expose.
+
+    ``adaptive_state`` appends each plan version; it should merge these
+    fields into the record so a denominator change is visible in the
+    persisted artifact::
+
+        state["plan_versions"].append({**plan_version_record(plan), ...})
+
+    ``cells`` is the same count ``Ledger.compute()`` uses as denominator
+    (required criteria x applicable required entities). The formula is
+    fixed: it is never rewritten to raise a percentage — changing the plan
+    requires a new registered version, which is what makes the change
+    visible.
+    """
+    ledger = Ledger(plan)
+    _, total = ledger.cell_counts()
+    return {
+        "criteria_count": len(ledger._required()),
+        "entities_required": len(ledger._required_entity_ids()),
+        "cells": total,
+    }
 
 
 def build_run_question_coverage(*, plan: dict | None, run_id: str,
