@@ -72,5 +72,63 @@ class GapEntityLedTest(unittest.TestCase):
         self.assertTrue(q2.split()[0].lower() == "django")
 
 
+def pc_state(evals=None):
+    """Criterion-scoped producer gap: per_candidate criterion, no entity_id
+    (real genus6 shape) + explicit evaluations list."""
+    st = state()
+    st["plan"]["criteria"] = [{"id": "c1", "label": "roteamento",
+                               "required": True, "per_candidate": True,
+                               "applies_to": ["e1", "e2", "e3"]}]
+    st["evaluations"] = list(evals or [])
+    return st
+
+
+def crit_gap():
+    return {"criterion_id": "c1", "label": "roteamento",
+            "state": "insufficient", "justification": "nao investigado",
+            "next": "investigar criterio obrigatorio"}
+
+
+class GapPerCandidateExpansionTest(unittest.TestCase):
+    """Missing half of Fix E: criterion-scoped gaps (no entity_id, the real
+    producer shape) over per_candidate criteria expand into one entity-led
+    sub-gap per uncovered applies_to entity."""
+
+    def test_criterion_gap_expands_one_op_per_entity(self):
+        st = pc_state()
+        ops = ac.select_ops(st, [crit_gap()], 3)
+        self.assertEqual(len(ops), 3, f"1 gap x 3 entidades -> 3 ops: {ops}")
+        leads = [o["target"].split()[0].lower() for o in ops]
+        self.assertEqual(leads, ["django", "fastapi", "flask"],
+                         f"cada op lidera com sua entidade: {leads}")
+
+    def test_covered_entity_skipped_and_cap_respected(self):
+        st = pc_state([{"criterion_id": "c1", "entity_id": "e2",
+                        "state": "covered"}])
+        ops = ac.select_ops(st, [crit_gap()], 3)
+        leads = [o["target"].split()[0].lower() for o in ops]
+        self.assertEqual(leads, ["django", "flask"],
+                         f"e2 coberta nao emite sub-gap: {leads}")
+        ops1 = ac.select_ops(st, [crit_gap()], 1)
+        self.assertEqual(len(ops1), 1, f"cap 1 -> 1 op: {ops1}")
+        self.assertEqual(ops1[0]["target"].split()[0].lower(), "django")
+
+    def test_non_per_candidate_gap_stays_single_op(self):
+        st = state()  # criterio sem per_candidate
+        ops = ac.select_ops(st, [crit_gap()], 3)
+        self.assertEqual(len(ops), 1, f"sem per_candidate nao expande: {ops}")
+        self.assertEqual(ops[0]["target"].split()[0].lower(), "django")
+
+    def test_cell_gap_with_source_url_stays_read_source(self):
+        st = pc_state()
+        url = "https://flask.example/docs/routing"
+        gap = dict(crit_gap(), entity_id="e3", entity_label="Flask",
+                   source_url=url)
+        ops = ac.select_ops(st, [gap], 3)
+        self.assertEqual(len(ops), 1, f"gap de celula -> 1 op: {ops}")
+        self.assertEqual(ops[0]["kind"], "read_source")
+        self.assertEqual(ops[0]["target"], url)
+
+
 if __name__ == "__main__":
     unittest.main()

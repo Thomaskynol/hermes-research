@@ -1051,7 +1051,52 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                      if c not in state["evidence"]
                      and _normalize_fetch_key(c) not in failed_targets]
     used_in_batch: set[str] = set()  # gaps do lote consomem distintos
-    for gap in gaps[:max(0, cap)]:
+    # Metade faltante do Fix E: o produtor real emite gaps de criterio sem
+    # entity_id (genus6); sem expansao, a query liderava com a 1a entidade do
+    # applies_to e as demais famintas de corpus. Gaps sem entity_id sobre
+    # criterio per_candidate com applies_to expandem em um sub-gap por
+    # entidade nao coberta (agrupados por criterio, ordem original estavel);
+    # o loop abaixo limita os ops emitidos ao cap como antes.
+    try:
+        _crit_by_id = {c.get("id"): c for c in
+                       (state.get("plan") or {}).get("criteria") or []
+                       if isinstance(c, dict)}
+        _elabel = {e.get("id"): (e.get("label") or e.get("id")) for e in
+                   (state.get("plan") or {}).get("entities") or []
+                   if isinstance(e, dict)}
+        _covered: set[tuple] = set()
+        _evals = state.get("evaluations") or []
+        if isinstance(_evals, list):
+            for _ev in _evals:
+                if isinstance(_ev, dict) and _ev.get("state") == "covered":
+                    _covered.add((_ev.get("criterion_id"), _ev.get("entity_id")))
+        _expanded: list[dict] = []
+        for _gap in gaps or []:
+            if not isinstance(_gap, dict) or _gap.get("entity_id"):
+                _expanded.append(_gap)
+                continue
+            _crit = _crit_by_id.get(_gap.get("criterion_id")) or {}
+            _applies = _crit.get("applies_to") or []
+            if not _crit.get("per_candidate") or not _applies:
+                _expanded.append(_gap)  # global / sem applies_to: inalterado
+                continue
+            if isinstance(_applies, str):
+                _applies = [_applies]
+            _made = False
+            for _eid in _applies:
+                if (_gap.get("criterion_id"), _eid) in _covered:
+                    continue
+                _sub = dict(_gap)
+                _sub["entity_id"] = _eid
+                _sub["entity_label"] = _elabel.get(_eid, _eid)
+                _expanded.append(_sub)
+                _made = True
+            if not _made:
+                continue  # todas cobertas: nada a buscar
+        _gaps = _expanded
+    except Exception:
+        _gaps = gaps
+    for gap in _gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
         # Célula nova com fonte própria (G1): entidade versionada por
         # descoberta traz source_url validada; se ainda não coletada nem
@@ -1115,6 +1160,8 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
             key = (target, channel, kind)
         seen_targets.add(key)
         op_id = f"r{len(state['rounds'])}-{cid}-{len(attempts)}"
+        if any(o.get("op_id") == op_id for o in ops) and gap.get("entity_id"):
+            op_id = f"{op_id}-{gap['entity_id']}"  # sub-gaps: op_id unico
         ops.append({"op_id": op_id, "kind": kind, "channel": channel,
                     "target": target, "criterion_id": cid,
                     "status": "in-progress"})
