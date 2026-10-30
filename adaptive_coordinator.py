@@ -2517,6 +2517,29 @@ def _finalize_for_control(state: dict, command: str, resolved: dict, budget,
                      t_start, now, run_dir, control=control)
 
 
+def _bind_per_candidate(plan: dict, state: dict) -> None:
+    """Bind per_candidate criteria with empty applies_to when no discovery
+    is expected (genus2: predefined entities, open_discovery.needed=False
+    — nothing ever bound them, so they stayed global and per-entity
+    evaluations were dropped). With discovery open the extension happens
+    per discovered candidate; pre-binding would freeze the anchor set
+    into the denominator."""
+    disc = (plan.get("open_discovery") or {})
+    if disc.get("needed", False):
+        return
+    req = [e.get("id") for e in plan.get("entities", [])
+           if isinstance(e, dict) and e.get("required", True)
+           and isinstance(e.get("id"), str) and e.get("id").strip()]
+    if not req:
+        return
+    for c in plan.get("criteria", []):
+        if isinstance(c, dict) and c.get("per_candidate") \
+                and not c.get("applies_to"):
+            c["applies_to"] = list(req)
+    state["notes"].append(
+        f"per_candidate bound at adoption to predefined entities: {req}")
+
+
 def run_adaptive(question: str, *, profile: str = "light",
                  plan: dict | None = None, plan_source: str | dict | None = None,
                  purpose: str = "", constraints: dict | None = None,
@@ -2721,6 +2744,7 @@ def run_adaptive(question: str, *, profile: str = "light",
                          t_start, now, run_dir, control=control)
     # model_calls already counted per-transport via the wrapper (repairs and
     # failures included); plan_meta is record-only, never double-counted.
+    _bind_per_candidate(plan, state)
     _record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
                          if plan_meta.get("repair_log") else "plan adopted")
     state["plan_meta"] = plan_meta
