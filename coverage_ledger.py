@@ -36,14 +36,19 @@ import json
 from pathlib import Path
 
 STATES = ("uninvestigated", "insufficient", "partial",
-          "covered", "contradictory", "blocked")
+          "covered", "contradictory", "blocked", "not_applicable")
 
 #: Fixed coverage formula, persisted next to every computed block. Never
 #: rewrite it to raise a percentage: changing the plan requires a new
 #: registered plan version, and the denominator stays fixed per version.
-COVERAGE_DEFINITION = ("covered required (criterion, entity) cells / total "
-                       "required cells; denominator fixed by the final plan "
-                       "version")
+#: ``not_applicable`` cells (per-candidate cells whose documented scope
+#: excludes the axis, with scope-delimiting evidence) are excluded from
+#: the denominator, listed separately in ``na``/``na_cells``, never hidden
+#: and never counted as covered.
+COVERAGE_DEFINITION = ("covered required (criterion, entity) cells / "
+                      "(total required cells minus not_applicable cells "
+                      "with scope evidence); not_applicable cells listed "
+                      "separately, never counted as covered")
 
 #: Pipeline stages tracked as observed counts (never inferred).
 STAGES = ("discovered", "obtained", "qualified",
@@ -267,6 +272,18 @@ class Ledger:
 
     # -- evaluation -------------------------------------------------------
 
+    def _na_cell_ok(self, crit: dict, entity_id: str | None) -> bool:
+        applies = crit.get("applies_to", None)
+        if not isinstance(applies, list) or len(applies) < 2:
+            return False
+        if not entity_id:
+            return False
+        ent = next((e for e in self.plan.get("entities", [])
+                    if isinstance(e, dict) and e.get("id") == entity_id),
+                   None)
+        return bool(ent is not None and ent.get("discovered")
+                    and ent.get("required", True))
+
     def _resolves(self, ref: dict) -> tuple[bool, str]:
         """A reference sustains coverage only if it points at usable evidence."""
         url = ref.get("url", ref.get("doc_id", ""))
@@ -319,6 +336,15 @@ class Ledger:
                 raise ValueError(
                     f"[COVERAGE] criterion {criterion_id!r} does not apply "
                     f"to entity {entity_id!r}")
+        if state == "not_applicable" and not self._na_cell_ok(crit,
+                                                              entity_id):
+            raise ValueError(
+                f"[COVERAGE] not_applicable for ({criterion_id!r}, "
+                f"{entity_id!r}) rejected: it only holds for a "
+                f"per-candidate cell (criterion applying to several "
+                f"entities) of a discovered+required entity — global or "
+                f"single-entity criteria with N/A are insufficient, never "
+                f"scope exclusions")
         refs = list(references or [])
         key = (criterion_id, entity_id)
         if state == "uninvestigated":
@@ -409,11 +435,15 @@ class Ledger:
             return "uninvestigated"
         pairs = [self._evals.get((criterion_id, eid), {}).get("state",
                  "uninvestigated") for eid in applies]
-        if all(s == "covered" for s in pairs):
+        # Out-of-scope cells never decide the criterion state.
+        eff = [s for s in pairs if s != "not_applicable"]
+        if not eff:
+            return "not_applicable"
+        if all(s == "covered" for s in eff):
             return "covered"
-        if any(s == "covered" for s in pairs):
+        if any(s == "covered" for s in eff):
             return "partial"
-        for s in pairs:
+        for s in eff:
             if s != "uninvestigated":
                 return s
         return "uninvestigated"
@@ -441,11 +471,40 @@ class Ledger:
             (crit["id"], eid), {}).get("state") == "covered")
         return covered, total
 
+    def _na_required_cells(self) -> list[dict]:
+        """Required per-candidate cells marked out of scope (never hidden).
+
+        Only cells of required criteria on required entities count: they
+        are the ones excluded from the denominator. Each entry carries
+        its justification + references so the exclusion stays auditable.
+        """
+        req_entities = self._required_entity_ids()
+        out = []
+        for (cid, eid), ev in self._evals.items():
+            if ev.get("state") != "not_applicable" or eid is None:
+                continue
+            crit = next((c for c in self.plan["criteria"]
+                         if c["id"] == cid), None)
+            if crit is None or not crit.get("required", True):
+                continue
+            if eid not in req_entities:
+                continue
+            out.append({
+                "criterion_id": cid,
+                "entity_id": eid,
+                "justification": ev.get("justification", ""),
+                "references": ev.get("references", []),
+            })
+        out.sort(key=lambda d: (d["criterion_id"], d["entity_id"] or ""))
+        return out
+
     def cell_counts(self) -> tuple[int, int]:
         """(covered, total) required cells — single source of the formula.
 
         The denominator is every applicable (criterion, entity) pair of the
         current plan version; it never shrinks to raise the proportion.
+        (``not_applicable`` cells are subtracted in ``compute()``, where
+        the exclusion is exposed as ``na``/``na_cells``.)
         """
         covered_n = 0
         total = 0
@@ -459,9 +518,11 @@ class Ledger:
         """Build the persistable ``question_coverage`` block (no fabrication).
 
         Denominator = every applicable (criterion, entity) pair for
-        mandatory criteria, including blocked/uninvestigated ones.
+        mandatory criteria, including blocked/uninvestigated ones, MINUS
+        ``not_applicable`` cells (excluded, listed in ``na``/``na_cells``).
         Numerator = covered pairs only. A shared criterion is covered
-        only when every entity in applies_to has a covering evaluation.
+        only when every in-scope entity in applies_to has a covering
+        evaluation.
 
         The formula is fixed (``COVERAGE_DEFINITION``): it is never changed
         to improve the percentage. A plan change must be registered as a new
@@ -469,13 +530,21 @@ class Ledger:
         visible in the artifact.
         """
         covered_n, total = self.cell_counts()
+        na_cells = self._na_required_cells()
+        na = len(na_cells)
+        denom = total - na
         if total == 0:
             proportion = None
             complete = False
             status = "partial"
+        elif denom == 0:
+            # Every required cell out of scope: nothing left to cover.
+            proportion = 1.0
+            complete = True
+            status = "covered"
         else:
-            proportion = covered_n / total
-            complete = covered_n == total
+            proportion = covered_n / denom
+            complete = covered_n == denom
             status = "covered" if complete else "partial"
         criteria_out, gaps, refs_out = [], [], []
         for c in self.plan["criteria"]:
@@ -521,12 +590,15 @@ class Ledger:
             }
             if entity_states is not None:
                 entry["entity_states"] = entity_states
+            entry["na_cells"] = [nc for nc in na_cells
+                                 if nc["criterion_id"] == c["id"]]
             criteria_out.append(entry)
             for (cid, _), cand in self._evals.items():
                 if cid == c["id"]:
                     for r in cand.get("references", []):
                         refs_out.append({"criterion_id": c["id"], **r})
-            if entry["required"] and state != "covered":
+            if entry["required"] and state not in ("covered",
+                                                      "not_applicable"):
                 gaps.append({
                     "criterion_id": c["id"],
                     "label": entry["label"],
@@ -579,7 +651,9 @@ class Ledger:
             "run_id": self.run_id,
             "definition": COVERAGE_DEFINITION,
             "numerator": covered_n,
-            "denominator": total,
+            "denominator": denom,
+            "na": na,
+            "na_cells": na_cells,
             "proportion": proportion,
             "criteria": criteria_out,
             "gaps": gaps,

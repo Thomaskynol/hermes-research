@@ -762,6 +762,34 @@ def _note_model_call(state: dict) -> None:
         state.get("consumption", {}).get("model_calls", 0) or 0) + 1
 
 
+def _accumulate_reading(state: dict, excerpt_chars: int, docs: int) -> None:
+    """M9 reading metric: collected vs excerpted chars (observed only).
+
+    ``collected_*`` recompute from the current corpus (user:// context
+    excluded, never evidence); ``excerpted_*`` accumulate every excerpt
+    batch really sent to the assessor/writer. Never alters coverage:
+    URL saturation is not exhausted analysis (shown beside the metric).
+    """
+    reading = state.setdefault("reading", {"collected_chars": 0,
+                                           "excerpted_chars": 0,
+                                           "docs_collected": 0,
+                                           "docs_excerpted": 0})
+    try:
+        corpus = {u: t for u, t in (state.get("evidence") or {}).items()
+                  if not (isinstance(u, str) and u.startswith("user://"))}
+        reading["collected_chars"] = sum(
+            len(t) for t in corpus.values() if isinstance(t, str))
+        reading["docs_collected"] = len(corpus)
+        reading["excerpted_chars"] = int(
+            reading.get("excerpted_chars") or 0) + max(
+                0, int(excerpt_chars or 0))
+        reading["docs_excerpted"] = int(
+            reading.get("docs_excerpted") or 0) + max(0, int(docs or 0))
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"reading metric failed: {exc}")
+
+
 def _update_ledger_counts(state: dict, ledger) -> None:
     """Observed stage counts from real events only (never inferred).
 
@@ -1310,6 +1338,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
                      "hashes": {i["url"]: i["sha"] for i in items},
                      "raw_chars": {i["url"]: i["raw_chars"] for i in items},
                      "cuts": "; ".join(cuts) if cuts else "sem cortes",
+                     "excerpt_chars": {i["url"]: len(i["excerpt"] or "")
+                                       for i in items},
                      "batch": f"{len(items)}/{len(ordered)}"}
         assess.last_selection = selection
         # Células obrigatórias explícitas (G2): sem a lista, o assessor
@@ -1339,11 +1369,17 @@ def make_model_assessor(model_client, max_docs: int = 24,
             f"Material selecionado: {_json.dumps(items, ensure_ascii=False)}\n"
             f"Tentativas: {_redact_internal_urls(_json.dumps(attempts, ensure_ascii=False)[:3000])}\n"
             "Cada avaliação: {criterion_id, entity_id?, state "
-            "(covered|partial|insufficient|contradictory|blocked), "
+            "(covered|partial|insufficient|contradictory|blocked|"
+            "not_applicable), "
             "justification, origin, references:[{url}], "
             "propose_entity?: {entity:{id,label?}, criteria?}}. "
             "Sem evidência utilizável -> insufficient/blocked; "
             "divergência real -> contradictory; nunca invente cobertura. "
+            "not_applicable SOMENTE para célula per_candidate cujo "
+            "escopo documentado exclui o eixo: a justificativa deve "
+            "citar evidência delimitadora de escopo (ex.: a fonte do "
+            "candidato declara escopo que exclui o eixo); sem "
+            "referência utilizável a célula cai para insufficient. "
             "Referencie SOMENTE urls do material selecionado acima"
             + ("; para fato do usuário, referencie user://context/CHAVE "
                "com origin user-provided (capa em partial, nunca covered)."
@@ -1384,7 +1420,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
             if not isinstance(ev, dict) or ev.get("criterion_id") not in known_c:
                 continue
             if ev.get("state") not in ("covered", "partial", "insufficient",
-                                       "contradictory", "blocked"):
+                                       "contradictory", "blocked",
+                                       "not_applicable"):
                 continue
             if not str(ev.get("justification", "") or "").strip():
                 continue
@@ -1560,12 +1597,31 @@ def make_model_writer(model_client, max_chars: int = 12000):
                    "como conjunto de comparação; item sem evidência = "
                    "LACUNA, não substitua por outro): "
                    + "; ".join(_cand_labels) + "\n") if _cand_labels else ""
+        # M8: substituídos seguem no relatório como explorados-fora-da-
+        # seleção (nunca somem, nunca contam na comparação).
+        _sub_s = ""
+        try:
+            _emap3 = {e.get("id"): e for e in (plan.get("entities") or [])
+                      if isinstance(e, dict)}
+            _sub_labels = []
+            for _s in (view.get("substitutions") or []):
+                if not isinstance(_s, dict):
+                    continue
+                _o = _emap3.get(_s.get("old")) or {}
+                _sub_labels.append(
+                    f"{_o.get('label') or _s.get('old')} ({_s.get('old')})")
+            if _sub_labels:
+                _sub_s = ("Explorados fora da seleção (não contam na "
+                          "comparação; ver motivo no plano): "
+                          + "; ".join(_sub_labels) + "\n")
+        except Exception:
+            _sub_s = ""
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
-            f"{_cand_s}"
+            f"{_cand_s}{_sub_s}"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
             f"Corpus selecionado:\n{corpus_s}\n{ctx_s}"
             "Retorne SOMENTE o relatório em markdown."
@@ -1814,6 +1870,16 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         })
     except Exception:
         pass
+    # M9: excerptos desta chamada do assessor entram na métrica de leitura.
+    try:
+        _rsel = getattr(assess_fn, "last_selection", None)
+        _rmap = ((_rsel or {}).get("excerpt_chars") or {}) \
+            if isinstance(_rsel, dict) else {}
+        _rtotal = sum(v for v in _rmap.values()
+                      if isinstance(v, (int, float)))
+        _accumulate_reading(state, _rtotal, len(_rmap))
+    except Exception:
+        pass
     # Seleção analisada DAQUELA chamada (quando o assessor a expõe):
     # referência fora da seleção nunca justifica covered nessa avaliação.
     _sel_urls: set[str] | None = None
@@ -1842,7 +1908,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             continue
         st = ev.get("state", "insufficient")
         if st not in ("uninvestigated", "insufficient", "partial", "covered",
-                      "contradictory", "blocked"):
+                      "contradictory", "blocked", "not_applicable"):
             state["notes"].append(
                 f"assessor evaluation for {ev.get('criterion_id')} has "
                 f"unknown state {st!r}: kept as insufficiency")
@@ -1876,6 +1942,26 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             state["notes"].append(
                 f"user-context cap: {ev.get('criterion_id')} "
                 f"covered -> partial (só contexto do usuário)")
+    # N/A sem evidência de escopo: a célula per_candidate marcada
+    # not_applicable sem ao menos uma referência resolvível no corpus é
+    # rebaixada a insufficient (rebaixamento explícito e auditável).
+    for i, ev in enumerate(applied):
+        if ev.get("state") != "not_applicable":
+            continue
+        _ok_refs = [r for r in (ev.get("references") or [])
+                    if isinstance(r, dict) and ledger._resolves(r)[0]]
+        if _ok_refs:
+            continue
+        demoted = dict(ev)
+        demoted["state"] = "insufficient"
+        demoted["justification"] = (
+            str(ev.get("justification", "")) +
+            " [N/A sem evidência de escopo: sem referência "
+            "utilizável a célula volta a insufficient]")
+        applied[i] = demoted
+        state["notes"].append(
+            f"N/A sem evidência de escopo: {ev.get('criterion_id')}"
+            f"×{ev.get('entity_id')} -> insufficient")
     # Open discovery: the assessor (model in production) may propose entities
     # the plan did not know. The coordinator only applies them as a new,
     # validated plan version — user requirements never shrink (enforced).
@@ -2124,6 +2210,171 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         ledger.version = fresh.version
     except (ValueError, KeyError, TypeError) as exc:
         state["notes"].append(f"discovery proposal rejected: {exc}")
+
+
+def _maybe_substitute(state: dict, ledger) -> bool:
+    """Justified candidate substitution (generic mechanism, strict rule).
+
+    Called in the gap phase: when a required+discovered entity has ALL
+    its per_candidate cells insufficient for lack of evidence after >=2
+    rounds (no evaluation with references for it) AND an explored entity
+    (required=False, discovered, source collected + mentioned) is still
+    unselected, the old one leaves the selection (required=False with a
+    "substituída por <nova>: <motivo>" note) and the new one joins it
+    (required=True + applies_to extends). Registered in plan_versions as
+    {type:'substitution', old, new, reason}. The old entity stays in the
+    report as explored-out-of-selection (list passed to the writer).
+
+    Strict rule: swap only toward MORE evidence (new has a collected +
+    mentioned source, old has no referenced evaluation). Without that,
+    never swap. One swap per call.
+    """
+    try:
+        if len(state.get("rounds", []) or []) < 2:
+            return False
+        plan = state.get("plan") or {}
+        entities = [e for e in plan.get("entities", [])
+                    if isinstance(e, dict)]
+        emap = {e.get("id"): e for e in entities}
+        per_crits = [c for c in plan.get("criteria", [])
+                     if isinstance(c, dict) and c.get("required", True)
+                     and c.get("per_candidate")]
+        if not per_crits:
+            return False
+        evals = [e for e in (state.get("evaluations", []) or [])
+                 if isinstance(e, dict)]
+        evidence = state.get("evidence", {}) or {}
+
+        def _supported(ent: dict) -> bool:
+            src = (ent.get("source_url") or "").strip()
+            if not src or src not in evidence:
+                return False
+            label = str(ent.get("label", ent.get("id")) or "")
+            toks = [t for t in label.lower().replace("(", " ").replace(
+                ")", " ").replace("/", " ").replace("-", " ").split()
+                if len(t) >= 4]
+            return any(t in str(evidence[src]).lower() for t in toks)
+
+        def _old_ok(eid: str) -> bool:
+            ent = emap.get(eid) or {}
+            if not (ent.get("discovered") and ent.get("required", True)):
+                return False
+            cells = [c for c in per_crits
+                     if eid in (c.get("applies_to") or [])]
+            if not cells:
+                return False
+            for c in cells:
+                st = (ledger._evals.get((c.get("id"), eid), {})
+                      .get("state", "uninvestigated"))
+                if st not in ("insufficient", "uninvestigated"):
+                    return False
+            for ev in evals:
+                if ev.get("entity_id") == eid and ev.get("references"):
+                    return False
+            return True
+
+        olds = [eid for eid in emap
+                if emap[eid].get("required", True) and _old_ok(eid)]
+        if not olds:
+            return False
+        news = [e for e in entities
+                if not e.get("required", True) and e.get("discovered")
+                and _supported(e)]
+        if not news:
+            return False
+        # Least evidenced first: no collected source beats a collected one.
+        olds.sort(key=lambda eid: (
+            1 if (emap[eid].get("source_url") or "") in evidence else 0,
+            str(eid)))
+        news.sort(key=lambda e: str(e.get("id")))
+        old_id = olds[0]
+        new_id = news[0].get("id")
+        reason = (f"{old_id} sem evidência referenciada após "
+                  f"{len(state.get('rounds', []))} rounds; {new_id} com "
+                  f"fonte própria coletada e mencionada")
+        import copy as _copy
+        new_plan = _copy.deepcopy(plan)
+        for e in new_plan.get("entities", []):
+            if e.get("id") == old_id:
+                e["required"] = False
+                e["note"] = f"substituída por {new_id}: {reason}"
+            elif e.get("id") == new_id:
+                e["required"] = True
+        for c in new_plan.get("criteria", []):
+            ap = c.get("applies_to") or []
+            ap = [ap] if isinstance(ap, str) else list(ap)
+            if old_id in ap and new_id not in ap:
+                c["applies_to"] = ap + [new_id]
+        from coverage_ledger import validate_plan as _validate
+        _validate(new_plan)
+        # Explicit recorded version (not _record_plan_version: the swap
+        # deliberately moves a required flag, which the silent-drop guard
+        # would reject — the substitution record is what makes it visible).
+        import copy as _copy2
+        try:
+            _prev_v = max(int(v.get("version", 0) or 0)
+                          for v in (state.get("plan_versions") or []))
+        except (TypeError, ValueError):
+            _prev_v = len(state.get("plan_versions") or [])
+        new_plan["version"] = _prev_v + 1
+        state["plan"] = new_plan
+        try:
+            _req_ids = sorted(
+                [(coll, item.get("id"))
+                 for coll in ("entities", "criteria")
+                 for item in (new_plan.get(coll, []) or [])
+                 if isinstance(item, dict)
+                 and item.get("required", True)])
+        except Exception:
+            _req_ids = []
+        state.setdefault("plan_versions", []).append({
+            "version": new_plan["version"],
+            "plan_id": new_plan.get("plan_id"),
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "justification": (f"substitution: {old_id} -> {new_id} "
+                              f"({reason})"),
+            "required": _req_ids,
+            "snapshot": _copy2.deepcopy(new_plan),
+            "type": "substitution", "old": old_id, "new": new_id,
+            "reason": reason,
+            **_ledger.plan_version_record(new_plan),
+        })
+        state.setdefault("substitutions", []).append(
+            {"old": old_id, "new": new_id, "reason": reason,
+             "round": len(state.get("rounds", []) or [])})
+        state["notes"].append(
+            f"substitution: {old_id} -> {new_id} ({reason})")
+        # Rebuild the ledger on the new plan (same pattern as discovery).
+        fresh = _ledger.Ledger(new_plan, run_id=state["run_id"])
+        fresh.set_corpus(dict(state["evidence"]),
+                         dict(state["qualification"]))
+        kept = []
+        for prev in state.get("evaluations", []):
+            try:
+                fresh.evaluate(prev["criterion_id"],
+                               prev.get("state", "insufficient"),
+                               prev.get("justification", ""),
+                               prev.get("origin", ""),
+                               prev.get("references", []),
+                               prev.get("entity_id"))
+                kept.append(prev)
+            except (ValueError, KeyError):
+                pass
+        state["evaluations"] = kept
+        ledger.plan = fresh.plan
+        ledger._evals = fresh._evals
+        ledger._evidence = fresh._evidence
+        ledger._qualification = fresh._qualification
+        ledger._counts = fresh._counts
+        ledger.version = fresh.version
+        return True
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"substitution skipped: {exc}")
+        except Exception:
+            pass
+        return False
 
 
 def _reconcile_resume(state: dict, checkpoint, run_dir) -> None:
@@ -2696,6 +2947,14 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
             state["rounds"][-1]["decision"] = stop["detail"]
             break
         ordered = prioritize_gaps(open_gaps)
+        # M8: justified substitution before selecting ops (the recomputed
+        # block retargets the round; the swap itself never fakes coverage).
+        if _maybe_substitute(state, ledger):
+            _update_ledger_counts(state, ledger)
+            block = ledger.compute()
+            state["gaps"] = list(block.get("gaps") or [])
+            open_gaps = block.get("gaps", [])
+            ordered = prioritize_gaps(open_gaps)
         ops = select_ops(state, ordered, resolved["max_ops_per_round"])
         if not ops:
             stop = {"reason": "saturation", "partial": bool(open_gaps),
@@ -3687,7 +3946,8 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             "evidence": dict(state["evidence"]),
             "user_context": state.get("user_context") or {},
             "question_coverage": block, "stop": state["stop"],
-            "rounds": state["rounds"]}
+            "rounds": state["rounds"],
+            "substitutions": list(state.get("substitutions") or [])}
     # -- write (1 model-boundary call when a real writer is used) ----
     if write is None:
         write = _default_writer
@@ -3746,6 +4006,10 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         if not (selection or {}).get("fallback"):
             _counters.record_used_in_synthesis(
                 state, (selection or {}).get("included_urls") or [])
+            # M9: excertos do writer entram na métrica de leitura.
+            _accumulate_reading(
+                state, (selection or {}).get("chars") or 0,
+                len((selection or {}).get("included_urls") or []))
     except Exception as exc:
         state["notes"].append(f"counters used_in_synthesis failed: {exc}")
     # -- audit (transportes efetivos: lotes/votos/reparos/retentativas)

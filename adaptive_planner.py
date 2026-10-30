@@ -118,7 +118,13 @@ def build_plan_prompt(question: str, purpose: str = "",
         "discovery obligation is a criterion (e.g. 'identify N candidates'), "
         "and criteria about the discovered set omit applies_to (global).\n"
         "initial_paths are short web search queries (2-6 words), never local "
-        "file paths; include at least one query aimed at the discovery need."
+        "file paths; include at least one query aimed at the discovery need. "
+        "Nem todo candidato precisa cobrir todo eixo: a cobertura é "
+        "avaliada por célula (critério × candidato); quando o escopo "
+        "documentado do candidato exclui o eixo, a célula pode ser marcada "
+        "not_applicable com justificativa que cite a evidência "
+        "delimitadora de escopo. Mantenha per_candidate, candidate_target "
+        "e a proibição de placeholders."
     )
 
 

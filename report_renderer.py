@@ -71,6 +71,7 @@ _PT = {
     "state_insufficient": "insuficiente",
     "state_contradictory": "contraditório",
     "state_blocked": "bloqueado",
+    "state_not_applicable": "não aplicável",
     "state_uninvestigated": "não investigado",
     "state_unevaluated": "não avaliado",
 }
@@ -131,6 +132,7 @@ _EN = {
     "state_insufficient": "insufficient",
     "state_contradictory": "contradictory",
     "state_blocked": "blocked",
+    "state_not_applicable": "not applicable",
     "state_uninvestigated": "not investigated",
     "state_unevaluated": "not evaluated",
 }
@@ -139,6 +141,7 @@ _STATE_KEY = {"covered": "state_covered", "partial": "state_partial",
               "insufficient": "state_insufficient",
               "contradictory": "state_contradictory",
               "blocked": "state_blocked",
+              "not_applicable": "state_not_applicable",
               "uninvestigated": "state_uninvestigated",
               "unevaluated": "state_unevaluated"}
 
@@ -371,6 +374,10 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             lines.append("|---|---|")
             for eid, est in entity_states.items():
                 lines.append(f"| {eid} | {_state_label(labels, est)} |")
+        for nc in crit.get("na_cells", []) or []:
+            lines.append(
+                f"- **N/A** {nc.get('entity_id')}: "
+                f"{(nc.get('justification') or '').strip() or labels['not_investigated']}")
         lines.append("")
     return lines
 
@@ -492,6 +499,23 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
         for rel in relations:
             lines.append(f"| {rel.get('kind')} | {rel.get('url')} ↔ "
                          f"{rel.get('related_to')} | {rel.get('detail', '')} |")
+    # M9 reading metric: share of the collected corpus actually sent to the
+    # assessor/writer in excerpts. New-URL saturation is not exhausted
+    # analysis — the metric never alters coverage.
+    reading = state.get("reading") or {}
+    collected = reading.get("collected_chars") or 0
+    excerpted = reading.get("excerpted_chars") or 0
+    lines.append("")
+    if collected or excerpted:
+        pct = min(100.0, excerpted / collected * 100.0) if collected else 0.0
+        lines.append(
+            f"**Leitura:** {pct:.1f}% dos caracteres do corpus incluídos "
+            f"em excertos avaliados ({excerpted}/{collected} chars; "
+            f"{reading.get('docs_excerpted', 0)} docs em excertos de "
+            f"{reading.get('docs_collected', 0)} coletados)")
+        lines.append("saturação de URLs novas ≠ análise esgotada")
+    else:
+        lines.append("**Leitura:** não medida")
     return lines
 
 
@@ -553,6 +577,10 @@ def render_report(state: dict, *, synthesis_text: str,
         lines += [f"**Cobertura:** {block.get('numerator')}/"
                   f"{block.get('denominator')} células obrigatórias — "
                   f"{block.get('definition', '')}", ""]
+    if block.get("na"):
+        lines += [f"**N/A:** {block.get('na')} célula(s) fora do escopo "
+                  f"documentado — fora do denominador, listadas nos Achados, "
+                  f"nunca contam como cobertura.", ""]
     lines += [f"## {labels['summary']}", ""]
     if synthesis.strip():
         lines.append(synthesis.strip())
