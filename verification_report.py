@@ -51,6 +51,119 @@ def _doc_text(value) -> str:
     return ""
 
 
+#: Minimal PT->EN product glossary for the support overlap (calibration
+#: accept15). Only pairs where the EN term names the same product fact in
+#: the corpus (license/version/install/plan/test/review/cost/...).
+#: LIMITATION (lexical bridge only): the same word in another sense still
+#: matches — e.g. "bun test" of the project's own development vs
+#: user-facing tests. Sense disambiguation is out of scope on purpose.
+_PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
+    "planejamento": ("planning",),
+    "implementacao": ("implementation",),
+    "testes": ("test", "tests", "testing"),
+    "teste": ("test", "tests"),
+    "revisao": ("review",),
+    "compatibilidade": ("compatibility", "compatible"),
+    "compativel": ("compatible",),
+    "versao": ("version",),
+    "licenca": ("license",),
+    "custo": ("cost",),
+    "preco": ("price",),
+    "gratuito": ("free",),
+    "gratis": ("free",),
+    "pago": ("paid",),
+    "manutencao": ("maintenance",),
+    "limitacao": ("limitation", "limitations"),
+    "limitacoes": ("limitation", "limitations"),
+    "campo": ("field",),
+    "desconhecido": ("unknown",),
+    "rejeita": ("rejects", "reject"),
+    "rejeitar": ("reject",),
+    "ignorar": ("ignore", "ignoring"),
+    "ignora": ("ignore", "ignoring"),
+    "instala": ("install",),
+    "instalacao": ("install", "installation"),
+    "instalar": ("install",),
+    "exige": ("requires", "require"),
+    "exigir": ("require",),
+    "descoberta": ("discovery",),
+    "convencao": ("convention",),
+    "configuracao": ("configuration",),
+    "componentes": ("components",),
+    "comandos": ("commands",),
+    "comando": ("command",),
+    "remoto": ("remote",),
+    "remotos": ("remote",),
+    "agente": ("agent",),
+    "agentes": ("agents",),
+    "fluxos": ("workflows",),
+    "desenvolvimento": ("development",),
+    "leitura": ("reads", "read"),
+    "tipos": ("types",),
+    "injecao": ("inject",),
+    "atualizacao": ("update",),
+    "atualiza": ("update",),
+    "suporte": ("support",),
+    "documentado": ("documented",),
+    "publicacao": ("publishing",),
+    "confiavel": ("trusted",),
+    "usa": ("uses", "use"),
+    "plano": ("plan",),
+}
+
+
+def _expand_support_tokens(tokens: set[str]) -> set[str]:
+    """Claim tokens plus EN equivalents (recall only, denominator kept)."""
+    out = set(tokens)
+    for tok in tokens:
+        out.update(_PT_EN_SUPPORT.get(tok, ()))
+    return out
+
+
+#: Dotted releases (0.6.0, 2.1.4) and host generations (V1/V2/V3).
+_VERSION_RE = re.compile(
+    r"\b\d+\.\d+(?:\.\d+)?(?:[-+][a-z0-9.]+)?\b|\bV\d+\b",
+    re.IGNORECASE)
+
+
+def _text_versions(text: str) -> set[str]:
+    """Normalized version tags in a sentence/doc (v/@ stripped, lowered)."""
+    out = set()
+    for raw in _VERSION_RE.findall(str(text or "")):
+        norm = raw.lower().lstrip("v@")
+        if norm:
+            out.add(norm)
+    return out
+
+
+def _norm_mention(text) -> str:
+    """Accent-insensitive, separator-normalized mention form."""
+    import unicodedata as _ud
+    norm = "".join(c for c in _ud.normalize(
+        "NFKD", str(text or "").lower()) if not _ud.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", norm).strip()
+
+
+def _entity_mentioned(label, eid, doc_text: str) -> bool:
+    """The cell entity is named in the cited doc (label or id, full form).
+
+    Token overlap ("opencode" + "agents" via "sub-agents") is not a
+    mention: the normalized label/id itself must occur. Short ids
+    ("e1") are skipped, the label decides.
+    """
+    doc = _norm_mention(doc_text)
+    if not doc:
+        return False
+    compact_doc = doc.replace(" ", "")
+    for cand in (label, eid):
+        ent = _norm_mention(cand)
+        if len(ent) < 4:
+            continue
+        if ent in doc or ent.replace(" ", "") in compact_doc:
+            return True
+    return False
+
+
 def _n_to_url(numbers) -> dict[int, str]:
     """Accept {url: n} (renderer) or {n: url} and return n -> url."""
     out: dict[int, str] = {}
@@ -69,12 +182,24 @@ def _n_to_url(numbers) -> dict[int, str]:
 
 
 def _sentence_supported(sentence_tokens: set[str], doc_text: str,
-                        named_entities: list[set[str]]) -> tuple[bool, str]:
-    """(supported, reason) for one sentence against one cited document."""
+                        named_entities: list,
+                        sentence_raw: str = "") -> tuple[bool, str]:
+    """(supported, reason) for one sentence against one cited document.
+
+    ``named_entities`` holds (tokens, label, entity_id) per plan entity.
+    A version tag claimed by the sentence but absent from the doc never
+    sustains (same "sem sobreposição" reason: audit consumers compare it
+    for equality). A named cell entity must occur in its full form.
+    """
     doc_tokens = set(_content_tokens(doc_text))
     if not sentence_tokens:
         return False, "sem sobreposição"
-    common = sentence_tokens & doc_tokens
+    # A claimed release/generation absent from the doc is not sustained,
+    # however high the remaining overlap is.
+    if sentence_raw and not _text_versions(sentence_raw) <= _text_versions(
+            doc_text):
+        return False, "sem sobreposição"
+    common = _expand_support_tokens(set(sentence_tokens)) & doc_tokens
     ratio = len(common) / len(sentence_tokens)
     title = set()
     for line in str(doc_text or "").splitlines():
@@ -85,7 +210,14 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     rare = {w for w in common if len(w) >= 6 and w not in title}
     if ratio < 0.35 and len(rare) < 2:
         return False, "sem sobreposição"
-    if any(not (tokens & doc_tokens) for tokens in named_entities):
+    # The cell entity must be named in full ("opencode" + "agents" via
+    # "sub-agents" is not a mention). A sentence can share a generic
+    # token with several entities: at least one named entity in full
+    # form sustains (per-cell audit: the cell's own entity).
+    named = [(label, eid) for tokens, label, eid in named_entities
+             if sentence_tokens & tokens]
+    if named and not any(_entity_mentioned(label, eid, doc_text)
+                         for label, eid in named):
         return False, "entidade não mencionada no doc"
     return True, ""
 
@@ -185,14 +317,14 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
                 return docs[norm_docs[norm]]
         return ""
 
-    entities: list[set[str]] = []
+    entities: list[tuple[set[str], object, object]] = []
     for ent in (plan or {}).get("entities", []) or []:
         if not isinstance(ent, dict):
             continue
         toks = {t for t in _content_tokens(ent.get("label") or ent.get("id"))
                 if len(t) >= 4}
         if toks:
-            entities.append(toks)
+            entities.append((toks, ent.get("label"), ent.get("id")))
 
     claims = supported = uncited = 0
     declared: list[dict] = []
@@ -218,7 +350,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
         # Inference-marked claim: audit the factual anchor only.
         factual = _factual_anchor(sentence)
         sent_tokens = set(_content_tokens(factual))
-        named = [toks for toks in entities if sent_tokens & toks]
+        named = [entry for entry in entities if sent_tokens & entry[0]]
         ok = False
         reasons: list[str] = []
         for n in citations:
@@ -227,7 +359,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
                 reasons.append("sem sobreposição")
                 continue
             good, reason = _sentence_supported(
-                sent_tokens, _doc_for(url), named)
+                sent_tokens, _doc_for(url), named, factual)
             if good:
                 ok = True
                 break

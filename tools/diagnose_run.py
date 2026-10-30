@@ -38,7 +38,12 @@ sys.path.insert(0, str(ROOT))
 
 import report_renderer as renderer  # noqa: E402
 from adaptive_coordinator import _expand_terms_en, _PT_EN_RESEARCH  # noqa: E402
-from verification_report import is_lacuna_declaration  # noqa: E402
+from verification_report import (  # noqa: E402
+    _entity_mentioned,
+    _expand_support_tokens,
+    _text_versions,
+    is_lacuna_declaration,
+)
 
 # Generic dimension vocabulary (PT/EN). Not answers: only words that name a
 # research dimension so we can tell "nothing about it" from "not shown".
@@ -278,7 +283,7 @@ def _number_map(state: dict) -> dict[int, str]:
     return {n: url for url, n in renderer._numbers(state).items()}
 
 
-def _audit_entities(state: dict) -> list[tuple[str, list[str]]]:
+def _audit_entities(state: dict) -> list[tuple[str, object, list[str]]]:
     out = []
     for ent in (state.get("plan") or {}).get("entities", []):
         # Parenthetical text describes the entity ("OpenCode (versão
@@ -286,7 +291,8 @@ def _audit_entities(state: dict) -> list[tuple[str, list[str]]]:
         label = re.sub(r"\([^)]*\)", " ", ent.get("label") or "")
         toks = entity_tokens({**ent, "label": label})
         if toks:
-            out.append((ent.get("label") or ent.get("id") or "?", toks))
+            out.append((ent.get("label") or ent.get("id") or "?",
+                        ent.get("id"), toks))
     return out
 
 
@@ -330,7 +336,7 @@ def synthesis_audit(state: dict) -> dict:
                 missing.append(n)
             else:
                 cited_docs.append((n, doc))
-        named = [(label, toks) for label, toks in entities
+        named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(line) for t in toks)]
         # Absence declaration over consulted sources: sustained by the
         # consultation itself (mirrors verification_report.check_support).
@@ -342,15 +348,26 @@ def synthesis_audit(state: dict) -> dict:
         from verification_report import _factual_anchor as _anchor
         anchor = _anchor(line)
         words = content_words(anchor) if anchor != line else words
-        named = [(label, toks) for label, toks in entities
+        named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(anchor) for t in toks)] \
             if anchor != line else named
-        missing_entities = [
-            label for label, toks in named
-            if not any(t in doc for _, doc in cited_docs for t in toks)]
+        # Cell entity must be named in full ("opencode agents" is not
+        # "opencode-planner"); a claimed version absent from the cited
+        # doc never sustains, however high the remaining overlap is.
+        # Both mirror verification_report (shared helpers, single source).
+        missing_entities = []
+        if named and not any(
+                _entity_mentioned(label, eid, doc)
+                for label, eid, _toks in named for _, doc in cited_docs):
+            missing_entities = [label for label, _eid, _toks in named]
+        claim_vers = _text_versions(anchor)
+        version_miss = bool(claim_vers) and not any(
+            not (claim_vers - _text_versions(doc))
+            for _, doc in cited_docs)
+        expanded = _expand_support_tokens(words)
         best, rare = 0.0, 0
         for _, doc in cited_docs:
-            hits = {w for w in words if w in doc}
+            hits = {w for w in expanded if w in doc}
             if words:
                 best = max(best, len(hits) / len(words))
             rare = max(rare, sum(1 for w in hits if len(w) >= 6))
@@ -360,6 +377,8 @@ def synthesis_audit(state: dict) -> dict:
         elif missing_entities:
             reason = "entidade ausente no doc citado: " + ", ".join(
                 missing_entities)
+        elif version_miss:
+            reason = "versão ausente no doc citado"
         elif best < 0.35 and rare < 2:
             reason = (f"overlap {best:.2f} < 0.35 e "
                       f"{rare} palavra(s) rara(s) em comum")
