@@ -1181,12 +1181,19 @@ def _extract_json(raw_s: str):
     raise ValueError("no JSON value found in model response")
 
 
-def _entity_doc(entity: dict, evidence: dict, qualification: dict) -> str | None:
-    """Best corpus doc mentioning the entity (evidence order, deterministic).
+def _entity_doc(entity: dict, evidence: dict, qualification: dict,
+                taken: set | None = None) -> str | None:
+    """Best corpus doc ABOUT the entity (deterministic aboutness score).
 
     One reserved selection slot per required entity without a pushed source
     (Fix A): predefined entities are never discovered, so without this
     their docs compete with the whole corpus and can starve every call.
+    Mere mention is not enough (genus4: the slot held a comparison
+    article for Django/FastAPI and an arXiv URL for Flask — first docs
+    mentioning the token, not docs about the entity). Scoring, ties to
+    evidence order: URL slug hit +3, head (first 1500 chars) hit +2,
+    +1 per full-text occurrence capped at 5. `taken` reserves distinct
+    slots across entities of one selection pass.
     """
     try:
         toks = [t for t in _norm_tokens(
@@ -1196,8 +1203,12 @@ def _entity_doc(entity: dict, evidence: dict, qualification: dict) -> str | None
         return None
     if not toks:
         return None
+    taken = taken or set()
+    best, best_key = None, None
     for url in evidence or {}:
         if not isinstance(url, str) or url.startswith("user://"):
+            continue
+        if url in taken:
             continue
         try:
             q = (qualification or {}).get(url) or {}
@@ -1207,9 +1218,19 @@ def _entity_doc(entity: dict, evidence: dict, qualification: dict) -> str | None
             low = text.lower()
         except Exception:
             continue
-        if any(t in low for t in toks):
-            return url
-    return None
+        slug_hit = any(t in url.lower() for t in toks)
+        head_hit = any(t in low[:1500] for t in toks)
+        count = sum(low.count(t) for t in toks)
+        score = (3 if slug_hit else 0) + (2 if head_hit else 0) \
+            + min(count, 5)
+        # Desempate por volume e densidade: doc SOBRE a entidade cita o
+        # token muito mais (comparativo cita de passagem; oficial cita
+        # em cada seção). Ordem de evidência só no empate final.
+        key = (score, count,
+               (count / max(len(low), 1)) if count else 0.0)
+        if best_key is None or key > best_key:
+            best, best_key = url, key
+    return best
 
 
 def make_model_assessor(model_client, max_docs: int = 24,
@@ -1302,13 +1323,16 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # corpus; 15 células selection_context com 31 docs Flask no corpus).
         # Um slot por entidade exigida ainda sem doc: melhor doc do corpus
         # que menciona a entidade (ordem de evidência, determinístico).
+        _reserved_taken = set(_picked)
         for _e in (plan or {}).get("entities", []) or []:
             if not isinstance(_e, dict) or _e.get("required", True) is False:
                 continue
             _src = _e.get("source_url")
             if isinstance(_src, str) and _src in _picked:
                 continue
-            _push(_entity_doc(_e, evidence, qualification))
+            _push(_entity_doc(_e, evidence, qualification,
+                             taken=_reserved_taken))
+            _reserved_taken.update(_picked)
         for _u in _prior_refs:
             _push(_u)
         for _u in evidence:

@@ -85,6 +85,52 @@ class AssessorEntityCoverageTest(unittest.TestCase):
                           f"entity {token} missing from selection {sel}")
 
 
+class EntityAboutnessTest(unittest.TestCase):
+    def test_entity_doc_prefers_doc_about_entity_over_mere_mention(self):
+        # genus4: _entity_doc returned a JetBrains comparison article for
+        # Django/FastAPI and an arXiv URL for Flask — first docs that
+        # merely MENTION the token. The reserved slot must hold the doc
+        # ABOUT the entity (official reference), not a passing mention.
+        ev = {
+            "https://blog.example.org/django-flask-fastapi-compared":
+                ("Django versus Flask versus FastAPI comparison. " * 40),
+            "https://arxiv.example.org/abs/2511.18038v2":
+                ("Some paper mentioning flask once. " * 40),
+            "https://flask.example.org/en/stable/api/":
+                ("Flask API reference. Flask blueprints. Flask install. "
+                 * 40),
+        }
+        ent = {"id": "e3", "label": "Flask", "required": True}
+        got = ac._entity_doc(ent, ev,
+                             {u: qual(t) for u, t in ev.items()})
+        self.assertEqual(got, "https://flask.example.org/en/stable/api/",
+                         f"reserved junk instead of the entity doc: {got}")
+
+    def test_entity_doc_distinct_slots_per_entity(self):
+        # Comparison article mentions all three; each entity must still
+        # get its own official doc, never the same shared mention.
+        ev = {
+            "https://blog.example.org/django-flask-fastapi-compared":
+                ("Django versus Flask versus FastAPI comparison. " * 40),
+            "https://docs.example.org/django/": ("Django URLconfs. " * 60),
+            "https://docs.example.org/fastapi/": ("FastAPI routes. " * 60),
+            "https://docs.example.org/flask/": ("Flask blueprints. " * 60),
+        }
+        taken = set()
+        got = {}
+        for ent in ({"id": "e1", "label": "Django"},
+                    {"id": "e2", "label": "FastAPI"},
+                    {"id": "e3", "label": "Flask"}):
+            u = ac._entity_doc(ent, ev,
+                               {u: qual(t) for u, t in ev.items()},
+                               taken=taken)
+            got[ent["id"]] = u
+            taken.add(u)
+        self.assertEqual(got["e1"], "https://docs.example.org/django/")
+        self.assertEqual(got["e2"], "https://docs.example.org/fastapi/")
+        self.assertEqual(got["e3"], "https://docs.example.org/flask/")
+
+
 class WriterInlineCitesTest(unittest.TestCase):
     def test_writer_prompt_demands_inline_citations(self):
         seen = {}
