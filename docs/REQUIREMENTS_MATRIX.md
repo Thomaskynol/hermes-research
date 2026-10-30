@@ -9,7 +9,7 @@ Fonte normativa: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (SHA-256
 - **PENDENTE** — requisito obrigatório ainda não atendido.
 - **BLOQUEADO** — impedido por ambiente externo (registrado, não fingido).
 
-Atualizada em 2026-10-29. Evidências apontam para teste/comando/doc; nenhum
+Atualizada em 2026-10-30. Evidências apontam para teste/comando/doc; nenhum
 estado REAL é atribuído sem execução registrada. Promoções IMPL→REAL pela
 validação RAG_001 estão em "Validação real RAG_001 — promoções"; as da
 reabertura do aceite estão em "Reabertura do aceite — 2026-10-29".
@@ -246,13 +246,32 @@ Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept1
 |---|---|---|---|---|
 | RA1 | Planejamento separa alvos de investigação de obrigações metodológicas | `per_candidate` no planner; entidades-placeholder proibidas; `initial_paths` são queries web, nunca caminhos locais | `tests/test_plan_placeholders.py`, `tests/test_discovery_cells.py`, plano do accept11 (12 critérios, 5 per_candidate) | REAL |
 | RA2 | Nome encontrado em lista vira candidato real com fonte própria | `propose_entity` + remap de id + `source_url` validada + `candidate_target` + gate de menção na fonte | accept11: 5 exigidos, todos com fonte no corpus ([2],[6],[4],[5],[3]) | REAL |
-| RA3 | Qualificação de contexto: lixo, espelhos, duplicatas, captura vs análise | snippet gate, dedupe por URL normalizada, alcance lido por fonte no relatório | accept15: 55 docs obtidos, contadores obtained/usable/analyzed/cited separados; lixo analisado não citado | REAL |
-| RA4 | Consistência entre relatório e registros (citações, fontes, escopo lido, rodadas, consumo) | writer prioriza fontes citadas; tabela `cited` usa o próprio render; numeração `[n]→URL` persistida no artefato (E2); 5ª dimensão `support` audita cada frase citada (S2) | accept15: `verification.json` support `failed` honesto com 5 `unsupported` reais sinalizados; diagnose 28/5/57 | REAL |
+| RA3 | Qualificação de contexto: lixo, espelhos, duplicatas, captura vs análise | snippet gate, dedupe por URL normalizada, alcance lido por fonte no relatório | accept15: 55 docs obtidos, contadores obtained/usable/analyzed/cited separados; lixo analisado não citado. Residual 2026-10-30: lixo com vocabulário compartilhado passa; hits sem snippet lidos às cegas | REAL |
+| RA4 | Consistência entre relatório e registros (citações, fontes, escopo lido, rodadas, consumo) | writer prioriza fontes citadas; tabela `cited` usa o próprio render; numeração `[n]→URL` persistida no artefato (E2); 5ª dimensão `support` audita cada frase citada (S2) | accept15: `verification.json` support `failed` honesto com 5 `unsupported` reais sinalizados; diagnose 28/5/57. Residual 2026-10-30 (accept16): 44/2/57 — 2 unsupported são cites fracos de menção em lista (overlap 0,12–0,20) | REAL |
 | RA5 | Entrada Hermes isolada demonstrada ponta a ponta | CLI única + `--control-dir` + `run_control.py status` + pause/resume | accept11 status ao vivo + accept12: pause limpo entre rodadas e `--resume` com contadores preservados (§10) | REAL |
 | RA6 | Generalização em outro assunto | mesmos mecanismos, outra pergunta | genus1 (httpx×requests×aiohttp): 10/16=0.625 partial, SATURATION, support `ok` 37/37 + acadrun5 FAIR-RAG (§5) | REAL |
 | RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
-| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept15: 6/55 = 0.109 parcial; relatório responde com lacunas explícitas, sem declarar completo | PENDENTE |
+| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 = 0.2157 parcial; relatório responde com lacunas explícitas, sem declarar completo | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
 
 Pendências declaradas: gate de citação literal por avaliação (justificativa do
 assessor não é verificada contra o excerto); conector de inspeção local;
 tokens/custos desconhecidos; canal web primário (gateway vast) fora.
+
+## Reabertura do aceite — resultado final 2026-10-30
+
+Run final: `accept16` (mecanismos até `d0ba933` + M7/M8/M9, `34c760c`).
+Série outro assunto genus2–genus8 (Django×FastAPI×Flask, medium,
+max-rounds 3). Calibração Lane B (corpus congelado accept15,
+`tools/run_calibration.py`, 25 casos a–f). Detalhes em
+`docs/ACEITE_V1_RESULTADO.md` §§11–15. HEAD `c83b892`; 411 testes OK
+(9 skipped).
+
+| ID | Requisito / mecanismo | Evidência | Estado |
+|---|---|---|---|
+| M7 | N/A por célula só vale p/ per_candidate de entidade discovered+required (excluído do denominador, com `na_cells`) | `34c760c`; accept16: na=4 com escopo (ex.: marketplace N/A p/ planejamento — instalador) | REAL |
+| M8 | Substituição só p/ MAIS evidência, registrada em `plan_versions`, velha mantida no relatório | `34c760c`; accept16: zero substituições disparadas | REAL |
+| M9 | Métrica de leitura (excerptado vs coletado; saturação ≠ análise exaurida) | accept16: 51.707/5.927.450 chars (~0,9%) | REAL |
+| CAL | Calibração Lane B do validador | 25 casos a–f: erros de validador 12→1, ok 8→18, modelo-julgamento 1→2, contexto 4→4 | REAL (residuais: gap lexical PT/EN, b2 `known_limitation`, taxa sem-citação) |
+| FIXE | Gaps de critério per_candidate expandem em sub-gaps por entidade (`select_ops`) | `5304231` (completa `1c68e3c`, no-op isolado); genus7: queries Flask-led + docs oficiais Flask no corpus | REAL |
+| RR | Round-robin interleave entre critérios nos slots de op | `c83b892`; genus8: spread intra-round [c1,c2,c3], total 4/26 idêntico | REAL (gargalo vinculante é retrieval, não alocação — stop) |
+| GEN | Série genus2–8; variância single-run dominada por retrieval | genus2 1/10 (expôs bug per_candidate, fix `b861763`) → genus3–8: 7,7,3,7,4,4 /26 | REAL (±0,1 cobertura entre configs idênticas) |

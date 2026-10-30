@@ -128,7 +128,7 @@ completo no outro assunto.
 
 ## 6. Estado do repositório
 
-Branch `feat/product-v1`; HEAD `b4d61f8`; árvore limpa; **364 testes OK
+Branch `feat/product-v1`; HEAD `c83b892`; árvore limpa; **411 testes OK
 (9 skipped)** no host; sem push/deploy; produção intocada; nenhum pacote de
 revisão gerado.
 
@@ -140,6 +140,7 @@ revisão gerado.
 | accept13 | `9552100` (E1/E2) | 51 | 8/36 = 0.2222 partial | planner, Plannotator, dzianisv, oh-my-openagent, Context7 | ok=7, partial_legit=17, selection_context=4, assessor_error=5 |
 | accept14 | `2fea859` (S1/S2) | 55 | 1/40 = 0.025 partial | planner, goal-plugin, Oh My OpenAgent, Context7, reflection | ok=1, partial_legit=14, selection_context=0, assessor_error=19 |
 | accept15 | `e32525d` (S1 code-span) | — | 6/55 = 0.109 partial | planner, marketplace, oh-my-opencode, opencode-agents, type-inject | ok=6, partial_legit=24, missing_dimension=9, assessor_error=16; síntese 28/5/57 após `b4d61f8` |
+| accept16 | era `d0ba933` + M7/M8/M9 (`34c760c`) | 40 evidências, 4 avaliações | 11/51 = 0.2157 partial | opencode-planner, plannotator, oh-my-opencode, opencode-marketplace, dzianisv-opencode-plugins | ok=10, partial_legit=23, missing_dimension=8, assessor_error=11 (maioria FPs de heurística, tipo c4-testes); selection_context=2, synthesis_unsupported=1; síntese 44/2/57 — ver §11 |
 
 Leitura: E1/E2 elevaram a cobertura (accept13 8/36, com `selection_context`
 caindo 19→4) porque fatos de licença/custo no rodapé dos docs passaram a
@@ -184,3 +185,67 @@ Além do `status` em tempo real (§1): `run_control.py pause` numa run ativa
 `--resume` com a mesma pergunta/plano → processo novo retomou do ponto de
 parada (`round: 1`, contadores analyzed 8 / obtained 25 / discovered 29 /
 cited 7 preservados, sem re-obter). Produção intacta o tempo todo.
+Entrada NL isolada + pause/resume demonstrados ao vivo no accept12
+(status em tempo real §1, pause limpo + `--resume` acima).
+
+## 11. accept16 — resultado final (2026-10-30, mecanismos até `d0ba933` + M7/M8/M9)
+
+- Cobertura **11/51 = 0.2157, parcial**, parada por `rounds`; 40
+  evidências, 4 avaliações.
+- 5 exigidos descobertos, **zero substituições** (M8 nunca disparou):
+  `opencode-planner`, `plannotator`, `oh-my-opencode`,
+  `opencode-marketplace`, `dzianisv-opencode-plugins`.
+- M7 N/A funcional: `na=4` com evidência de escopo (ex.:
+  `opencode-marketplace` N/A para planejamento/implementação —
+  instalador, não planejador).
+- M9 (métrica de leitura): 51.707 chars excerptados de 5.927.450
+  coletados (~0,9%) — saturação de URL ≠ análise exaurida.
+- Diagnose: ok=10, partial_legit=23, missing_dimension=8,
+  assessor_error=11 (maioria FPs da heurística ferramenta, tipo
+  c4-testes: assessor insufficient está correto, doc só menciona a
+  dimensão de passagem), selection_context=2, synthesis_unsupported=1.
+- Síntese: 44 suportadas / 2 não suportadas (cites fracos de menção em
+  lista, overlap 0,12–0,20) / 57 sem citação.
+
+## 12. Saga Fix E — escalonamento por entidade (2026-10-30; pergunta Django×FastAPI×Flask, medium, max-rounds 3)
+
+| Run | Cobertura | O que mostrou |
+|---|---|---|
+| genus5 | 3/26 = 0.115 | `_short_gap_query` ignorava `gap.entity_id` (todas as queries Django-led, Flask faminto) |
+| genus6 | 7/26 | Fix E (`1c68e3c`, só query builder) = no-op em produção: gaps de runtime nunca carregam `entity_id` |
+| genus7 | 4/26 | Fix E-complete (`5304231`: `select_ops` expande gaps de critério per_candidate em sub-gaps por entidade) provou o mecanismo end-to-end: queries Flask-led apareceram (r1-c1-0-e3 `new_useful`), docs oficiais flask.palletsprojects.com entraram no corpus (2 URLs vs 0), e3 1 covered/4 partial/3 insuff (vs 0/2/6) — mas o total caiu 7/26→4/26 porque a expansão agrupada deixou c1 monopolizar os 3 slots de op toda rodada |
+| genus8 | 4/26 | Round-robin interleave (`c83b892`, HEAD atual): spread intra-round confirmado (r1–r3 miram [c1,c2,c3] em vez de só c1), total idêntico 4/26, e3 0/0/8 — azar de retrieval (docs oficiais Django+Flask falharam em r0; corpus 5 FastAPI + 6 arxiv off-topic), e c4–c10 nunca mirados (mesmos top-3 gaps repetem com delta 0.0) |
+
+Conclusão registrada: o gargalo vinculante agora é **retrieval**
+(evidência de dimensão ausente), não escalonamento; **parar de iterar
+alocação**.
+
+## 13. Série outro assunto — Django×FastAPI×Flask (2026-10-30)
+
+genus1 10/16 = 0.625 SATURATION support 37/37 (era pré-per_candidate,
+planner set aplica explicitamente); genus2 1/10 — expôs bug
+per_candidate não-vinculado (fix `b861763`: vincula per_candidate a
+entidades predefinidas na adoção quando `open_discovery.needed` é
+falso); genus3 7/26; genus4 7/26; genus5 3/26; genus6 7/26; genus7 4/26;
+genus8 4/26. Variância single-run é dominada por retrieval.
+(Os números do genus1 coincidem com o genus1 httpx do §5.)
+
+## 14. Calibração Lane B (2026-10-30; corpus congelado accept15, `tools/run_calibration.py`, 25 casos a–f)
+
+- Erros causados pelo validador: 12→1; ok 8→18; julgamento-de-modelo
+  1→2 (desmascarado pelo fix); contexto 4→4 (provas estáveis: janela de
+  excerto 1200 chars, sem retrieval de doc oficial).
+- Residuais documentados: gap lexical inter-idioma (MIT em PT vs doc
+  EN), ambiguidade dev-vs-user de sentido (b2, `known_limitation`),
+  taxa de claims sem citação.
+
+## 15. Limitações finais (2026-10-30, HEAD `c83b892`)
+
+1. Cobertura parcial na pergunta de aceite (retrieval-bound: features de
+   código-teste, compat 2.1.4, custos ausentes do corpus).
+2. Residuais de suporte: inter-idioma + claims de escopo.
+3. Sem conector local (versão instalada só via `--context`).
+4. Tokens/custos desconhecidos.
+5. Gateway vast fora; ponte SearXNG com IP frágil.
+6. Variância de retrieval single-run (~±0,1 de cobertura entre configs
+   idênticas).
