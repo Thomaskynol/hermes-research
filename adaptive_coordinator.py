@@ -1181,6 +1181,37 @@ def _extract_json(raw_s: str):
     raise ValueError("no JSON value found in model response")
 
 
+def _entity_doc(entity: dict, evidence: dict, qualification: dict) -> str | None:
+    """Best corpus doc mentioning the entity (evidence order, deterministic).
+
+    One reserved selection slot per required entity without a pushed source
+    (Fix A): predefined entities are never discovered, so without this
+    their docs compete with the whole corpus and can starve every call.
+    """
+    try:
+        toks = [t for t in _norm_tokens(
+            f"{entity.get('label') or ''} {entity.get('id') or ''}",
+            min_len=4)]
+    except Exception:
+        return None
+    if not toks:
+        return None
+    for url in evidence or {}:
+        if not isinstance(url, str) or url.startswith("user://"):
+            continue
+        try:
+            q = (qualification or {}).get(url) or {}
+            if q.get("excluded"):
+                continue
+            text = str(q.get("usable_text") or evidence.get(url) or "")
+            low = text.lower()
+        except Exception:
+            continue
+        if any(t in low for t in toks):
+            return url
+    return None
+
+
 def make_model_assessor(model_client, max_docs: int = 24,
                         excerpt_chars: int = 1200,
                         json_budget: int = 12000):
@@ -1266,6 +1297,18 @@ def make_model_assessor(model_client, max_docs: int = 24,
             if not _e.get("discovered"):
                 continue
             _push(_e.get("source_url"))
+        # Reserva por entidade (genus3: entidades predefinidas nunca são
+        # discovered e seus docs perdiam todos os slots para o prefixo do
+        # corpus; 15 células selection_context com 31 docs Flask no corpus).
+        # Um slot por entidade exigida ainda sem doc: melhor doc do corpus
+        # que menciona a entidade (ordem de evidência, determinístico).
+        for _e in (plan or {}).get("entities", []) or []:
+            if not isinstance(_e, dict) or _e.get("required", True) is False:
+                continue
+            _src = _e.get("source_url")
+            if isinstance(_src, str) and _src in _picked:
+                continue
+            _push(_entity_doc(_e, evidence, qualification))
         for _u in _prior_refs:
             _push(_u)
         for _u in evidence:
@@ -1619,6 +1662,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
+            "coloque a citação [n]/URL na mesma linha da afirmação que ela "
+            "sustenta (nunca só em linha 'Fontes:' separada); "
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
             f"{_cand_s}{_sub_s}"

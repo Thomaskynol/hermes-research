@@ -297,9 +297,34 @@ def _audit_entities(state: dict) -> list[tuple[str, object, list[str]]]:
 
 
 def _is_reference_line(line: str) -> bool:
-    """Renderer metadata line ("Referências: [2]") is not a claim."""
+    """Renderer metadata line ("Referências: [2]", "Fontes:") is not a claim."""
     stripped = re.sub(r"^[\s*_`]+", "", line)
-    return bool(re.match(r"refer[êe]ncias?\s*:", stripped, re.I))
+    return bool(re.match(r"(refer[êe]ncias?|fontes?)\s*:",
+                         stripped, re.I))
+
+
+def _attach_floating_cites(lines: list[str]) -> list[tuple[str, list[str]]]:
+    """Attach cite-only lines to the preceding claim (genus3: writer puts
+    citations on a separate "Fontes:" + "- [1]" block; without this the
+    claims read as uncited and the audit blames the synthesis instead of
+    the layout). Returns (line, extra_cites); cite-only lines are dropped."""
+    merged: list[tuple[str, list[str]]] = []
+    claim_idx: int | None = None
+    for raw in lines:
+        line = raw.strip()
+        cites = CITE.findall(line)
+        if cites:
+            bare = re.sub(r"[\s*_`>\-#|]", "", line)
+            bare = CITE.sub("", bare)
+            if len(bare) < 3:
+                if claim_idx is not None:
+                    merged[claim_idx][1].extend(cites)
+                continue
+        merged.append([line, []])
+        if line and not line.startswith(("#", "|", ">", "```")) \
+                and content_words(line):
+            claim_idx = len(merged) - 1
+    return [(line, extra) for line, extra in merged]
 
 
 def synthesis_audit(state: dict) -> dict:
@@ -311,7 +336,8 @@ def synthesis_audit(state: dict) -> dict:
     entities = _audit_entities(state)
     supported = unsupported = uncited = 0
     items: list[dict] = []
-    for raw_line in markdown.splitlines():
+    for raw_line, extra_cites in _attach_floating_cites(
+            markdown.splitlines()):
         line = raw_line.strip()
         if not line or line.startswith(("#", "|", ">", "```")):
             continue
@@ -320,7 +346,7 @@ def synthesis_audit(state: dict) -> dict:
         words = content_words(line)
         if not words:
             continue
-        cites = CITE.findall(line)
+        cites = CITE.findall(line) + extra_cites
         if not cites:
             # No citation: only long prose statements count as claims.
             for sent in re.split(r"(?<=[.!?])\s+", line):
