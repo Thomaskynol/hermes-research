@@ -950,11 +950,22 @@ def _short_gap_query(state: dict, gap: dict) -> str:
                 ap = c.get("applies_to") or []
                 applies = [ap] if isinstance(ap, str) else list(ap)
                 break
-        for e in plan.get("entities") or []:
-            if isinstance(e, dict) and e.get("id") in applies:
-                ent = _query_label(e.get("label") or e.get("id"))
-                if ent:
+        # FIX E (genus5): gap de celula carrega entity_id; a entidade do
+        # gap lidera a query, nao a primeira do applies_to (senao e3/Flask
+        # emitia query Django-led e faminto de corpus proprio). Fallback
+        # preservado p/ entity_id ausente/desconhecido/vazio.
+        gap_eid = gap.get("entity_id") or ""
+        if gap_eid:
+            for e in plan.get("entities") or []:
+                if isinstance(e, dict) and e.get("id") == gap_eid:
+                    ent = _query_label(e.get("label") or e.get("id"))
                     break
+        if not ent:
+            for e in plan.get("entities") or []:
+                if isinstance(e, dict) and e.get("id") in applies:
+                    ent = _query_label(e.get("label") or e.get("id"))
+                    if ent:
+                        break
     except Exception:
         ent = ""
     short = f"{ent} {label}".strip()
@@ -985,11 +996,19 @@ def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
                 ap = crit.get("applies_to") or []
                 applies = [ap] if isinstance(ap, str) else list(ap)
                 break
+        # Mesma preferencia do _short_gap_query: termos da entidade do gap
+        # primeiro (ranking conta ocorrencia, ordem so estabiliza o dedupe).
+        gap_eid = gap.get("entity_id") or ""
+        ordered: list = []
         for ent in (state.get("plan") or {}).get("entities") or []:
             if isinstance(ent, dict) and ent.get("id") in applies:
                 lbl = _query_label(ent.get("label") or ent.get("id"))
                 if lbl:
-                    out.extend(_norm_tokens(lbl))
+                    ordered.append((ent.get("id"), lbl))
+        if gap_eid:
+            ordered.sort(key=lambda t: 0 if t[0] == gap_eid else 1)
+        for _, lbl in ordered:
+            out.extend(_norm_tokens(lbl))
     except Exception:
         pass
     seen: set[str] = set()
