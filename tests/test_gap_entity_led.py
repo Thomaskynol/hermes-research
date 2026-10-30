@@ -130,5 +130,70 @@ class GapPerCandidateExpansionTest(unittest.TestCase):
         self.assertEqual(ops[0]["target"], url)
 
 
+def _rr_state():
+    """Two per_candidate criteria x [e1, e2] (genus7 shape: c1 monopolized
+    the op budget because grouped expansion filled every cap slot)."""
+    return {
+        "question": "Compare Django FastAPI?",
+        "plan": {
+            "entities": [
+                {"id": "e1", "label": "Django"},
+                {"id": "e2", "label": "FastAPI"},
+            ],
+            "criteria": [
+                {"id": "c1", "label": "roteamento",
+                 "required": True, "per_candidate": True,
+                 "applies_to": ["e1", "e2"]},
+                {"id": "c2", "label": "orm",
+                 "required": True, "per_candidate": True,
+                 "applies_to": ["e1", "e2"]},
+            ],
+        },
+        "evidence": {},
+        "attempts": {},
+        "discovery": {"open": True, "candidates": []},
+        "rounds": [],
+        "evaluations": [],
+    }
+
+
+def _rr_gap(cid, label):
+    return {"criterion_id": cid, "label": label,
+            "state": "insufficient", "justification": "nao investigado",
+            "next": "investigar criterio obrigatorio"}
+
+
+class GapRoundRobinTest(unittest.TestCase):
+    """Sub-gaps interleave round-robin ACROSS criteria (breadth): with
+    cap=3 and gaps [c1, c2] the ops must be c1-e1, c2-e1, c1-e2 — never
+    c1-e1, c1-e2, c2-e1 (grouped expansion let c1 hog the whole budget)."""
+
+    def test_subgaps_interleave_across_criteria(self):
+        st = _rr_state()
+        ops = ac.select_ops(st, [_rr_gap("c1", "roteamento"),
+                                 _rr_gap("c2", "persistencia")], 3)
+        self.assertEqual([o["criterion_id"] for o in ops],
+                         ["c1", "c2", "c1"],
+                         f"round-robin entre criterios, nao agrupado: {ops}")
+        leads = [o["target"].split()[0].lower() for o in ops]
+        self.assertEqual(leads, ["django", "django", "fastapi"],
+                         f"cada op lidera com sua entidade: {leads}")
+
+    def test_fully_covered_criterion_skipped_in_rotation(self):
+        st = _rr_state()
+        st["evaluations"] = [
+            {"criterion_id": "c1", "entity_id": "e1", "state": "covered"},
+            {"criterion_id": "c1", "entity_id": "e2", "state": "covered"},
+        ]
+        ops = ac.select_ops(st, [_rr_gap("c1", "roteamento"),
+                                 _rr_gap("c2", "persistencia")], 2)
+        self.assertEqual(len(ops), 2, f"c2 aberta -> 2 ops: {ops}")
+        self.assertTrue(all(o["criterion_id"] == "c2" for o in ops),
+                        f"ambos os ops de c2 (c1 toda coberta): {ops}")
+        leads = [o["target"].split()[0].lower() for o in ops]
+        self.assertEqual(leads, ["django", "fastapi"],
+                         f"cada op lidera com sua entidade: {leads}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1055,8 +1055,13 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     # entity_id (genus6); sem expansao, a query liderava com a 1a entidade do
     # applies_to e as demais famintas de corpus. Gaps sem entity_id sobre
     # criterio per_candidate com applies_to expandem em um sub-gap por
-    # entidade nao coberta (agrupados por criterio, ordem original estavel);
-    # o loop abaixo limita os ops emitidos ao cap como antes.
+    # entidade nao coberta; os sub-gaps saem em round-robin ENTRE criterios
+    # (1o sub-gap de cada criterio na ordem original, depois o 2o de cada,
+    # ...) para que o criterio top-1 nao monopolize o budget do lote
+    # (genus7: c1xe3 preencheu todos os 3 slots e c2-c8 sem query); o loop
+    # abaixo limita os ops emitidos ao cap como antes. Gaps de celula com
+    # source_url propria (G1) mantem prioridade absoluta: vao para a frente,
+    # na ordem original, acima/antes da expansao.
     try:
         _crit_by_id = {c.get("id"): c for c in
                        (state.get("plan") or {}).get("criteria") or []
@@ -1070,29 +1075,42 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
             for _ev in _evals:
                 if isinstance(_ev, dict) and _ev.get("state") == "covered":
                     _covered.add((_ev.get("criterion_id"), _ev.get("entity_id")))
-        _expanded: list[dict] = []
+        _cells: list[dict] = []
+        _per_gap: list[list[dict]] = []
         for _gap in gaps or []:
             if not isinstance(_gap, dict) or _gap.get("entity_id"):
-                _expanded.append(_gap)
+                _per_gap.append([_gap])
+                continue
+            if str(_gap.get("source_url") or "").strip():
+                _cells.append(_gap)  # G1: read_source antes das queries
                 continue
             _crit = _crit_by_id.get(_gap.get("criterion_id")) or {}
             _applies = _crit.get("applies_to") or []
             if not _crit.get("per_candidate") or not _applies:
-                _expanded.append(_gap)  # global / sem applies_to: inalterado
+                _per_gap.append([_gap])  # global / sem applies_to: inalterado
                 continue
             if isinstance(_applies, str):
                 _applies = [_applies]
-            _made = False
+            _subs: list[dict] = []
             for _eid in _applies:
                 if (_gap.get("criterion_id"), _eid) in _covered:
                     continue
                 _sub = dict(_gap)
                 _sub["entity_id"] = _eid
                 _sub["entity_label"] = _elabel.get(_eid, _eid)
-                _expanded.append(_sub)
-                _made = True
-            if not _made:
-                continue  # todas cobertas: nada a buscar
+                _subs.append(_sub)
+            # Todas cobertas: nada a buscar (fora da rotacao, ordem mantida).
+            if _subs:
+                _per_gap.append(_subs)
+        _expanded: list[dict] = list(_cells)
+        _pending = [list(_lst) for _lst in _per_gap if _lst]
+        while _pending:
+            _nxt: list[list[dict]] = []
+            for _lst in _pending:
+                _expanded.append(_lst.pop(0))
+                if _lst:
+                    _nxt.append(_lst)
+            _pending = _nxt
         _gaps = _expanded
     except Exception:
         _gaps = gaps
