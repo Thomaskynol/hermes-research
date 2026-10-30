@@ -717,6 +717,37 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
     return kind
 
 
+_USEFUL_OUTCOMES = frozenset(("new_useful", "confirmed"))
+
+
+def _gap_attempt_stats(state: dict, cid: str,
+                       eid: str | None = None) -> tuple[int, int]:
+    """(consecutive non-useful, total) attempts for a criterion/cell.
+
+    Cell filter (eid given): attempts carrying that entity_id, plus legacy
+    attempts with no entity_id (they tried *something* for the criterion,
+    counted conservatively toward every cell). Criterion level (eid None):
+    every attempt under the criterion key. Never raises; missing state is
+    zero attempts (unexplored outranks repeatedly-failed).
+    """
+    try:
+        atts = (state.get("attempts") or {}).get(cid, []) or []
+    except Exception:
+        return 0, 0
+    if eid is None:
+        seq = list(atts)
+    else:
+        seq = [a for a in atts if isinstance(a, dict)
+               and (not a.get("entity_id") or a.get("entity_id") == eid)]
+    total = len(seq)
+    consec = 0
+    for a in reversed(seq):
+        if isinstance(a, dict) and a.get("outcome") in _USEFUL_OUTCOMES:
+            break
+        consec += 1
+    return consec, total
+
+
 def _gap_hints(evaluation: dict) -> tuple[float, float]:
     try:
         impact = float(evaluation.get("impact", 1))
@@ -729,14 +760,35 @@ def _gap_hints(evaluation: dict) -> tuple[float, float]:
     return max(0.0, impact), max(0.0, gain)
 
 
-def prioritize_gaps(gaps: list[dict]) -> list[dict]:
-    """Order by impact x expected gain (stable; no name-based rules)."""
+def prioritize_gaps(gaps: list[dict], state: dict | None = None) -> list[dict]:
+    """Order by impact x expected gain (stable; no name-based rules).
+
+    With state: repeated attempts without useful gain decay the score, so
+    gaps that keep failing with delta 0.0 stop monopolizing the slots and
+    unexplored criteria get their turn (modelagem v1.1 §9: do not repeat
+    the same query indefinitely; vary the path, then record the limit).
+    Ties break toward fewer total attempts, then original order — so the
+    no-attempts case keeps the exact legacy order and existing tests hold.
+    """
     scored = []
     for i, gap in enumerate(gaps):
         impact, gain = _gap_hints(gap)
-        scored.append((-impact * gain, i, gap))
-    scored.sort(key=lambda t: (t[0], t[1]))
-    return [g for _, _, g in scored]
+        base = impact * gain
+        if state is None:
+            scored.append((-base, 0, i, gap))
+            continue
+        try:
+            cid = gap.get("criterion_id", "") if isinstance(gap, dict) else ""
+            eid = gap.get("entity_id") if isinstance(gap, dict) else None
+            consec, total = _gap_attempt_stats(state, cid, eid)
+        except Exception:
+            consec, total = 0, 0
+        # Decay, never promotion: useful gain resets consec to 0 via the
+        # helper, so resolved-then-reopened gaps keep full priority.
+        eff = base / (1.0 + consec)
+        scored.append((-eff, total, i, gap))
+    scored.sort(key=lambda t: (t[0], t[1], t[2]))
+    return [g for _, _, _, g in scored]
 
 
 def _model_remaining(state: dict, resolved: dict) -> int:
@@ -1059,7 +1111,10 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     # (1o sub-gap de cada criterio na ordem original, depois o 2o de cada,
     # ...) para que o criterio top-1 nao monopolize o budget do lote
     # (genus7: c1xe3 preencheu todos os 3 slots e c2-c8 sem query); o loop
-    # abaixo limita os ops emitidos ao cap como antes. Gaps de celula com
+    # abaixo limita os ops emitidos ao cap como antes. Fome ENTRE rounds
+    # (genus8: mesmos c1-c3 com delta 0.0, c4-c10 nunca mirados) é resolvida
+    # em prioritize_gaps(state): sem ganho repetido decai a prioridade e
+    # criterios inexplorados sobem. Gaps de celula com
     # source_url propria (G1) mantem prioridade absoluta: vao para a frente,
     # na ordem original, acima/antes da expansao.
     try:
@@ -1099,6 +1154,19 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                 _sub["entity_id"] = _eid
                 _sub["entity_label"] = _elabel.get(_eid, _eid)
                 _subs.append(_sub)
+            # Fome de entidade (genus8): com cap, o interleave sempre servia
+            # a 1a entidade (e1/Django) e e2/e3 nunca emitiam query propria.
+            # Subs ordenados pela celula menos tentada (sem ganho repetido
+            # primeiro cede), desempate pela ordem do applies_to — sem
+            # tentativas, a ordem legada e preservada.
+            try:
+                _subs.sort(key=lambda _s: (
+                    _gap_attempt_stats(
+                        state, _gap.get("criterion_id"), _s.get("entity_id")),
+                    _applies.index(_s.get("entity_id"))
+                    if _s.get("entity_id") in _applies else 0))
+            except Exception:
+                pass
             # Todas cobertas: nada a buscar (fora da rotacao, ordem mantida).
             if _subs:
                 _per_gap.append(_subs)
@@ -1134,6 +1202,15 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                         "status": "in-progress"})
             continue
         attempts = state["attempts"].get(cid, [])
+        # Tentativas sao por celula quando o gap tem entidade: a celula
+        # c1xe2 nao herda o contador da c1xe1 (senao o marcador de
+        # tentativa e a rotacao de canal mentem sobre o que foi tentado).
+        # Legado sem entity_id conta para todas as celulas do criterio.
+        _eid = gap.get("entity_id")
+        if _eid:
+            attempts = [a for a in attempts if isinstance(a, dict)
+                        and (not a.get("entity_id")
+                             or a.get("entity_id") == _eid)]
         last_channel = attempts[-1].get("channel") if attempts else None
         last_outcome = attempts[-1].get("outcome") if attempts else None
         n = len(attempts)
@@ -1182,6 +1259,8 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
             op_id = f"{op_id}-{gap['entity_id']}"  # sub-gaps: op_id unico
         ops.append({"op_id": op_id, "kind": kind, "channel": channel,
                     "target": target, "criterion_id": cid,
+                    "entity_id": gap.get("entity_id"),
+                    "entity_label": gap.get("entity_label"),
                     "status": "in-progress"})
     return ops
 
@@ -3123,7 +3202,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
         if stop is not None:
             state["rounds"][-1]["decision"] = stop["detail"]
             break
-        ordered = prioritize_gaps(open_gaps)
+        ordered = prioritize_gaps(open_gaps, state)
         # M8: justified substitution before selecting ops (the recomputed
         # block retargets the round; the swap itself never fakes coverage).
         if _maybe_substitute(state, ledger):
@@ -3131,7 +3210,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
             block = ledger.compute()
             state["gaps"] = list(block.get("gaps") or [])
             open_gaps = block.get("gaps", [])
-            ordered = prioritize_gaps(open_gaps)
+            ordered = prioritize_gaps(open_gaps, state)
         ops = select_ops(state, ordered, resolved["max_ops_per_round"])
         if not ops:
             stop = {"reason": "saturation", "partial": bool(open_gaps),
@@ -3329,6 +3408,8 @@ def _map_stop(decision: dict, block: dict, state: dict, resolved: dict,
 def _summarize_ops(state: dict, ops: list[dict]) -> list[dict]:
     return [{"op_id": o.get("op_id"), "kind": o.get("kind"),
              "channel": o.get("channel"), "target": o.get("target"),
+             "criterion_id": o.get("criterion_id"),
+             "entity_id": o.get("entity_id"),
              "outcome": o.get("outcome", "unknown"),
              "new": o.get("outcome") in ("new_useful", "confirmed")}
             for o in ops]
@@ -3453,7 +3534,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
         if now() - t_start >= resolved["time_s"]:
             op["status"], op["outcome"] = "failed", "time"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
-                {"channel": op.get("channel"), "outcome": "time"})
+                {"channel": op.get("channel"), "outcome": "time",
+                 "entity_id": op.get("entity_id")})
             continue
         kind = op.get("kind", "gap_query")
         # --- read_source: direct target read, no search -----------------
@@ -3464,6 +3546,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                 state["attempts"].setdefault(
                     op.get("criterion_id", ""), []).append(
                     {"channel": op.get("channel"), "outcome": "failed",
+                     "entity_id": op.get("entity_id"),
                      "note": "read_source without target"})
                 continue
             if target in state["evidence"] and not state.get(
@@ -3472,6 +3555,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                 state["attempts"].setdefault(
                     op.get("criterion_id", ""), []).append(
                     {"channel": op.get("channel"), "outcome": "duplicate",
+                     "entity_id": op.get("entity_id"),
                      "note": f"reused concluded {target[:60]}"})
                 for pending in state["pending_ops"]:
                     if pending.get("op_id") == op.get("op_id"):
@@ -3486,7 +3570,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                     f"{target[:80]} skipped")
                 state["attempts"].setdefault(
                     op.get("criterion_id", ""), []).append(
-                    {"channel": op.get("channel"), "outcome": "budget"})
+                    {"channel": op.get("channel"), "outcome": "budget",
+                 "entity_id": op.get("entity_id")})
                 continue
             if not budget.spend("extractions"):
                 op["status"], op["outcome"] = "failed", "budget"
@@ -3494,7 +3579,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                     f"op {op['op_id']}: extraction budget hit (read_source)")
                 state["attempts"].setdefault(
                     op.get("criterion_id", ""), []).append(
-                    {"channel": op.get("channel"), "outcome": "budget"})
+                    {"channel": op.get("channel"), "outcome": "budget",
+                 "entity_id": op.get("entity_id")})
                 continue
             state["consumption"]["ops"] += 1
             try:
@@ -3506,6 +3592,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                     op.get("criterion_id", ""), []).append(
                     {"channel": op.get("channel"), "outcome": "failed",
                      "target": target,
+                     "entity_id": op.get("entity_id"),
                      "note": f"canal {op.get('channel')}: {str(exc)[:160]}"})
                 state["notes"].append(
                     f"op {op['op_id']} read_source failure "
@@ -3533,7 +3620,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
                                      "nogain"):
                 op["outcome"] = "nogain"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
-                {"channel": op.get("channel"), "outcome": op["outcome"]})
+                {"channel": op.get("channel"), "outcome": op["outcome"],
+                 "entity_id": op.get("entity_id")})
             for pending in state["pending_ops"]:
                 if pending.get("op_id") == op.get("op_id"):
                     pending["status"] = op["status"]
@@ -3543,7 +3631,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
         if not budget.spend("queries"):
             op["status"], op["outcome"] = "failed", "budget"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
-                {"channel": op.get("channel"), "outcome": "budget"})
+                {"channel": op.get("channel"), "outcome": "budget",
+                 "entity_id": op.get("entity_id")})
             continue
         state["consumption"]["queries"] += 1
         state["consumption"]["ops"] += 1
@@ -3553,6 +3642,7 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
             op["status"], op["outcome"] = "failed", "failed"
             state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
                 {"channel": op.get("channel"), "outcome": "failed",
+                 "entity_id": op.get("entity_id"),
                  "note": f"canal {op.get('channel')}: {str(exc)[:160]}"})
             state["notes"].append(
                 f"op {op['op_id']} transport failure "
@@ -3616,7 +3706,8 @@ def _execute_ops_sequential(state: dict, ops: list[dict], search_fn, fetch_fn,
         op["status"] = "done" if best != "failed" else "failed"
         op["outcome"] = best
         state["attempts"].setdefault(op.get("criterion_id", ""), []).append(
-            {"channel": op.get("channel"), "outcome": best})
+            {"channel": op.get("channel"), "outcome": best,
+             "entity_id": op.get("entity_id")})
         for pending in state["pending_ops"]:
             if pending.get("op_id") == op.get("op_id"):
                 pending["status"] = op["status"]
@@ -3632,7 +3723,8 @@ def _record_op_outcome(state: dict, op: dict, status: str, outcome: str,
     op["status"], op["outcome"] = status, outcome
     if note:
         state["notes"].append(note)
-    attempt = {"channel": op.get("channel"), "outcome": outcome}
+    attempt = {"channel": op.get("channel"), "outcome": outcome,
+               "entity_id": op.get("entity_id")}
     if target:
         attempt["target"] = target
     if attempt_note:
