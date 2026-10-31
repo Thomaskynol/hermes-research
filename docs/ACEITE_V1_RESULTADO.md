@@ -281,7 +281,9 @@ assessor_error 17 (todos corretos — classe proximidade-em-listagem),
 missing 16`; síntese 37/1/76. `verification` overall **failed** por 1
 inferência com versão de contexto do usuário — diagnose concorda (sem
 divergência); **RA8 segue PENDENTE, sem flexibilizar**. Pós-run (unit
-tests apenas, não validados em run): contexto do usuário ⇒ LACUNA no
-prompt (`cc0f3ff`); entidade fraca registra pool não explorado (`b81e8f6`).
+tests apenas, não validados em run): contexto do usuário não é evidência
+(regra estreita Missão 3: comparação numérica contra mínimo declarado =
+sustentada (premissa+corpus); compat funcional/integração sem fonte que
+mencione a versão = LACUNA) no prompt (`cc0f3ff`); entidade fraca registra pool não explorado (`b81e8f6`).
 Relatórios: `/home/thomaskyn/hermes-runs/accept19/DIAGNOSIS_accept18.md`,
 `/home/thomaskyn/hermes-runs/accept20/RELATORIO_ACCEPT20.md`.

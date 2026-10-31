@@ -79,18 +79,30 @@ Phase 7 (Missão 3: 3 contratos)
 - [x] `docs/CONTINUIDADE.md` atualizado como ponto de entrada
 - **Status:** complete (commitado em `bf5507b` + `cc1bf1c`; nada pendente)
 
-### Phase 7 (Missão 3): 3 contratos — IN PROGRESS
+### Phase 7 (Missão 3): 3 contratos — IN PROGRESS (implementado, sem re-run)
 
 - [x] Missão registrada (este plano + `findings.md` + `progress.md` Sessão 10
   + `docs/CONTINUIDADE.md` como ponto de entrada); sem lógica produto
-- [ ] (1) `[N]` resolve — extrator/contador resolve citação in-text `([N])`
-  → tabela-fonte (accept23: evidence/resolved 0 vs sentença 48/50)
-- [ ] (2) versão-premissa — versão de premissa explícita não reprova como
-  inferência; gate tag-exata vs família funcional, conclusões separadas
-- [ ] (3) inferência-complementaridade — ≥2 entidades na frase exige doc de
-  interoperabilidade (≥2 entidades), senão LACUNA explícita
-- **Status:** in-progress (contratos registrados; implementação fora de escopo
-  desta sessão)
+- [x] (1) `[N]` resolve — `verify_support` resolve in-text `([N])` via
+  `state[report][numbers]` (fallback tabela §7); unknown = `[N]` sem URL +
+  URL fora do corpus; reason "citação fora do corpus" nos dois auditores;
+  gate vazio não diz "Sem citações verificáveis" com refs válidas
+  (accept23 congelado: evidence 0→50, resolved 0→4, failed mantido pelas
+  4 unsupported semânticas; diagnose 49/1/66 inalterado)
+- [x] (2) versão-premissa — prompts estreitados (comparação numérica contra
+  mínimo declarado = sustentada; funcional sem fonte com a versão = LACUNA);
+  ramo user-premise: comparação numérica vs mínimo = sustentada, claim
+  funcional com versão sem fonte que a mencione = reprovado como "versão
+  exata ausente no doc"; instrução geral removida de prompts +
+  CONTINUIDADE + ACEITE_V1_RESULTADO + findings
+  (histórico de runs preservado)
+- [x] (3) inferência-complementaridade — trava interop unificada nos ramos
+  marcado + genérico + diagnose: interop citada→supported; âncoras em docs
+  separados→declared/LACUNA explícita (não unsupported genérico); resto
+  unsupported; trava só arma com menção estrita de ≥2 entidades na frase
+- [ ] Re-run da pergunta de aceite cobrindo prova isolada dos 3 contratos
+- **Status:** in-progress (implementado + suíte verde nesta sessão; prova em
+  run real pendente — Phase 5)
 
 ## Decisions Made
 

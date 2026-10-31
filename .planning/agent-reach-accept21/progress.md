@@ -268,3 +268,28 @@
 - Próximo: implementar os 3 contratos ([N] resolve; versão-premissa;
   inferência-complementaridade) em lane próprio, TDD RED→GREEN; RA8 segue
   pendente até overall `passed` em run real.
+
+## 2026-10-31 — Sessão 11: Missão 3 — 3 contratos implementados (fixer, TDD)
+
+- Base HEAD `d2e5438`; arquivos produto: `verification_report.py`
+  (`check_support` + `verify_support`), `tools/diagnose_run.py`,
+  `adaptive_coordinator.py` (prompts writer + assessor); teste novo
+  `tests/test_missao3_contratos.py` (16 testes, RED→GREEN).
+- TDD: 10 REDs genuínos iniciais (resolve `[N]`, reasons corpus, gate
+  vazio, gate versão-premissa funcional, trava interop ×2 auditores,
+  prompt estreito) + guards positivos que nunca quebraram; 1 regressão
+  (`test_diagnose_tool`, trava armando em nomeação frouxa "widget") +
+  2 do `test_calibration` (prioridade overlap antes de versão/entidade)
+  — ambas com causa-raiz e fix unificando os auditores.
+- Prova isolada em CÓPIA congelada do accept23 (`/tmp/opencode/accept23-frozen`,
+  md5 iguais ao original): antes evidence/resolved 0/0 + diagnose 49/1/66;
+  depois citations 68, evidence 50, resolved 4, unknown [], diagnose 49/1/66,
+  sentença 48/50 ok — `failed` mantido pelas 4 unsupported semânticas
+  (motivo correto, não cegueira de contador).
+- Suíte: todos os `tests/test_*.py` verdes, exceto 1 falha pré-existente de
+  ambiente (`retriever_timeout` sem módulo, igual na árvore limpa).
+- Docs: regra estreita em `docs/CONTINUIDADE.md`, `docs/ACEITE_V1_RESULTADO.md`,
+  `findings.md` (histórico de runs preservado); matriz sem regra ampla
+  (só histórico, mantido).
+- Próximo: re-run da pergunta de aceite p/ prova real dos 3 contratos
+  (Phase 5); RA8 segue pendente até overall `passed` em run real. Sem push.

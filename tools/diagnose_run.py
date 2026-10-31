@@ -40,9 +40,11 @@ import report_renderer as renderer  # noqa: E402
 from adaptive_coordinator import _expand_terms_en, _PT_EN_RESEARCH  # noqa: E402
 from verification_report import (  # noqa: E402
     _audit_inference,
+    _claims_version_functionally,
     _entity_mentioned,
     _expand_support_tokens,
     _has_inference_marker,
+    _is_numeric_comparison,
     _is_user_premise,
     _mentions_version_gap,
     _split_inference,
@@ -486,6 +488,22 @@ def synthesis_audit(state: dict) -> dict:
                                   "reason": "entidade ausente no doc citado "
                                             "(premissa sem doc da entidade)"})
                     continue
+                # Regra estreita versão-premissa (Missão 3): comparação
+                # numérica contra mínimo declarado = sustentada
+                # (premissa + corpus); compat funcional/integração sem
+                # fonte que mencione a tag exata = LACUNA.
+                _exact_s = _text_exact_versions(line)
+                if (_exact_s and not _is_numeric_comparison(line)
+                        and _claims_version_functionally(line)):
+                    _exact_u: set[str] = set()
+                    for _, _doc in cited_docs:
+                        _exact_u |= _text_exact_versions(_doc)
+                    if not _exact_s <= _exact_u:
+                        unsupported += 1
+                        items.append({
+                            "sentence": line[:300], "cites": cites,
+                            "reason": "versão exata ausente no doc citado"})
+                        continue
                 supported += 1
                 continue
         # Absence declaration over consulted sources: sustained by the
@@ -527,6 +545,12 @@ def synthesis_audit(state: dict) -> dict:
             _interop = False
             _any_a = False
             _rel_reason = ""
+            if not cited_docs and missing:
+                unsupported += 1
+                items.append({"sentence": line[:300], "cites": cites,
+                              "reason": "citação fora do corpus: " + ", ".join(
+                                  f"[{n}]" for n in missing)})
+                continue
             for _, doc in cited_docs:
                 a_ok, r_ok, _ar, rr = _audit_inference(
                     _anchor_txt, _rel_txt or line, doc, _ent_a, _ent_r)
@@ -579,6 +603,31 @@ def synthesis_audit(state: dict) -> dict:
             elif _fam_c and not _fam_c <= _fam_u:
                 version_miss = True
                 version_reason = "família funcional ausente no doc citado"
+        # Trava de interoperabilidade (Missão 3, unificada com o
+        # ramo marcado e check_support): claim com >=2 entidades exige
+        # um doc que mencione >=2 delas (integração testada); âncoras
+        # ok em docs separados = complementaridade plausível (LACUNA
+        # explícita, não unsupported genérico); resto unsupported.
+        _needs_interop = len(named) >= 2
+        if _needs_interop:
+            # Nomeação frouxa (token compartilhado como "widget") não
+            # arma a trava: exige menção estrita de >=2 entidades na
+            # frase (mesmo critério _entity_mentioned usado nos docs).
+            _interop_named = [
+                entry for entry in named
+                if _entity_mentioned(entry[0], entry[1], line)]
+            _needs_interop = len(_interop_named) >= 2
+        else:
+            _interop_named = []
+        _has_interop_doc = _needs_interop and any(
+            sum(1 for label, eid, _t in _interop_named
+                if _entity_mentioned(label, eid, _doc)) >= 2
+            for _, _doc in cited_docs)
+        _anchors_separate = bool(_needs_interop and not _has_interop_doc
+                                 and cited_docs and all(
+                                     any(_entity_mentioned(label, eid, _doc)
+                                         for _, _doc in cited_docs)
+                                     for label, eid, _t in _interop_named))
         expanded = _expand_support_tokens(words)
         best, rare = 0.0, 0
         for _, doc in cited_docs:
@@ -586,20 +635,38 @@ def synthesis_audit(state: dict) -> dict:
             if words:
                 best = max(best, len(hits) / len(words))
             rare = max(rare, sum(1 for w in hits if len(w) >= 6))
+        _overlap_ok = not (best < 0.35 and rare < 2)
+        if _overlap_ok and _needs_interop and not _has_interop_doc:
+            # overlap ok em doc(s) só, mas nenhum doc citado menciona
+            # >=2 entidades: não é integração testada (resto: a
+            # entidade descoberta entra no motivo, abaixo)
+            _overlap_ok = False
+            if not _anchors_separate:
+                missing_entities = [
+                    label for label, eid, _t in _interop_named
+                    if not any(_entity_mentioned(label, eid, _d)
+                               for _, _d in cited_docs)]
         if not cited_docs:
             reason = "citação fora do corpus: " + ", ".join(
                 f"[{n}]" for n in missing)
+        elif _anchors_separate:
+            reason = ("inferência sem citação de interoperabilidade "
+                      "(complementaridade plausível, não integração "
+                      "testada)")
         elif missing_entities:
             reason = "entidade ausente no doc citado: " + ", ".join(
                 missing_entities)
         elif version_miss:
             reason = version_reason
-        elif best < 0.35 and rare < 2:
-            reason = (f"overlap {best:.2f} < 0.35 e "
-                      f"{rare} palavra(s) rara(s) em comum")
-        else:
+        elif _overlap_ok and (not _needs_interop or _has_interop_doc):
             supported += 1
             continue
+        elif missing_entities:
+            reason = "entidade ausente no doc citado: " + ", ".join(
+                missing_entities)
+        else:
+            reason = (f"overlap {best:.2f} < 0.35 e "
+                      f"{rare} palavra(s) rara(s) em comum")
         unsupported += 1
         items.append({"sentence": line[:300], "cites": cites,
                       "reason": reason})

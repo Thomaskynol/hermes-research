@@ -4,7 +4,10 @@
 
 - Branch `feat/product-v1`, HEAD `b1cf76c`
   ("docs(aceite): rodada accept19/accept20, correções de identidade, RA8 pendente").
-- `cc0f3ff` — `fix(writer,diagnose)`: contexto do usuário não é evidência;
+- `cc0f3ff` — `fix(writer,diagnose)`: contexto do usuário não é evidência
+  (regra estreita Missão 3: comparação numérica contra mínimo declarado =
+  sustentada (premissa+corpus); compat funcional/integração sem fonte que
+  mencione a versão = LACUNA, nunca a conclusão genérica antiga);
   bucket `na_scoped` no diagnose. Arquivos: `adaptive_coordinator.py`,
   `tools/diagnose_run.py`, `tests/test_accept19_corrections.py`.
 - `b81e8f6` — `fix(m8)`: entidade fraca sem troca registra pool não explorado.

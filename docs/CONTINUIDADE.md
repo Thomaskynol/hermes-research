@@ -2,9 +2,10 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 10: Missão 3 registrada — 3 contratos
-> ([N] resolve; versão-premissa; inferência-complementaridade); RA8 segue PENDENTE).
-> Commits produto e docs separados (sem push).
+> Última atualização: 2026-10-31 (Sessão 11: Missão 3 implementada — 3
+> contratos ([N] resolve; versão-premissa; inferência-complementaridade),
+> TDD RED→GREEN + prova isolada em cópia congelada do accept23; RA8 segue
+> PENDENTE). Commits produto e docs separados (sem push).
 >
 > HEADs: produto `49508fe` (consultado/mencionado + inferência-por-premissas
 > + fato-usuário + janela; executado no run accept23, hashes frozen
@@ -184,7 +185,7 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 
 | Commit | O que muda | Validado até agora |
 |--------|------------|--------------------|
-| `cc0f3ff` | contexto do usuário não é evidência (⇒ `LACUNA` no prompt); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
+| `cc0f3ff` | contexto do usuário não é evidência (regra estreita Missão 3: comparação numérica contra mínimo declarado = sustentada (premissa+corpus); compat funcional/integração sem fonte que mencione a versão = LACUNA); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
 | `49508fe` | consultado-vs-mencionado + inferência-por-premissas + fato-usuário + janela | foco 137 passed + **exercitado em run real (accept23: inferência contida, fato-usuário contido 2º run, janela sem divergência)**; resíduo: contador cego a `([N])` (registrado, sem corrigir) |
 | `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
 | `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
@@ -209,16 +210,20 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (Missão 3):** implementar os 3 contratos, sem
-  flexibilizar critério; depois re-run cobrindo prova isolada (Phase 5/7).
+- **Próxima ação (Missão 3, implementada nesta sessão — falta prova em
+  run real):** re-run cobrindo prova isolada dos 3 contratos, sem
+  flexibilizar critério; depois fechar Phase 5/7.
   RA8 segue pendente até overall `passed` em run real. (`selection_context`
   zerou no accept23 — sai da lista de resíduos ativos.)
-  - (1) `[N]` resolve — extrator/contador resolve citação in-text `([N])`
-    → tabela-fonte (accept23: evidence/resolved 0 vs sentença 48/50);
-  - (2) versão-premissa — versão de premissa explícita não reprova como
-    inferência; gate tag-exata vs família funcional, conclusões separadas;
-  - (3) inferência-complementaridade — ≥2 entidades na frase exige doc de
-    interoperabilidade (≥2 entidades), senão LACUNA explícita.
+  - (1) `[N]` resolve — `verify_support` resolve in-text `([N])` via
+    `state[report][numbers]` (accept23 congelado: evidence 0→50, resolved
+    0→4; `failed` mantido pelas 4 unsupported semânticas);
+  - (2) versão-premissa — comparação numérica vs mínimo = sustentada;
+    funcional sem fonte com a versão = LACUNA (regra estreita em prompts
+    + auditores + docs);
+  - (3) inferência-complementaridade — ≥2 entidades exige doc de
+    interoperabilidade, senão LACUNA explícita (unificado marcado +
+    genérico + diagnose).
 
 ## Referências
 
