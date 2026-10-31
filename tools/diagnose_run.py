@@ -44,9 +44,12 @@ from verification_report import (  # noqa: E402
     _entity_mentioned,
     _expand_support_tokens,
     _has_inference_marker,
+    _is_evidence_literal,
     _is_numeric_comparison,
+    _is_own_note_line,
     _is_user_premise,
     _mentions_version_gap,
+    _quoted_literals,
     _split_inference,
     _text_exact_versions,
     _text_family_versions,
@@ -452,11 +455,44 @@ def synthesis_audit(state: dict) -> dict:
             continue
         if _is_reference_line(line):
             continue
+        # Unificação Div1 (mesmo filtro do verify): linha de nota própria
+        # (tabela §7, notas render/support) é inventário, nunca afirmação.
+        if _is_own_note_line(line):
+            continue
         words = content_words(line)
         if not words:
             continue
         cites = CITE.findall(line) + extra_cites
-        if not cites:
+        # Unificação Div1 (mesmo extract_references/Classify do verify):
+        # URL evidência sem [N] ([guia](https://...), Source:) dentro do
+        # corpus entra em cited_docs; fora vira missing (failed, nunca
+        # uncited). Bare utility/in_command nunca pondera (como no verify).
+        _ev_docs: list[tuple[str, str]] = []
+        _ev_missing: list[str] = []
+        try:
+            try:
+                from scripts import citation_audit as _ca1
+            except ImportError:  # pragma: no cover
+                import citation_audit as _ca1  # type: ignore
+            for _r in _ca1.extract_references(line):
+                try:
+                    if _ca1.classify_reference(_r) != "evidence":
+                        continue
+                except Exception:
+                    continue
+                _u = _r.get("url")
+                if not _u:
+                    continue
+                _n = renderer._norm(_u)
+                _d = docs.get(_n, "") if _n else ""
+                if not _d:
+                    if _u not in _ev_missing:
+                        _ev_missing.append(_u)
+                else:
+                    _ev_docs.append((_u, _d))
+        except Exception:
+            pass
+        if not cites and not _ev_docs and not _ev_missing:
             # No citation: only long prose statements count as claims.
             for sent in re.split(r"(?<=[.!?])\s+", line):
                 if len(sent.split()) >= 12:
@@ -471,12 +507,26 @@ def synthesis_audit(state: dict) -> dict:
                 missing.append(n)
             else:
                 cited_docs.append((n, doc))
+        # Evidência sem [N] compõe o mesmo veredito (nunca uncited).
+        cited_docs.extend(_ev_docs)
+        # missing de URL nua usa a URL no motivo (mesmo "fora do corpus").
+        _missing_urls = list(_ev_missing)
         named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(line) for t in toks)]
+        # URL evidência fora do corpus = failed imediato (mesmo unknown
+        # do verify); nunca uncited nem sustentada por [N] válido ao lado.
+        if _missing_urls:
+            _all_missing = ([f"[{n}]" for n in missing]
+                            + list(_missing_urls))
+            unsupported += 1
+            items.append({"sentence": line[:300], "cites": cites,
+                          "reason": "citação fora do corpus: " + ", ".join(
+                              _all_missing)[:300]})
+            continue
         # Premissa explicita do usuario: citavel sem numero de corpus,
         # nunca LACUNA automatica (isenta o gate da versao do contexto).
         if _is_user_premise(line) and not is_lacuna_declaration(line):
-            if cited_docs and not missing:
+            if cited_docs and not missing and not _missing_urls:
                 _prem = sum(
                     1 for _, doc in cited_docs
                     if not named or any(
@@ -510,7 +560,11 @@ def synthesis_audit(state: dict) -> dict:
         # consultation itself (mirrors verification_report.check_support)
         # — but the cited source must be about the named entity (S2
         # premise); a foreign doc is a loose citation, not a premise.
-        if cited_docs and not missing and is_lacuna_declaration(line):
+        # Espelho Div2 (gates do check_support): versão exata/família e
+        # literal citado aplicam em LACUNA; sem eles, LACUNA com versão
+        # ausente no doc falha (não sustenta).
+        if cited_docs and not missing and not _missing_urls \
+                and is_lacuna_declaration(line):
             _premise = sum(
                 1 for _, doc in cited_docs
                 if not named or any(
@@ -522,6 +576,43 @@ def synthesis_audit(state: dict) -> dict:
                               "reason": "entidade ausente no doc citado "
                                         "(premissa sem doc da entidade)"})
                 continue
+            # Gate versão exata/família (espelha check_support): tag
+            # afirmada sem isenção de lacuna exige presença no doc citado.
+            _exact_s = _text_exact_versions(line)
+            _fam_s = _text_family_versions(line)
+            if (_exact_s or _fam_s) and not _mentions_version_gap(line):
+                _exact_u: set[str] = set()
+                _fam_u: set[str] = set()
+                for _, _doc in cited_docs:
+                    _exact_u |= _text_exact_versions(_doc)
+                    _fam_u |= _text_family_versions(_doc)
+                if _exact_s and not _exact_s <= _exact_u:
+                    unsupported += 1
+                    items.append({
+                        "sentence": line[:300], "cites": cites,
+                        "reason": "versão exata ausente no doc citado"})
+                    continue
+                if _fam_s and not _fam_s <= _fam_u:
+                    unsupported += 1
+                    items.append({
+                        "sentence": line[:300], "cites": cites,
+                        "reason": "família funcional ausente no doc citado"})
+                    continue
+            # Gate literal citado (espelha check_support): literal
+            # substantivo entre aspas deve ocorrer no doc citado.
+            _lits = [lit for lit in _quoted_literals(line)
+                     if _is_evidence_literal(lit)]
+            if _lits:
+                _absent = [lit for lit in _lits
+                           if not any(lit.lower() in (_doc or "").lower()
+                                      for _, _doc in cited_docs)]
+                if _absent:
+                    unsupported += 1
+                    items.append({
+                        "sentence": line[:300], "cites": cites,
+                        "reason": "literal ausente no doc citado: "
+                                  + ", ".join(_absent)[:160]})
+                    continue
             supported += 1
             continue
         # Inferencia marcada: audita ancora E relacao separadamente

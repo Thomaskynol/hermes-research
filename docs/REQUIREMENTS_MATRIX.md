@@ -9,12 +9,12 @@ Fonte normativa: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (SHA-256
 - **PENDENTE** — requisito obrigatório ainda não atendido.
 - **BLOQUEADO** — impedido por ambiente externo (registrado, não fingido).
 
-Atualizada em 2026-10-31 (accept22; RA8 segue PENDENTE; produto
-congelado, só docs + 1 teste estrito desde o run). Evidências apontam para teste/comando/doc; nenhum
+Atualizada em 2026-10-31 (Missão 3 + accept24; RA8 segue PENDENTE; produto
+congelado, só docs + 3 fixes de divergência desde o run). Evidências apontam para teste/comando/doc; nenhum
 estado REAL é atribuído sem execução registrada. Promoções IMPL→REAL pela
 validação RAG_001 estão em "Validação real RAG_001 — promoções"; as da
 reabertura do aceite estão em "Reabertura do aceite — 2026-10-29"; a
-entrega atual (accept21/accept22) está em "Entrega atual — 2026-10-31".
+entrega atual (accept21–accept24 + Missão 3) está em "Entrega atual — 2026-10-31".
 
 ## §2 Duas ferramentas, uma base
 
@@ -253,7 +253,7 @@ Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept1
 | RA5 | Entrada Hermes isolada demonstrada ponta a ponta | CLI única + `--control-dir` + `run_control.py status` + pause/resume | accept11 status ao vivo + accept12: pause limpo entre rodadas e `--resume` com contadores preservados (§10) | REAL |
 | RA6 | Generalização em outro assunto | mesmos mecanismos, outra pergunta | genus1 (httpx×requests×aiohttp): 10/16=0.625 partial, SATURATION, support `ok` 37/37 + acadrun5 FAIR-RAG (§5) | REAL |
 | RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
-| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 parcial; accept22 (2026-10-31): 11/54 = 0.2037 parcial, verification overall `failed` honesto (5 URLs nuas + 3 inferências de combinação + 17 LACUNA sem overlap), denominador nunca reduzido | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
+| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 parcial; accept22 (2026-10-31): 11/54 = 0.2037 parcial, verification overall `failed` honesto (5 URLs nuas + 3 inferências de combinação + 17 LACUNA sem overlap); accept24 (2026-10-31, Missão 3): 9/56 = 0.1607 `partial`, support `ok` (primeira vez), 3 contratos provados (citations 68, evidence 51, resolved 5; versão numérica sustentada + funcional=LACUNA; combinação recusada), denominador nunca reduzido | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
 
 Pendências declaradas: gate de citação literal por avaliação (justificativa do
 assessor não é verificada contra o excerto); conector de inspeção local;
@@ -278,22 +278,36 @@ max-rounds 3). Calibração Lane B (corpus congelado accept15,
 | RR | Round-robin interleave entre critérios nos slots de op | `c83b892`; genus8: spread intra-round [c1,c2,c3], total 4/26 idêntico | REAL (gargalo vinculante é retrieval, não alocação — stop) |
 | GEN | Série genus2–8; variância single-run dominada por retrieval | genus2 1/10 (expôs bug per_candidate, fix `b861763`) → genus3–8: 7,7,3,7,4,4 /26 | REAL (±0,1 cobertura entre configs idênticas) |
 
-## Entrega atual — runs accept21/accept22 (2026-10-31)
+## Entrega atual — runs accept21–accept24 + Missão 3 (2026-10-31)
 
-HEAD de execução congelado: `776af89` (produto == `a704463`; hashes
-pré/pós-run reconferidos, sem edição durante o run:
-`adaptive_coordinator.py 9b3a577a…`, `verification_report.py a3ee1baa…`,
-`native_transport.py 5c78c526…`). HEAD atual `534c946` = **só docs**
-(+ 1 teste estrito); produto intacto — hashes conferem com
-`hashes.frozen` do accept22.
+HEAD de execução congelado: `a70d837` (Missão 3 — 3 contratos; hashes
+8/8 OK pré/pós-run accept24, sem edição durante o run). HEAD docs
+`8040f87` = **só docs** (plano + CONTINUIDADE); produto intacto.
 
 | Run | Config | Cobertura | Verification | RA8 |
 |---|---|---|---|---|
 | accept21 | pergunta do aceite, medium/max-rounds-3, contexto 2.1.4, vast UP + SearXNG DOWN, EXIT=0, 343s | 0/15 + 0 N/A (funil YouTube sem transcrição, 0 entidades) | overall `partial` (15 frases LACUNA com citação fora do corpus ⇒ só `partial`; leniência residual vs accept19) | PENDENTE |
 | accept22 | idem, vast DOWN + SearXNG DOWN, EXIT=0, 658s | 11/54 + 0 N/A (ok 10, partial_legit 11, missing 16, selection_context 16, synthesis_unsupported 1) | overall `failed` **honesto** (5 URLs nuas fora do corpus + 3 inferências de combinação reprovadas [12,13,14] + 17 LACUNA sem overlap; métodos de acordo) | PENDENTE |
+| accept23 | idem, vast DOWN + SearXNG DOWN, EXIT=0, 588s | 0/55 + 0 N/A (corpus de listagem; sem selection_context/synthesis_unsupported) | overall `failed` (4 LACUNA ancoradas em listagem + 1 frase sem overlap; sem URLs nuas; inferência contida) | PENDENTE |
+| accept24 | idem, vast DOWN + SearXNG DOWN, EXIT=0, 715s | 9/56 + 0 N/A (ok 8, partial 14, missing 15, assessor_error 11, selection_context 7, synth_unsup 1) | overall `partial`, **support `ok` (primeira vez)** — 3 contratos provados: citations 68, evidence 51 (era 0), resolved 5 (era 0); versão 2.1.4≥2.1.2 sustentada + funcional sem fonte = LACUNA (3×); 5 frases-combinação LACUNA + "INFERÊNCIA NÃO SUSTENTADA" | PENDENTE |
 
-Detalhes em `docs/CONTINUIDADE.md` (§§ Resultado accept21/accept22) e
-evidências em `/home/thomaskyn/hermes-runs/accept21|22/` (fora do Git).
+Missão 3 (3 contratos, `a70d837`, 16 testes TDD + prova isolada em cópia
+congelada + prova real accept24): (1) `[N]` resolve via
+`state[report][numbers]` (evidence 0→51, resolved 0→5, unknown []);
+(2) versão-premissa estreita (numérica sustenta, funcional=LACUNA);
+(3) trava interop (integração testada vs complementaridade plausível).
+Divergências pós-accept24 corrigidas neste passo (TDD
+`test_divergencias_auditores.py`, 11 passed): (1) diagnose extrai URLs
+evidência sem `[N]` (mesmo `extract_references`/`Classify` do verify);
+(2) ramo LACUNA do diagnose espelha gates de versão exata/família +
+literal citado do `check_support`; (3) ponderação aplica regra estreita
+(numérico sustenta, funcional reprova). Efeito isolado em cópia
+congelada accept24 (original intacto, md5 igual): diagnose 49/2/66 →
+39/12/66; verify `ok` → `partial` com 8 misses (versão/liter), convergindo
+com check — sem novo run real.
+
+Detalhes em `docs/CONTINUIDADE.md` (§§ Resultado accept21–accept24) e
+evidências em `/home/thomaskyn/hermes-runs/accept21|22|23|24/` (fora do Git).
 
 ## Escopo: o que é REAL vs o que segue PENDENTE (limitações — sem fechar aceite)
 

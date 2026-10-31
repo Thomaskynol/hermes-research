@@ -1579,11 +1579,15 @@ def verify_support(state: dict, report_text: str,
                     # Trava de versão por bullet: versão afirmada sem
                     # isenção de lacuna nunca é overlap genérico.
                     # Gate separado tag exata vs familia funcional.
+                    # Regra estreita Div3 (mesma do check_support):
+                    # premissa numérica sustenta (isenção mantida);
+                    # funcional sem fonte reprova (pondera como miss).
                     try:
                         if ((_text_exact_versions(_sraw)
                              or _text_family_versions(_sraw))
                                 and not _mentions_version_gap(_sraw)
-                                and not _is_user_premise(_sraw)):
+                                and not (_is_user_premise(_sraw)
+                                         and _is_numeric_comparison(_sraw))):
                             _weighted_misses.append(_item)
                     except Exception:
                         continue

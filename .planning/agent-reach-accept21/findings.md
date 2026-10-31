@@ -268,3 +268,40 @@ lane, condições registradas no RELATORIO_ACCEPT24.md). 715s, EXIT=0.
   resolved 5 (era 0); versão numérica sustentada + funcional = LACUNA;
   combinação recusada por escrito. 5 nomes (local-memory com LACUNA de
   identidade declarada). **RA8 segue PENDENTE.**
+
+## 3 divergências pós-accept24 — unificadas via TDD (2026-10-31)
+
+Base: produto `a70d837` (Missão 3 provada); semântica `49508fe` + 3
+contratos. Mesma entrada nos 3 auditores (`check_support` /
+`verify_support` / `diagnose.synthesis_audit`), positivo+negativo,
+genérico sem nomes (Widget Alpha/Beta).
+
+1. **URL evidência sem `[N]`** (`diagnose_run.py:458`): síntese só extraía
+   `[N]` via `CITE`; relatório com `https://...` (markdown/Source)
+   sem `[N]` virava `uncited` no diagnose mas `unknown`/`failed` no
+   verify. Fix: mesmo `extract_references`/`Classify` do verify; bare
+   `utility`/`in_command` nunca pondera (como no verify); evidência fora
+   do corpus = `unsupported` "citação fora do corpus" (nunca `uncited`);
+   dentro entra em `cited_docs`; linhas de nota própria excluídas
+   (mesmo `_is_own_note_line`).
+2. **LACUNA sem gates** (`diagnose_run.py:513`): ramo sustentava após só
+   premissa de entidade, sem gate de versão exata/família nem literal
+   citado que o `check_support` aplica → LACUNA "compatível com 2.1.4"
+   sem 2.1.4 no doc passava no diagnose, falhava no verificador. Fix:
+   espelha gates (exata `versão exata ausente no doc citado`, família
+   `família funcional ausente no doc citado`, literal `literal ausente
+   no doc citado`); isenção de lacuna (`desconhecida`) preservada.
+3. **Ponderação isentava qualquer premissa** (`verification_report.py:1586`):
+   `sentence_misses` vazio com `support ok` vs check/diagnose `versão
+   exata ausente`. Fix: regra estreita também na ponderação — numérico
+   (`_is_numeric_comparison`) sustenta, funcional
+   (`_claims_version_functionally`) reprova.
+
+Prova: `tests/test_divergencias_auditores.py` (11 testes, RED 3→GREEN);
+foco 73 passed, EXIT=0; ampla 536 passed + 1 falha pré-existente ambiente
+(`retriever_timeout`, sem `gpt_researcher`, igual na árvore limpa).
+Efeito isolado em cópia congelada accept24 (`/tmp/opencode/accept24-frozen2`,
+`state.json` md5 igual ao original, original intacto): diagnose 49/2/66 →
+39/12/66 (10 LACUNA versão/liter agora `unsupported`); verify `ok` →
+`partial` com 8 misses — convergindo com check (`partial`), sem novo run.
+**RA8 segue PENDENTE** (cobertura, não veracidade).

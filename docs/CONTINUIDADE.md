@@ -2,14 +2,16 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 12: run real accept24 sob a70d837 —
-> prova dos 3 contratos: support failed→ok, evidence 0→51, resolved 0→5;
-> overall `partial`, RA8 segue PENDENTE). Commits produto e docs separados
-> (sem push).
+> Última atualização: 2026-10-31 (Sessão 13: 3 divergências unificadas via
+> TDD — diagnose URLs sem `[N]`, LACUNA com gates, ponderação estreita;
+> 11 passed novo + 73 foco verde; efeito isolado em cópia accept24 49/2→39/12,
+> verify ok→partial; overall `partial`, RA8 segue PENDENTE). Commit local
+> sem push.
 >
 > HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
-> hashes frozen reconferidos pré/pós-run); docs `cc1bf1c` (Missão 3 registrada
-> no plano). `git show --stat` do intervalo prova docs-only (plano + CONTINUIDADE).
+> hashes frozen reconferidos pré/pós-run) + 3 fixes de divergência (este passo,
+> TDD, sem novo run); docs `8040f87` (accept24) + matriz sync Missão 3/accept24
+> (este passo).
 
 ## Objetivo e escopo
 
@@ -225,6 +227,7 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 | `cc0f3ff` | contexto do usuário não é evidência (regra estreita Missão 3: comparação numérica contra mínimo declarado = sustentada (premissa+corpus); compat funcional/integração sem fonte que mencione a versão = LACUNA); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
 | `49508fe` | consultado-vs-mencionado + inferência-por-premissas + fato-usuário + janela | foco 137 passed + **exercitado em run real (accept23: inferência contida, fato-usuário contido 2º run, janela sem divergência)**; resíduo: contador cego a `([N])` (registrado, sem corrigir) |
 | `a70d837` | 3 contratos: `[N]` resolve + versão-premissa + complementaridade | 16 testes (TDD RED→GREEN) + prova isolada em cópia congelada + **PROVADO em run real accept24: support failed→ok, evidence 0→51, resolved 0→5; versão numérica sustentada; combinação recusada**; resíduos: renderer-§8 `not_run` vs auditor `ok` (mensagem, sem efeito), `selection_context 7`, local-memory sem identidade literal |
+| este passo | 3 divergências: URL evidência sem `[N]`, LACUNA com gates, ponderação estreita | 11 testes TDD (`test_divergencias_auditores.py`, RED 3→GREEN) + 73 foco verde + efeito isolado em cópia accept24 (diagnose 49/2→39/12, verify ok→partial, convergindo com check); sem novo run real |
 | `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
 | `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
 | `a704463` | quebra de monopólio single-host + diversidade; gate de quote em LACUNA | unit test + suíte 84 passed; accept22 sem alvo para monopólio, quote-gate manteve `failed` em URL nua |
@@ -248,15 +251,16 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (Missão 3, prova real obtida no accept24 — RA8 segue
-  pendente):** 3 contratos exercitados e seguraram em run real (support
-  failed→ok, evidence 0→51, resolved 0→5; versão numérica sustentada +
+- **Próxima ação (pós-accept24 + 3 divergências unificadas — RA8 segue
+  pendente):** 3 contratos seguraram em run real (support failed→ok,
+  evidence 0→51, resolved 0→5; versão numérica sustentada +
   funcional=LACUNA; combinação recusada). Overall `partial` por cobertura
-  (9/56), não por veracidade — gargalo agora é corpus/seleção
-  (`selection_context 7`, `assessor_error 11`), não leniência do produto.
-  Fechar Phase 5/7 (docs + matriz); próximo run só sob nova hipótese
-  explícita. (`selection_context` voltou a 7 no accept24 — miss do
-  assessor, não resíduo de produto; acompanhar por corpus.)
+  (9/56), não por veracidade — gargalo é corpus/seleção
+  (`selection_context 7`, `assessor_error 11`), não leniência. Divergências
+  unificadas sem novo run (cópia congelada: diagnose 49/2→39/12, verify
+  ok→partial, convergindo com check). Fechar Phase 5 (ACEITE_V1_RESULTADO
+  + check-complete); matriz sync Missão 3 + accept24 feito neste passo;
+  próximo run só sob nova hipótese explícita.
   - (1) `[N]` resolve — **PROVADO em run real**: citations 68, evidence
     51, resolved 5, unknown [] (accept24); `support failed→ok`;
   - (2) versão-premissa — **PROVADO em run real**: 2.1.4≥2.1.2 sustentada

@@ -328,3 +328,31 @@
 - Outputs em `/home/thomaskyn/hermes-runs/accept24/` (fora do repo e do /tmp);
   `docs/CONTINUIDADE.md` + plano sincronizados (Phase 7 complete, Phase 5
   in-progress). Sem push.
+
+## 2026-10-31 — Sessão 13: 3 divergências unificadas (fixer, TDD)
+
+- RED: `tests/test_divergencias_auditores.py` novo (11 testes, genérico sem
+  nomes) falhou 3/11 no caminho real (check/verify/diagnose): diagnose
+  `uncited` vs verify `unknown/failed` em URL evidência sem `[N]`; diagnose
+  `supported` vs check `versão exata ausente` em LACUNA 2.1.4; literal
+  ausente idem. Div3 (ponderação estreita) já verde via ramo de versão.
+- GREEN (escopo: `tools/diagnose_run.py`, `verification_report.py` + teste
+  focado): (1) diagnose usa mesmo `extract_references`/`Classify` do verify
+  (evidência sem `[N]` compõe veredito; bare utility nunca pondera; nota
+  própria excluída); (2) LACUNA espelha gates versão exata/família + literal
+  do `check_support`; (3) ponderação isenta só premissa numérica
+  (funcional reprova).
+- Foco fresco (`-p no:cacheprovider`): 11 passed novo + 73 combinados
+  (divergências + missão3 + consultado + diagnose + support + lacuna +
+  granularidade), EXIT=0. Ampla: 536 passed, 15 skipped, 1 falha
+  pré-existente ambiente (`retriever_timeout`, sem `gpt_researcher`,
+  igual na árvore limpa).
+- Efeito isolado em CÓPIA congelada accept24
+  (`/tmp/opencode/accept24-frozen2`, `state.json` md5 igual ao original,
+  original intacto): diagnose 49/2/66 → 39/12/66 (10 LACUNA versão/liter);
+  verify `ok` → `partial` com 8 misses — convergindo com check, sem run.
+  RA8 segue PENDENTE (cobertura, não veracidade).
+- Docs: matriz sync Missão 3 + accept24 (estava parada no accept22),
+  RA8 alfinetado PENDENTE; plano + CONTINUIDADE sincronizados.
+- Próximo: commit local sem push; depois `ACEITE_V1_RESULTADO.md` +
+  `check-complete.sh`; próximo run só sob nova hipótese explícita.

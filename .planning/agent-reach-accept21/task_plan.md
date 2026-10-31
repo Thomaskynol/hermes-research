@@ -10,11 +10,14 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-Re-run accept24 CONCLUÍDO (HEAD `a70d837`, 9/56 partial, support ok,
-3 contratos provados em run real). RA8 segue pendente até overall
-`passed` em run real (gargalo atual: cobertura/corpus, não veracidade).
-Fechar Phase 5/7 (docs + matriz); próximo run só sob nova hipótese
-explícita — sem re-investigar `selection_context` como resíduo de produto.
+3 divergências pós-accept24 CORRIGIDAS via TDD (HEAD a definir, sem push):
+diagnose extrai URLs evidência sem `[N]`, LACUNA espelha gates
+versão/liter, ponderação aplica regra estreita; 11 passed novo +
+73 foco verde; efeito isolado em cópia congelada accept24 (49/2→39/12,
+verify ok→partial). RA8 segue pendente até overall `passed` em run real
+(gargalo: cobertura/corpus, não veracidade). Fechar Phase 5 (docs +
+matriz sync Missão 3 + accept24); próximo run só sob nova hipótese
+explícita.
 
 ## Current Phase
 
@@ -61,9 +64,12 @@ Phase 7 (Missão 3: 3 contratos)
   sem ação de produto associada)
 - [x] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
   (accept24 sob `a70d837`: 9/56 partial, support ok, 3 contratos provados)
+- [x] Matriz sync Missão 3 + accept24 (estava parada no accept22);
+  RA8 alfinetado PENDENTE (cobertura parcial, retrieval-bound)
 - [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com nova rodada
 - [ ] `check-complete.sh` verde
-- **Status:** in-progress (falta só docs + matriz; sem re-run sem nova hipótese)
+- **Status:** in-progress (falta ACEITE_V1_RESULTADO + check-complete;
+  sem re-run sem nova hipótese)
 
 ### Phase 6 (Missão 2): Coerência do plano — COMPLETE
 
@@ -89,6 +95,23 @@ Phase 7 (Missão 3: 3 contratos)
   (accept24, HEAD `a70d837`, 715s, EXIT=0, hashes 8/8 OK pré/pós)
 - **Status:** complete (prova real; RA8 segue pendente — overall `partial`
   por cobertura 9/56, não por veracidade; ver Phase 5)
+
+### Phase 8 (pós-accept24): 3 divergências unificadas — IMPLEMENTADO (TDD)
+
+- [x] (1) diagnose extrai URLs evidência sem `[N]` (mesmo
+  `extract_references`/`Classify` do verify; bare utility nunca pondera;
+  fora do corpus = failed, nunca uncited)
+- [x] (2) ramo LACUNA do diagnose espelha gates do `check_support`
+  (versão exata/família + literal citado; sem eles, LACUNA com versão
+  ausente falha)
+- [x] (3) ponderação aplica regra estreita (numérico sustenta, funcional
+  reprova; sem isenção ampla de `_is_user_premise`)
+- [x] TDD `tests/test_divergencias_auditores.py` (11 testes, RED 3→GREEN;
+  positivo+negativo pela mesma entrada nos 3 auditores)
+- [x] Efeito isolado em cópia congelada accept24 (original intacto, md5
+  igual): diagnose 49/2/66 → 39/12/66; verify `ok` → `partial` com 8
+  misses — convergindo com check, sem novo run real
+- **Status:** complete (código + testes; RA8 segue PENDENTE; sem push)
 
 > Nota histórica (implementação, Sessão 11): `verify_support` resolve
 > in-text `([N])` via `state[report][numbers]` (fallback tabela §7);
