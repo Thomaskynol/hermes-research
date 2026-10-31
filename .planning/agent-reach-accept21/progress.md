@@ -42,3 +42,21 @@
   /tmp); `.hermes` intocado; sem push.
 - Utilidade: nula como guia de plugins; válida como negativo honesto +
   expôs modo de falha single-channel (5/52→0/15 entre runs idênticos).
+
+## 2026-10-31 — Sessão 3: commit produto + continuidade (fixer)
+
+- Commit produto `817a77b` (local, sem push): `adaptive_coordinator.py`
+  (B3 `_pick_pool_reserve` + B4 janela da menção via `entity_terms` +
+  `_mention_positions`), `verification_report.py` (B2 granularidade por
+  bullet + B5 `_window_hash`/`_selection_window`/ponderação
+  sentence_support), `tests/test_audit_granularity.py` +
+  `tests/test_pool_reserve_mention_window.py` (5+5, 10 passed).
+  Separado do docs `d665550` (produto vs docs).
+- Hashes workdir == frozen do run (`9b3a577a…`/`dcff1404…`): o commitado é
+  exatamente o validado; nada mudou durante o run.
+- Serviços pós-run: gateway 9119/8081 UP; vast :8001 DOWN (baseline
+  restaurada); SearXNG e embeddings DOWN.
+- `docs/CONTINUIDADE.md` atualizado (HEADs, hashes, resultado accept21,
+  serviços, próxima ação). Nenhuma lógica produto alterada além do commit.
+- Próximo: run controlado com vast DOWN + fix leniência LACUNA, depois
+  accept22 nos 5 bloqueadores.
