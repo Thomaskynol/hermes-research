@@ -293,6 +293,10 @@ def classify(state: dict) -> dict:
         ref_support = [u for u in refs if u in support_docs]
         if st == "covered":
             bucket = "ok" if ref_support else "synthesis_unsupported"
+        elif st == "not_applicable":
+            # M7: fora de escopo com evidência não é erro — é veredito
+            # documentado (fora do denominador, nunca cobertura).
+            bucket = "na_scoped" if ref_support else "na_bare"
         elif not entity_docs:
             bucket = "missing_entity_evidence"
         elif not support_docs:

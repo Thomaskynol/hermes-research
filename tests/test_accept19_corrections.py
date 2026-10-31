@@ -73,6 +73,18 @@ class WriterFloorTest(unittest.TestCase):
         self.assertIn("https://aaa.example/lit", included)
         self.assertIn("Planning With Files", seen["prompt"])
 
+    def test_writer_prompt_marks_user_context_as_non_evidence(self):
+        seen = {}
+
+        def stub_client(prompt):
+            seen["prompt"] = prompt
+            return "RELATÓRIO"
+
+        write = ac.make_model_writer(stub_client, max_chars=4500)
+        write(self._view())
+        self.assertIn("contexto informado pelo usuário", seen["prompt"])
+        self.assertIn("LACUNA", seen["prompt"])
+
     def test_entity_without_corpus_doc_gets_no_floor(self):
         view = self._view()
         view["plan"]["entities"].append(
