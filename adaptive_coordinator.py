@@ -1396,6 +1396,51 @@ def _entity_doc(entity: dict, evidence: dict, qualification: dict,
     return best
 
 
+def _open_priority(plan, prior_states) -> tuple[list[str], list[str]]:
+    """(open entity ids in plan order, open dimension terms).
+
+    A cell is open when no prior evaluation keeps it covered/partial.
+    With no prior evaluations every required cell is open (first round:
+    same order as before). Terms name the open entities (distinctive
+    parts) and the open criteria (label + EN bridge); used only to ORDER
+    the selection — never to include/exclude evidence. Deterministic.
+    """
+    try:
+        entities = [e for e in (plan or {}).get("entities", [])
+                    if isinstance(e, dict) and e.get("required", True)]
+        criteria = [c for c in (plan or {}).get("criteria", [])
+                    if isinstance(c, dict) and c.get("required", True)]
+    except Exception:
+        return [], []
+    emap = {e.get("id"): e for e in entities}
+    open_eids: list[str] = []
+    open_cids: set[str] = set()
+    for c in criteria:
+        cid = c.get("id")
+        applies = c.get("applies_to") or [None]
+        for eid in applies:
+            if isinstance(eid, str) and eid not in emap:
+                continue
+            st = (prior_states or {}).get((cid, eid))
+            if st not in ("covered", "partial"):
+                if isinstance(eid, str) and eid not in open_eids:
+                    open_eids.append(eid)
+                if isinstance(cid, str):
+                    open_cids.add(cid)
+    terms: list[str] = []
+    for eid in open_eids:
+        terms.extend(_entity_distinctive_tokens(emap.get(eid) or {}))
+    for c in criteria:
+        if c.get("id") not in open_cids:
+            continue
+        toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
+        terms.extend(toks)
+        terms.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
+    seen: set[str] = set()
+    return open_eids, [t for t in terms
+                       if not (t in seen or seen.add(t))]
+
+
 def make_model_assessor(model_client, max_docs: int = 24,
                         excerpt_chars: int = 1200,
                         json_budget: int = 12000):
@@ -1428,6 +1473,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
     _sent: set[str] = set()
     _extra_terms: list[str] = []
     _prior_refs: list[str] = []
+    _prior_ref_closed: list[str] = []
+    _prior_states: dict[tuple[str, str], str] = {}
 
     def set_relevance_terms(terms) -> None:
         """Extra excerpt terms (e.g. issued query tokens); plan labels stay primary."""
@@ -1437,9 +1484,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
             pass
 
     def set_previous_evaluations(evals) -> None:
-        """Reference URLs from prior evaluations (selection priority)."""
+        """Reference URLs + per-cell states from prior evaluations.
+
+        States drive gap-aware priority (open cells first); references
+        keep sustaining prior partials. Never alters coverage.
+        """
         try:
             refs: list[str] = []
+            states: dict[tuple[str, str], str] = {}
             for ev in evals or []:
                 if not isinstance(ev, dict):
                     continue
@@ -1447,7 +1499,27 @@ def make_model_assessor(model_client, max_docs: int = 24,
                     url = ref.get("url") if isinstance(ref, dict) else None
                     if isinstance(url, str) and url:
                         refs.append(url)
-            _prior_refs[:] = refs
+                _cid = ev.get("criterion_id")
+                _eid = ev.get("entity_id")
+                if isinstance(_cid, str):
+                    states[(_cid, _eid if isinstance(_eid, str) else None)] = \
+                        str(ev.get("state") or "")
+            # Refs cited only by covered evaluations sustain nothing new:
+            # they ride the last tier with already-sent material instead
+            # of crowding out open cells under a tight JSON ceiling.
+            _url_open: dict[str, bool] = {}
+            for ev in evals or []:
+                if not isinstance(ev, dict):
+                    continue
+                _st = str(ev.get("state") or "")
+                for ref in ev.get("references") or []:
+                    _u = ref.get("url") if isinstance(ref, dict) else None
+                    if isinstance(_u, str) and _u:
+                        _url_open[_u] = _url_open.get(_u, False) or _st != "covered"
+            _prior_refs[:] = [u for u in refs if _url_open.get(u, True)]
+            _prior_ref_closed[:] = [u for u in refs if not _url_open.get(u, True)]
+            _prior_states.clear()
+            _prior_states.update(states)
         except Exception:
             pass
 
@@ -1461,24 +1533,40 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # separado (chaves user://context/CHAVE, origin user-provided).
         ctx_urls = {u for u in evidence
                     if isinstance(u, str) and u.startswith("user://")}
-        # Order: entity sources first (one reserved slot per required
-        # discovered entity present in the corpus), then prior-evaluation
-        # references, then unsent material (new evidence reaches the model
-        # in bounded batches, never the same fixed prefix), then sent.
+        # Gap-aware order, same limits (accept17: 53 usable never evaluated
+        # — prefix-ordered lots + JSON ceiling meant later lots never fit
+        # 3 rounds). Priority: (1) sources of entities with open cells,
+        # (2) reserved aboutness slots for open entities first, (3) prior
+        # references (sustain partials), (4) unsent docs about open
+        # entities/dimensions, (5) other unsent, (6) already sent. Cut lots
+        # stay unsent, so the next round carries them (never re-sent while
+        # open material remains). max_docs/json_budget/model calls intact.
+        _open_eids, _open_terms = _open_priority(plan, _prior_states)
+        _open_set = set(_open_eids)
         ordered: list[str] = []
         _picked: set[str] = set()
 
-        def _push(url) -> None:
+        def _push(url, allow_resend: bool = False) -> None:
             if (isinstance(url, str) and url in evidence
                     and url not in ctx_urls and url not in _picked
+                    and (allow_resend or url not in _sent)
                     and len(ordered) < max_docs):
                 _picked.add(url)
                 ordered.append(url)
 
-        for _e in (plan or {}).get("entities", []) or []:
+        def _open_first(ents) -> list:
+            return ([e for e in ents
+                     if isinstance(e, dict) and e.get("id") in _open_set]
+                    + [e for e in ents
+                       if not (isinstance(e, dict)
+                               and e.get("id") in _open_set)])
+
+        for _e in _open_first((plan or {}).get("entities", []) or []):
             if not isinstance(_e, dict) or _e.get("required", True) is False:
                 continue
             if not _e.get("discovered"):
+                continue
+            if _prior_states and _e.get("id") not in _open_set:
                 continue
             _push(_e.get("source_url"))
         # Reserva por entidade (genus3: entidades predefinidas nunca são
@@ -1487,8 +1575,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # Um slot por entidade exigida ainda sem doc: melhor doc do corpus
         # que menciona a entidade (ordem de evidência, determinístico).
         _reserved_taken = set(_picked)
-        for _e in (plan or {}).get("entities", []) or []:
+        for _e in _open_first((plan or {}).get("entities", []) or []):
             if not isinstance(_e, dict) or _e.get("required", True) is False:
+                continue
+            if _prior_states and _e.get("id") not in _open_set:
                 continue
             _src = _e.get("source_url")
             if isinstance(_src, str) and _src in _picked:
@@ -1498,12 +1588,28 @@ def make_model_assessor(model_client, max_docs: int = 24,
             _reserved_taken.update(_picked)
         for _u in _prior_refs:
             _push(_u)
+
+        def _about_open(url) -> bool:
+            if not _open_terms:
+                return True
+            try:
+                low = str((qualification.get(url) or {}).get("usable_text")
+                          or evidence.get(url) or "").lower()
+            except Exception:
+                return False
+            return any(t in low for t in _open_terms)
+
+        for _u in evidence:
+            if _u not in _sent and _about_open(_u):
+                _push(_u)
         for _u in evidence:
             if _u not in _sent:
                 _push(_u)
+        for _u in _prior_ref_closed:
+            _push(_u)
         for _u in evidence:
             if _u in _sent:
-                _push(_u)
+                _push(_u, allow_resend=True)
         # Relevance terms from the plan (criterion/entity labels): long
         # documents are windowed around what the criteria ask, never
         # head-only (a 131K-char paper hides §5/§6 from a head cut).
@@ -1564,6 +1670,11 @@ def make_model_assessor(model_client, max_docs: int = 24,
         if len(ordered) > len(items):
             cuts.append(f"lote {len(items)}/{len(ordered)} fontes nesta "
                         f"chamada; restante em lotes posteriores")
+        if _open_eids:
+            cuts.append("seleção priorizada por células em aberto "
+                        f"({len(_open_eids)} entidade(s): "
+                        f"{','.join(_open_eids[:6])}); limites intactos "
+                        "(max_docs/teto JSON/chamadas)")
         selection = {"urls": [i["url"] for i in items],
                      "hashes": {i["url"]: i["sha"] for i in items},
                      "raw_chars": {i["url"]: i["raw_chars"] for i in items},

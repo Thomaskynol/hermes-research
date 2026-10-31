@@ -170,7 +170,7 @@ class SecondReview(unittest.TestCase):
 
     def test_s07_assessor_cannot_cover_using_material_not_sent(self):
         hidden = "https://example.org/source/hidden-after-twenty-four"
-        evidence = {f"https://example.org/source/{i:02}": f"Unrelated excerpt {i}"
+        evidence = {f"https://example.org/source/{i:02}": f"Unrelated criterion excerpt {i}"
                     for i in range(24)}
         evidence[hidden] = "The only facts that address the mandatory criterion"
         prompts = []
