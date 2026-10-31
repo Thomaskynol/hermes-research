@@ -2,14 +2,14 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Missão 2: coerência — 4 inconsistências
-> corrigidas, 5 itens conferidos; HEAD `15443a5` — só docs desde o run).
-> Commits produto e docs separados (sem push).
+> Última atualização: 2026-10-31 (Sessão 9: run accept23 real sob
+> `49508fe` — 0/55 failed honesto, 5 nomes, 4 correções exercitadas;
+> RA8 segue PENDENTE). Commits produto e docs separados (sem push).
 >
-> HEADs: produto congelado no `a704463` (executado sob `776af89`, hashes
-> frozen reconferidos pré/pós-run); docs evoluem em `15443a5` sem tocar
-> produto. `git show --stat` do intervalo prova docs-only
-> (plano + CONTINUIDADE + matriz + 1 teste estrito).
+> HEADs: produto `49508fe` (consultado/mencionado + inferência-por-premissas
+> + fato-usuário + janela; executado no run accept23, hashes frozen
+> reconferidos pré/pós-run); docs evoluem sem tocar produto.
+> `git show --stat` do intervalo prova docs-only (plano + CONTINUIDADE).
 
 ## Objetivo e escopo
 
@@ -54,6 +54,13 @@ do usuário, e o diagnose concordou (sem divergência).
 - `15443a5` — **docs + 1 teste estrito** (Missão 2: coerência do plano;
   tautologia `or True` vira asserção RED→GREEN, 20 passed; matriz sync
   accept22 + escopo REAL-vs-PENDENTE; sem lógica produto alterada).
+- `49508fe` — **produto**: consultado-vs-mencionado + inferência por
+  premissas + fato-usuário + janela (`verification_report.py`,
+  `report_renderer.py`, `scripts/citation_audit.py`, `tools/diagnose_run.py`
+  + `tests/test_consultado_inferencia_usuario_janela.py`, 13 testes;
+  foco 137 passed). Executado no run accept23 (hashes 8/8 OK pré/pós-run).
+
+## Resultado accept23 (evidência em `/home/thomaskyn/hermes-runs/accept23/`)
 
 ## Riscos amarelos (limitações registradas — sem refatorar)
 
@@ -90,6 +97,31 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
   (accept21/22 sem alvo: M8 sem disparo, monopólio sem alvo).
   Divergência excerto-vs-auditado fica explícita via `hash_source`,
   nunca silenciosa.
+
+## Resultado accept23 (evidência em `/home/thomaskyn/hermes-runs/accept23/`)
+
+- Config: pergunta do aceite, medium/max-rounds-3, contexto 2.1.4,
+  **vast DOWN + SearXNG DOWN** (curl 000 pré e pós-run), EXIT=0, 588s.
+  Código `49508fe` (hashes 8/8 OK pré/pós-run, sem edição no run).
+- Cobertura **0/55 + 0 N/A (0%)** (ok 0, partial_legit 24, missing 14,
+  assessor_error 17; sem selection_context/synthesis_unsupported);
+  síntese diagnose 49/1/66; verification-sentença 48/50 ok + 15 LACUNA +
+  1 inferência declarada; **verification overall `failed`**;
+  **RA8 segue PENDENTE**.
+- Corpus de listagem sem YouTube (47 descobertos/12+ hosts, 18 usáveis,
+  18 analisados, 0 erro grave): **5 nomes com identidade**
+  (lit-opencode, opencode-planner, Plannotator, opencode-handoff,
+  opencode-local-memory). Failed por 4 LACUNA [27,3,14,17] ancoradas em
+  listagens (classe accept20, 17 lá e cá) + 1 frase `[8]` sem overlap.
+  Sem URLs nuas (classe accept19/22 ausente).
+- Fixes: inferência-contida exercitada e segurou (2× declarada, combinação
+  recusada, c12 insufficient); fato-usuário contido 2º run (`user://` fora
+  do corpus); janela sem divergência; monopólio/b81e8f6 sem alvo.
+  Resíduo sem corrigir: contador de citações cego a `([N])`
+  (evidence/resolved 0; sentença 48/50 é a camada que vale).
+- Antes/depois vs accept22: 11/54→0/55 por corpus de listagem (produto E
+  corpus distintos — sem causalidade isolável); melhorou: 0 URLs nuas,
+  inferências contidas, fato-usuário contido, janela auditada.
 
 ## Resultado accept22 (evidência em `/home/thomaskyn/hermes-runs/accept22/`)
 
@@ -128,8 +160,9 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 ## Serviços (2026-10-31, pós-run)
 
 - `hermes-gateway` UP (9119/8081). **vast `:8001` DOWN** (accept21 subiu
-  on-demand e desligou; accept22 rodou com DOWN pré/pós confirmado).
-  SearxNG DOWN (sem imagem docker), embeddings DOWN — igual ao accept20.
+  on-demand e desligou; accept22 e accept23 rodaram com DOWN pré/pós
+  confirmado). SearxNG DOWN (sem imagem docker), embeddings DOWN — igual
+  ao accept20.
 
 ## Ambiente e configuração efetiva
 
@@ -148,7 +181,8 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 
 | Commit | O que muda | Validado até agora |
 |--------|------------|--------------------|
-| `cc0f3ff` | contexto do usuário não é evidência (⇒ `LACUNA` no prompt); bucket `na_scoped` no diagnose | unit test + **sinal fraco em run real (accept22: classe accept20 ausente, sentença compat contida)** |
+| `cc0f3ff` | contexto do usuário não é evidência (⇒ `LACUNA` no prompt); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
+| `49508fe` | consultado-vs-mencionado + inferência-por-premissas + fato-usuário + janela | foco 137 passed + **exercitado em run real (accept23: inferência contida, fato-usuário contido 2º run, janela sem divergência)**; resíduo: contador cego a `([N])` (registrado, sem corrigir) |
 | `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
 | `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
 | `a704463` | quebra de monopólio single-host + diversidade; gate de quote em LACUNA | unit test + suíte 84 passed; accept22 sem alvo para monopólio, quote-gate manteve `failed` em URL nua |
@@ -167,15 +201,17 @@ segue pendente.
 - **Hipóteses:** `cc0f3ff` elimina a classe de falha do `verification` do
   accept20 sem derrubar `ok` legítimos; `b81e8f6` reduz `missing` silencioso
   no M8. Detalhes em `.planning/agent-reach-accept21/findings.md`.
-- **Instruções superadas (removidas na Missão 2):** run-com-vast-UP,
-  rounds-3-como-fixo, 5-itens-como-requisito, pausa-mid-model como ação.
-  Não re-executar sem nova hipótese explícita.
-- **Lição do accept19 (não repetir):** run rodou sobre código antigo por race
+- **Instruções superadas (removidas na Missão 2, seguem removidas):**
+  run-com-vast-UP, rounds-3-como-fixo, 5-itens-como-requisito,
+  pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
+- **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação:** investigar `selection_context` 16 e o caminho de
-  índices `[N]` fora da base de síntese (leniência residual do accept21),
-  sem flexibilizar critério; depois re-run cobrindo as correções pendentes
-  de prova real (Phase 5). RA8 segue pendente até overall `passed` em run real.
+- **Próxima ação:** investigar `assessor_error` 17 recorrente
+  (proximidade-em-listagem, accept20 e accept23) + contador de citações
+  cego a `([N])`, sem flexibilizar critério; depois re-run cobrindo as
+  correções pendentes de prova isolada (Phase 5). RA8 segue pendente até
+  overall `passed` em run real. (`selection_context` zerou no accept23 —
+  sai da lista de resíduos ativos.)
 
 ## Referências
 

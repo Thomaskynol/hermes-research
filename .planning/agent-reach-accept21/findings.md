@@ -126,6 +126,40 @@
   Residual novo/recorrente: `selection_context` 16 (accept20: 4);
   c11/c12 seguem insufficient (corpus sem material comparativo).
 
+## Resultado accept23 (evidência: `/home/thomaskyn/hermes-runs/accept23/`)
+
+- **0/55 + 0 N/A (0,0%)**; diagnose: `ok 0, partial_legit 24,
+  missing_dimension_evidence 14, assessor_error 17`
+  (sem `selection_context`, sem `synthesis_unsupported`, sem `na`).
+  Síntese diagnose 49/1/66; verification-sentença 48/50 ok, 60 sem
+  citação, 15 LACUNA sustentadas, 1 inferência declarada (nunca supported
+  por âncora). Verification overall **failed**
+  (execution ok; question/review partial; support failed). RA8 PENDENTE.
+- Corpus de listagem com vast DOWN: 47 descobertos em 12+ hosts
+  (github 15, opencode.ai 10, resto ≤3; 1 YouTube, `yt_live_fetches=0`);
+  18/18 obtidos-usáveis, 18 analisados, 6 na síntese, 4 citados
+  (counters). 5 nomes com identidade (lit-opencode, opencode-planner,
+  Plannotator, opencode-handoff, opencode-local-memory).
+- Failed por: **4 claims LACUNA [27,3,14,17] sobre handoff/local-memory
+  ancoradas em páginas de listagem** — revisor reprova porque o doc
+  menciona o nome (proximidade-em-listagem); assessor diz `insufficient`
+  citando o mesmo tipo de doc (diagnose: `assessor_error` 17).
+  Mesma classe do accept20 (17 lá, 17 aqui), agora nos dois níveis.
+  1 frase `[8]` (Plannotator) sem suporte (overlap 0,14<0,35).
+- Sem URLs nuas (`outside_corpus_citations: []`): classe accept19/22 não
+  recorreu. Cobertura caiu 11/54→0/55 por corpus de listagem, não por
+  regressão isolável (produto E corpus distintos entre os runs).
+- Fixes `49508fe` exercitados: inferência-por-premissas segurou
+  (INFERÊNCIA declarada 2×, combinação recusada, c12 insufficient);
+  fato-usuário contido 2º run (2.1.4 só `[informado pelo usuário]`,
+  compat = LACUNA, `user://` fora do corpus); janela auditada sem
+  divergência; monopólio-break e b81e8f6 sem alvo.
+- **Resíduo de medição registrado (sem corrigir):** corpo cita `([N])`
+  (índices 1,7,8,9), extrator só enxerga URLs nuas da tabela-fonte ⇒
+  `citations_evidence=0/resolved=0` (18/18 utility). Camada de contagem
+  cega ao formato `[N]`; sentença (48/50 ok) é a camada que vale.
+  Família do residual accept21 de índices `[N]`, invertido.
+
 ## Revisão de coerência — Missão 2 (2026-10-31, HEAD `15443a5`)
 
 ### Estado atual (evidência: `git log` + `git status` + `ss`, 2026-10-31)

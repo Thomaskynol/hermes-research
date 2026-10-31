@@ -10,9 +10,11 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-Investigar `selection_context` 16 e o caminho de índices `[N]` fora da
-base de síntese (leniência residual do accept21), sem flexibilizar
-critério; depois re-run. RA8 segue pendente até overall `passed` em run real.
+Investigate `assessor_error` 17 (proximidade-em-listagem, recorrente
+accept20/accept23) and citation counter blind to `([N])` in-text cites, sem
+flexibilizar; depois re-run cobrindo as correções pendentes de prova
+isolada. RA8 segue pendente até overall `passed` em run real
+(accept23: 0/55 failed honesto sob `49508fe`; `selection_context` zerou).
 
 ## Current Phase
 

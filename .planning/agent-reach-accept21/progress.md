@@ -212,3 +212,41 @@
   (failed honesto por 3 inferências sem suporte semântico [12,13,14]).
 - Próximo: commit local sem push; depois investigar selection_context 16
   residual, sem flexibilizar.
+
+## 2026-10-31 — Sessão 9: run accept23 sob 49508fe + relatório + plano (fixer, lane isolado)
+
+- Congelado HEAD `49508fe` + `git diff --stat` (vazio; só untracked
+  `.planning/.active_plan` pré-existente) + sha256 de 8 arquivos produto
+  (`hashes.frozen`) em `/home/thomaskyn/hermes-runs/accept23/*.frozen`.
+  Hashes reconferidos após o run (`sha256sum -c` 8/8 OK) — sem edição
+  produto no run. `adaptive_coordinator.py` igual ao frozen accept21/22.
+- Entrada do experimento: `installed_opencode_version=2.1.4` (contexto);
+  instalada real `opencode v2.2.5` registrada à parte (sem presumir).
+- Infra medida (curl curto, pré E pós-run): vast :8001 DOWN (000, sem
+  processos, nada subido on-demand); SearXNG DOWN (localhost + bridge
+  `172.18.0.2`); embeddings :8082 DOWN; gateway 9119 UP (302).
+  Baseline restaurada por construção (nada foi ligado).
+- Run real (run.sh = template accept22 com dirs accept23; medium,
+  max-rounds 3, native+opencode `muse-spark-1.3-contributor`): parada
+  `rounds`, **588s**, EXIT=0, 47/18/18/18, 6 síntese / 4 citados
+  (counters); consumo queries 11, extractions 19, **yt_live_fetches 0**,
+  model_calls 7. 55 avaliações (32 partial + 23 insufficient, 0 covered).
+- **Cobertura oficial 0/55 + 0 N/A**; diagnose: ok 0, partial_legit 24,
+  missing 14, assessor_error 17 (sem selection_context/synthesis_unsupported);
+  síntese diagnose 49/1/66; verification-sentença 48/50 ok + 15 LACUNA +
+  1 inferência declarada; **verification overall `failed`**
+  (execution ok, resto partial/failed). **RA8 segue PENDENTE.**
+- Causa do failed: 4 LACUNA [27,3,14,17] (handoff/local-memory) ancoradas
+  em listagens — revisor reprova por menção-do-nome; assessor marca
+  insufficient citando o mesmo doc (classe accept20, 17 lá e cá).
+  Sem URLs nuas (classe accept19/22 ausente).
+- Utilidade: **5 nomes com identidade** (lit-opencode, opencode-planner,
+  Plannotator, opencode-handoff, opencode-local-memory); guia parcial
+  honesto (planner único com MIT/manutenção/limitações; handoff único com
+  versão explícita ≥2.1.2); combinação recusada (c12 insufficient).
+- Fixes `49508fe` exercitados: inferência-contida (2× declarada, combinação
+  recusada); fato-usuário contido 2º run (`user://` fora do corpus);
+  janela sem divergência; monopólio/b81e8f6 sem alvo. Resíduo registrado
+  sem corrigir: contador de citações cego a `([N])` (evidence/resolved 0).
+- Outputs em `/home/thomaskyn/hermes-runs/accept23/` (fora do repo e do
+  /tmp); `.hermes` intocado; accept22 intacto; sem push.
