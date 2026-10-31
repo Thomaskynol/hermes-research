@@ -10,16 +10,14 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-Missão 4 IMPLEMENTADA (TDD 17 passed; sem push): 3 contratos v2 em lane
-próprio, RED 10→GREEN; reaplicado a CÓPIA de accept23/accept24 (originais
-intactos, md5 igual); versão-premissa preservada; 8 conflitantes
-verificadas ausentes (prompts já estreitos). Próximo run só sob nova
-hipótese explícita. RA8 segue pendente até overall `passed` em run real
-(gargalo: cobertura/corpus, não veracidade).
+accept25 EXECUTADO sob `4b40bbe` (0/35 partial, support ok 2ª vez, 3
+contratos v2 provados; RA8 segue pendente — gargalo cobertura/seleção).
+Fechar Phase 5 (ACEITE_V1_RESULTADO + check-complete). Próximo run só sob
+nova hipótese explícita.
 
 ## Current Phase
 
-Phase 9 (Missão 4: 3 contratos v2 — IMPLEMENTADA, TDD, sem run real)
+Phase 10 (accept25: run real dos 3 contratos v2 — PROVA OBTIDA)
 
 ## Phases
 
@@ -62,6 +60,8 @@ Phase 9 (Missão 4: 3 contratos v2 — IMPLEMENTADA, TDD, sem run real)
   sem ação de produto associada)
 - [x] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
   (accept24 sob `a70d837`: 9/56 partial, support ok, 3 contratos provados)
+- [x] Re-run sob `4b40bbe` cobrindo os 3 contratos v2 + identidade estrita
+  (accept25: 0/35 partial, support ok 2ª vez, v2-1/v2-2/v2-3 confirmados)
 - [x] Matriz sync Missão 3 + accept24 (estava parada no accept22);
   RA8 alfinetado PENDENTE (cobertura parcial, retrieval-bound)
 - [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com nova rodada
@@ -146,6 +146,25 @@ Phase 9 (Missão 4: 3 contratos v2 — IMPLEMENTADA, TDD, sem run real)
   LACUNA sem gates, bare utility ponderando, fora-do-corpus como
   `uncited`/ok, divergência silenciosa, redução de denominador)
 - **Status:** complete (código + testes; cópias accept23/24 sem novo run;
+  RA8 segue PENDENTE; sem push)
+
+### Phase 10 (accept25): run real dos 3 contratos v2 — PROVA OBTIDA
+
+- [x] Hipótese explícita: primeira prova real sob `4b40bbe` (Missão 4 v2 +
+  identidade estrita Sessão 16); congelamento pré/pós (HEAD/diffstat/
+  hashes 8/8 OK, sem edição no run); provisionamento investigado
+  (vast provisionável mas NÃO subido — colapso accept21; SearXNG/embeddings
+  impossíveis, condições registradas)
+- [x] (v2-1) — **PROVADO accept25**: 4 combinações §8 em `declared`
+  (premissas+âncoras), extrapolação recusada; versão-preservada (5× LACUNA)
+- [x] (v2-2) — **PROVADO accept25**: §8-Anexo = verify final, numbers
+  estável, sem `not_run`, sem nota duplicada
+- [x] (v2-3) — **PROVADO accept25**: bandonker 3× LACUNA identidade, sem
+  promoção; selection_context 22 sem leniência; `[N]` resolve intacto
+  (103/74/5/[])
+- [x] support `ok` 2ª vez consecutiva; overall `partial` (0/35) por
+  cobertura/seleção, não veracidade; `assessor_error 0` (era 11)
+- **Status:** complete (evidência em `/home/thomaskyn/hermes-runs/accept25/`;
   RA8 segue PENDENTE; sem push)
 
 ## Decisions Made

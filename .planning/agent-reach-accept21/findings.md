@@ -449,3 +449,35 @@ da Missão 4 + 4 da Missão 2.
    `f"{url}\n{texto}"` (excerpt 2115, discovery 3309/3440) intactos —
    fora do escopo pedido. TDD 2 RED→GREEN; ampla 555 passed + 1 falha
    ambiente pré-existente; sem push.
+
+## Resultado accept25 (evidência: `/home/thomaskyn/hermes-runs/accept25/`, HEAD `4b40bbe`)
+
+Run real sob `4b40bbe` (hashes 8/8 OK pré/pós, sem edição no run), mesma
+pergunta/config/infra DOWN (curl 000 pré/pós; vast NÃO subido por decisão —
+colapso YouTube provado no accept21; SearXNG/embeddings impossíveis neste
+lane, condições registradas no RELATORIO_ACCEPT25.md). 437s, EXIT=0.
+
+- Cobertura oficial 0/35 + 0 N/A; diagnose missing 11/selection 22/
+  partial_legit 2 (sem ok, sem assessor_error); síntese 62/9/55 + declared
+  26; sentença 59 + 12 unsupported com reason + 33 sem citação;
+  `unsupported_claims []`; verification execution ok/question partial/
+  review partial/**support ok** (2ª vez consecutiva); overall **partial —
+  RA8 segue PENDENTE**.
+- 3 contratos v2 provados em run real (previsto cópia congelada accept24):
+  4 combinações §8 em `declared` (extrapolação recusada); §8-Anexo = verify
+  final (two-pass, numbers 41/24/24/24/6/10 estável, sem `not_run`, sem
+  nota duplicada); bandonker 3× LACUNA identidade sem promoção;
+  citations 103/evidence 74/resolved 5/unknown [] (Missão 3 intacta).
+- 5 nomes (planner, planning-with-files, Plannotator, opencode-review,
+  bandonker; bandonker = LACUNA de identidade no excerto, declarada;
+  erskingardner fora da seleção por motivo do plano; URLs alternativos não
+  investigados, sem fato afirmado). 0 URLs nuas.
+- Resíduos registrados sem corrigir: `selection_context` 22 (assessor trouxe
+  docs genéricos — miss de seleção, sem leniência); `review partial`
+  (revisão incompleta + 72 votos sem falha técnica); 4 `sem sobreposição`
+  honestas; monopólio-break e M8 sem alvo.
+- Intervalo `a70d837..a656535`: produto real = `a656535`
+  (`tools/diagnose_run.py` +97 Div1/Div2 + `verification_report.py` +6 Div3
+  ponderação estreita + `tests/test_divergencias_auditores.py` 11 TDD);
+  `8040f87` no intervalo é só docs do accept24 (zero produto — excluído).
+  Validação por teste cobrindo cada mudança (RED→GREEN + foco/ampla + cópia).

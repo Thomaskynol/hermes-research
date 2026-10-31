@@ -431,3 +431,42 @@
   15 skipped, 4 scripts-ajuda ignorados (sem `sync_config`, pré-existente).
   Sem novo run real. RA8 segue PENDENTE.
 - Próximo: commit local sem push; próximo run só sob nova hipótese.
+
+## 2026-10-31 — Sessão 17: run real accept25 sob 4b40bbe — prova dos 3 contratos v2 (fixer, lane isolado)
+
+- Hipótese explícita: primeira prova real sob `4b40bbe` (Missão 4 v2 +
+  identidade estrita Sessão 16). Congelado HEAD `4b40bbe` + `git diff --stat`
+  (vazio; só untracked `.planning/.active_plan` pré-existente) + sha256 de
+  8 arquivos produto (`hashes.frozen`) em `/home/thomaskyn/hermes-runs/accept25/`.
+  Hashes reconferidos após o run (`sha256sum -c` 8/8 OK) — sem edição
+  produto no run. `module_hashes` do manifest conferem.
+- Entrada do experimento: `installed_opencode_version=2.1.4` (contexto);
+  instalada real `opencode v2.2.5` registrada à parte (sem presumir).
+- Infra medida (curl curto, pré E pós-run): vast :8001 DOWN (000, deps OK —
+  provisionável mas NÃO subido, decisão: colapso accept21); SearXNG DOWN
+  (localhost + bridge `172.18.0.2`; sem imagem; condição `docker pull
+  searxng/searxng`); embeddings :8082 DOWN (harrier externo, sem launcher);
+  gateway 9119 UP (302)/8081. `~/.hermes` +3,6 KB (ruído).
+- Run real (run.sh = template accept24 com dirs accept25; medium,
+  max-rounds-3, native+opencode `muse-spark-1.3-contributor`): parada
+  `rounds`, **437s**, EXIT=0, 41/24/24/24, 6 síntese / 10 citados
+  (counters+manifest). Consumo: queries 10, fetches 33, ops 13 (9 ok /
+  4 falha), **yt_live_fetches 0**, model_calls 7.
+- **Cobertura oficial 0/35 + 0 N/A**; diagnose: missing 11,
+  selection_context 22, partial_legit 2 (sem ok, sem assessor_error, sem
+  synth_unsup); síntese diagnose 62/9/55 + declared 26; verification-sentença
+  59/12/33, claims 0 sem suporte, outside []; verification execution ok/
+  question partial/review partial/**support ok (2ª vez)**; overall
+  **partial. RA8 segue PENDENTE.**
+- 3 contratos v2 PROVADOS (detalhe no RELATORIO_ACCEPT25.md, tabela
+  esperado×observado): v2-1 (4 combinações declared, extrapolação recusada);
+  v2-2 (two-pass §8=final, numbers estável, sem not_run/dedupe ok);
+  v2-3 (bandonker LACUNA identidade, selection sem leniência, [N] intacto).
+- Utilidade: **5 nomes com âncora** (4 literais + 1 LACUNA declarada);
+  guia parcial honesto (único par defensável planner+review documentado;
+  demais exigem fontes de compat/preço/changelog). `assessor_error 0`
+  (era 11) — melhora de método; `selection_context 22` (era 7) — piora de
+  seleção, sem leniência do produto.
+- Outputs em `/home/thomaskyn/hermes-runs/accept25/` (fora do repo e do /tmp);
+  `docs/CONTINUIDADE.md` + plano sincronizados (Phase 10 complete, Phase 5
+  in-progress; conflitantes Missão 4 listadas como removidas). Sem push.

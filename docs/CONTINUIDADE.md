@@ -2,15 +2,13 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 16: identidade estrita —
-> fronteira forma cheia + slug não-basta, TDD 2 RED→GREEN, ampla 555
-> passed + 1 falha ambiente pré-existente; versão-premissa e interop
-> POS/NEG preservadas; sem push). Commit local sem push.
+> Última atualização: 2026-10-31 (accept25: run real sob `4b40bbe`, 0/35
+> partial, support ok 2ª vez, 3 contratos v2 provados, RA8 pendente;
+> sem push). Commit local sem push.
 >
-> HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
-> hashes frozen reconferidos pré/pós-run) + 3 fixes de divergência `a656535`
-> (Sessão 13, TDD, sem novo run); docs + matriz sync Missão 3/accept24
-> (Sessão 13) + registro Missão 4 (este passo).
+> HEADs: produto `4b40bbe` (Missão 3 + 3 divergências + Missão 4 v2 +
+> identidade estrita, executado no run accept25, hashes frozen reconferidos
+> pré/pós-run); docs + matriz sync Missão 4/accept25 (este passo).
 
 ## Objetivo e escopo
 
@@ -69,6 +67,49 @@ do usuário, e o diagnose concordou (sem divergência).
   `adaptive_coordinator.py` + `tests/test_missao3_contratos.py`, 16 testes;
   prova isolada em cópia congelada do accept23). Executado no run accept24
   (hashes 8/8 OK pré/pós-run, sem edição no run).
+- `a656535` — **produto**: 3 divergências unificadas (Div1
+  extract/Classify + Div2 gates versão/literal + Div3 ponderação estreita;
+  `tools/diagnose_run.py` +97, `verification_report.py` +6,
+  `tests/test_divergencias_auditores.py` 11 testes TDD; `8040f87` no
+  intervalo é só docs do accept24, zero produto — excluído).
+- `5a4a78b` — **produto**: 3 contratos v2 (inferência positiva, entrega
+  two-pass, identidade/atribuição; 17 testes TDD).
+- `4b40bbe` — **produto**: identidade estrita (forma cheia com fronteira +
+  corpo decide em refs; 2 testes TDD). Executado no run accept25
+  (hashes 8/8 OK pré/pós-run, sem edição no run).
+
+## Resultado accept25 (evidência em `/home/thomaskyn/hermes-runs/accept25/`)
+
+- Config: pergunta do aceite, medium/max-rounds-3, contexto 2.1.4,
+  **vast DOWN + SearXNG DOWN** (curl 000 pré e pós-run), EXIT=0, 437s.
+  Código `4b40bbe` (hashes 8/8 OK pré/pós-run, sem edição no run).
+  Provisionamento investigado antes do run: vast provisionável
+  (`fastapi/uvicorn/httpx` OK) mas NÃO subido — accept21 provou
+  colapso YouTube com vast UP; SearXNG impossível (sem imagem/script;
+  condição: `docker pull searxng/searxng`); embeddings impossível (sem
+  launcher; condição: harrier UP em `172.17.0.1:8082`).
+- Cobertura **0/35 + 0 N/A (0%)** (missing 11, selection_context 22,
+  partial_legit 2; sem ok, sem assessor_error); síntese diagnose 62/9/55
+  + declared 26; sentença 59 sustentadas + 12 unsupported com reason
+  (versão/identidade/overlap) + 33 sem citação; `unsupported_claims []`,
+  `outside_corpus []`; **support `ok` (2ª vez consecutiva)**;
+  **overall `partial`; RA8 segue PENDENTE**.
+- Prova real dos 3 contratos v2 (previsto na cópia congelada: check partial,
+  diagnose + declared, verify partial): **confirmado** — 4 frases-combinação
+  do §8 em canal `declared` (nenhuma promoção silenciosa, extrapolação
+  recusada); §8-Anexo reflete verify final (two-pass, numbers estável,
+  sem `not_run`); bandonker sem identidade isolada = 3 LACUNA declaradas,
+  sem promoção por listagem. Citations 103, evidence 74, resolved 5,
+  unknown [] (Missão 3 intacta).
+- Corpus web sem YouTube (41 descobertos/24 usáveis, 10 citados, 6 na
+  síntese): **5 nomes** (opencode-planner, planning-with-files, Plannotator,
+  opencode-review, bandonker — este último LACUNA de identidade no excerto,
+  declarada; `opencode-code-review` erskingardner fora da seleção por motivo
+  do plano; URLs alternativos não investigados, sem fato afirmado).
+- Resíduos sem corrigir (sem edição de produto neste lane): `selection_context`
+  22 (assessor trouxe docs genéricos em vez dos docs da entidade — miss de
+  seleção, sem leniência); `review partial` (revisão incompleta + 72 votos
+  sem falha técnica); 4 `sem sobreposição` honestas; monopólio/M8 sem alvo.
 
 ## Resultado accept24 (evidência em `/home/thomaskyn/hermes-runs/accept24/`)
 
@@ -248,25 +289,22 @@ segue pendente.
   no M8. Detalhes em `.planning/agent-reach-accept21/findings.md`.
 - **Instruções superadas (removidas na Missão 2, seguem removidas):**
   run-com-vast-UP, rounds-3-como-fixo, 5-itens-como-requisito,
-  pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
+  pausa-mid-model como ação.
+- **Instruções conflitantes Missão 4 (removidas, seguem removidas):**
+  isenção ampla de premissa, promoção de combinação plausível, LACUNA sem
+  gates, bare utility ponderando, fora-do-corpus como `uncited`/ok,
+  divergência excerto-vs-full silenciosa, redução de denominador.
+  Nenhuma restante ativa nos prompts (writer/assessor estreitos).
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (Missão 4 IMPLEMENTADA, TDD 17 passed — RA8 segue
-  pendente):** 3 contratos v2 em código + testes (Sessão 15): (v2-1) POS
-  interop → supported+declared, NEG → LACUNA explícita, extrapolação
-  rejeitada; (v2-2) two-pass §8 final + dedupe; (v2-3) eid fronteira +
-  refs com identidade + rank por identidade. versão-premissa PRESERVADA;
-  cópias accept23/24 sem novo run (originais intactos, md5 igual).
-  Próximo run só sob nova hipótese explícita.
-  Missão 3 + divergências preservadas: 3 contratos seguraram em run real
-  (support failed→ok, evidence 0→51, resolved 0→5; versão numérica
-  sustentada + funcional=LACUNA; combinação recusada). Overall `partial`
-  por cobertura (9/56), não por veracidade — gargalo é corpus/seleção
-  (`selection_context 7`, `assessor_error 11`), não leniência. Divergências
-  unificadas sem novo run (cópia congelada: diagnose 49/2→39/12, verify
-  ok→partial, convergindo com check). Fechar Phase 5 (ACEITE_V1_RESULTADO
-  + check-complete); matriz sync Missão 3 + accept24 feito neste passo;
-  próximo run só sob nova hipótese explícita.
+- **Próxima ação (accept25 EXECUTADO — 3 contratos v2 provados em run real,
+  RA8 segue pendente):** hipótese do run era a primeira prova real sob
+  `4b40bbe` (Missão 4 v2 + identidade estrita) — cumprida: POS→declared,
+  two-pass §8=final, identidade sem promoção; support ok 2ª vez; overall
+  `partial` por cobertura (0/35), não por veracidade — gargalo é
+  corpus/seleção (`selection_context 22`, `assessor_error 0`), não
+  leniência. Fechar Phase 5 (ACEITE_V1_RESULTADO + check-complete); próximo
+  run só sob nova hipótese explícita.
   - (1) `[N]` resolve — **PROVADO em run real**: citations 68, evidence
     51, resolved 5, unknown [] (accept24); `support failed→ok`;
   - (2) versão-premissa — **PROVADO em run real**: 2.1.4≥2.1.2 sustentada
