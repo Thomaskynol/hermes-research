@@ -261,8 +261,28 @@ class DiscoveryPromotionTest(unittest.TestCase):
         self.assertFalse(ac._maybe_substitute(st, ledger))
         recs = st.get("unexplored_alternatives") or []
         self.assertTrue(recs)
-        self.assertTrue(any("notes" in k or True for k in [st]))
         self.assertTrue(any("não exploradas" in n for n in st["notes"]))
+
+    def test_weak_entity_without_old_records_unexplored(self):
+        # Entidade fraca (só insufficient com refs de menção) não é
+        # trocável, mas o pool não explorado deve ser registrado.
+        import coverage_ledger as ledger_mod
+        st = self._state()
+        st["discovery"] = {"open": True, "candidates": [
+            "https://github.com/x/ghost-plugin-fork"]}
+        ledger = ledger_mod.Ledger(st["plan"], run_id="t")
+        ledger.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        ledger.evaluate("c1", "insufficient", "só menção",
+                        "evidence",
+                        [{"url": "https://old.example/ghost"}], "e1")
+        # e1 tem avaliação referenciada -> não é "old"; continua fraca
+        # (nenhuma covered/partial) -> registra o pool não explorado.
+        self.assertFalse(ac._maybe_substitute(st, ledger))
+        recs = st.get("unexplored_alternatives") or []
+        self.assertTrue(recs)
+        self.assertEqual(recs[0]["entity"], "ghost-plugin")
+        self.assertIn("https://github.com/x/ghost-plugin-fork",
+                      recs[0]["urls"])
 
 
 if __name__ == "__main__":

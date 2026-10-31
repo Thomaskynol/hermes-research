@@ -3151,6 +3151,20 @@ def _maybe_substitute(state: dict, ledger) -> bool:
         olds = [eid for eid in emap
                 if emap[eid].get("required", True) and _old_ok(eid)]
         if not olds:
+            # Sem candidato trocável, mas pode haver entidade fraca
+            # (required+discovered sem nenhuma célula covered/partial):
+            # mantê-la sem investigar exige ao menos declarar o que se
+            # deixou de explorar (accept20: Context7/local-memory com
+            # refs de menção bloqueiam a troca mas não sustentam nada).
+            _weak = [eid for eid, ent in emap.items()
+                     if ent.get("required", True) and ent.get("discovered")
+                     and not any(
+                         (ledger._evals.get((c.get("id"), eid), {})
+                          .get("state")) in ("covered", "partial")
+                         for c in per_crits
+                         if eid in (c.get("applies_to") or []))]
+            if _weak:
+                _record_unexplored(state, _weak)
             return False
         news = [e for e in entities
                 if not e.get("required", True) and e.get("discovered")
