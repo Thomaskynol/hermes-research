@@ -938,7 +938,11 @@ def _identity_matches(entity: dict, text: str, *,
         return _re2.sub(r"[^a-z0-9]+", " ", _n).strip()
     _phrase = _norm(label)
     _doc = _norm(body)
-    if _phrase and _phrase in _doc:
+    # Fronteira: forma cheia com separador, não prefixo de palavra maior
+    # ("widget alpha" não casa "widget alphabeta") — mesmo conceito que
+    # _entity_mentioned exige na auditoria de citações.
+    if _phrase and _re2.search(
+            r"(^| )" + _re2.escape(_phrase) + r"($| )", _doc):
         return True
     distinctive = [t for t in _entity_distinctive_tokens(entity or {})]
     if single_ok and len(distinctive) == 1 and distinctive[0] in _doc:
@@ -1010,9 +1014,12 @@ def _evaluation_refs_have_identity(state: dict, entity: dict,
     """Refs de evaluation sustentam só doc sobre a entidade (genérico).
 
     Aplica ``_identity_matches`` + ``_singleton_rare`` ao texto auditado
-    (usable_text quando houver): ao menos uma referência precisa nomear a
-    entidade na forma cheia; doc sobre outra entidade (mesmo com palavra
-    compartilhada) não atribui. Sem hardcode de nomes.
+    (usable_text quando houver; URL nunca entra no texto auditado):
+    ao menos uma referência precisa nomear a entidade na forma cheia
+    no próprio corpo; slug da URL sozinho não estabelece identidade
+    (mesma regra de ``_entity_corpus_docs``, que usa só o corpo). Doc
+    sobre outra entidade (mesmo com palavra compartilhada) não atribui.
+    Sem hardcode de nomes.
     """
     try:
         if not isinstance(entity, dict):
@@ -1055,7 +1062,7 @@ def _evaluation_refs_have_identity(state: dict, entity: dict,
             if not _body:
                 continue
             try:
-                if _identity_matches(entity, f"{_u}\n{_body}",
+                if _identity_matches(entity, _body,
                                      single_ok=single_ok):
                     return True
             except Exception:

@@ -342,6 +342,43 @@ class IdentityAttributionTest(unittest.TestCase):
         self.assertIn("entidade", res_bad["unsupported"][0]["reason"].lower(),
                       res_bad)
 
+    def test_identity_prefix_only_is_not_match(self):
+        # Fronteira: "Widget Alphabeta" não é a forma cheia "Widget Alpha"
+        # (mesmo conceito de _entity_mentioned). Positivo + negativo pela
+        # mesma entrada.
+        import adaptive_coordinator as ac
+        ent = {"id": "e-alpha", "label": "Widget Alpha"}
+        bodies = [DOC_A, DOC_B]
+        single_ok = ac._singleton_rare(ent, bodies)
+        self.assertTrue(
+            ac._identity_matches(ent, DOC_A, single_ok=single_ok))
+        self.assertFalse(
+            ac._identity_matches(
+                ent, "Widget Alphabeta gerencia coisas",
+                single_ok=single_ok),
+            "prefixo de palavra maior não é forma cheia")
+        # Doc só com prefixo não sustenta ref: cai em insufficiency
+        # (o demote de covered/partial segue do helper False).
+        state = {"evidence": {A: "Widget Alphabeta gerencia coisas"},
+                 "qualification": {}}
+        self.assertFalse(ac._evaluation_refs_have_identity(
+            state, ent, [{"url": A}]))
+
+    def test_evaluation_refs_url_slug_alone_is_not_identity(self):
+        # Slug da URL não basta: o corpo decide (alinha a
+        # _entity_corpus_docs, que usa só o corpo). Mesma entrada, só o
+        # corpo muda.
+        import adaptive_coordinator as ac
+        ent = {"id": "e-alpha", "label": "Widget Alpha"}
+        slug_url = "https://ex.example/widget-alpha/overview"
+        state_neg = {"evidence": {slug_url: DOC_B}, "qualification": {}}
+        self.assertFalse(ac._evaluation_refs_have_identity(
+            state_neg, ent, [{"url": slug_url}]),
+            "slug da URL sem menção no corpo não é identidade")
+        state_pos = {"evidence": {slug_url: DOC_A}, "qualification": {}}
+        self.assertTrue(ac._evaluation_refs_have_identity(
+            state_pos, ent, [{"url": slug_url}]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,10 +2,10 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 15: Missão 4 IMPLEMENTADA — 3
-> contratos v2, TDD 17 passed (RED 10→GREEN); cópias accept23/24 sem novo
-> run, originais intactos; versão-premissa preservada; sem push).
-> Commit local sem push.
+> Última atualização: 2026-10-31 (Sessão 16: identidade estrita —
+> fronteira forma cheia + slug não-basta, TDD 2 RED→GREEN, ampla 555
+> passed + 1 falha ambiente pré-existente; versão-premissa e interop
+> POS/NEG preservadas; sem push). Commit local sem push.
 >
 > HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
 > hashes frozen reconferidos pré/pós-run) + 3 fixes de divergência `a656535`
@@ -226,7 +226,8 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 | `cc0f3ff` | contexto do usuário não é evidência (regra estreita Missão 3: comparação numérica contra mínimo declarado = sustentada (premissa+corpus); compat funcional/integração sem fonte que mencione a versão = LACUNA); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
 | `49508fe` | consultado-vs-mencionado + inferência-por-premissas + fato-usuário + janela | foco 137 passed + **exercitado em run real (accept23: inferência contida, fato-usuário contido 2º run, janela sem divergência)**; resíduo: contador cego a `([N])` (registrado, sem corrigir) |
 | `a70d837` | 3 contratos: `[N]` resolve + versão-premissa + complementaridade | 16 testes (TDD RED→GREEN) + prova isolada em cópia congelada + **PROVADO em run real accept24: support failed→ok, evidence 0→51, resolved 0→5; versão numérica sustentada; combinação recusada**; resíduos: renderer-§8 `not_run` vs auditor `ok` (mensagem, sem efeito), `selection_context 7`, local-memory sem identidade literal |
-| este passo | 3 divergências: URL evidência sem `[N]`, LACUNA com gates, ponderação estreita | 11 testes TDD (`test_divergencias_auditores.py`, RED 3→GREEN) + 73 foco verde + efeito isolado em cópia accept24 (diagnose 49/2→39/12, verify ok→partial, convergindo com check); sem novo run real |
+| `a656535` | 3 divergências: URL evidência sem `[N]`, LACUNA com gates, ponderação estreita | 11 testes TDD (`test_divergencias_auditores.py`, RED 3→GREEN) + 73 foco verde + efeito isolado em cópia accept24 (diagnose 49/2→39/12, verify ok→partial, convergindo com check); sem novo run real |
+| este passo | identidade estrita: `_identity_matches` exige forma cheia com fronteira (`Widget Alphabeta` não casa `Widget Alpha`, como `_entity_mentioned`); `_evaluation_refs_have_identity` audita só o corpo, slug da URL sozinho não basta (alinha a `_entity_corpus_docs`) | 2 testes TDD (`test_missao4_contratos.py`, RED 2→GREEN; arquivo 19 passed, versão-premissa + POS/NEG intactos) + combinados 65 passed + ampla 555 passed (1 falha ambiente pré-existente, igual na árvore limpa); sem novo run real |
 | `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
 | `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
 | `a704463` | quebra de monopólio single-host + diversidade; gate de quote em LACUNA | unit test + suíte 84 passed; accept22 sem alvo para monopólio, quote-gate manteve `failed` em URL nua |

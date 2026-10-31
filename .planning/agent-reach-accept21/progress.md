@@ -405,3 +405,29 @@
   RA8 segue PENDENTE.
 - Docs: matriz/CONTINUIDADE + plano sincronizados (Phase 9 complete).
   Próximo: commit local sem push; próximo run só sob nova hipótese.
+
+## 2026-10-31 — Sessão 16: identidade estrita — fronteira forma cheia + slug não-basta (fixer, TDD)
+
+- RED: 2 testes novos em `tests/test_missao4_contratos.py`
+  (`IdentityAttributionTest.test_identity_prefix_only_is_not_match`,
+  `test_evaluation_refs_url_slug_alone_is_not_identity`; genérico Widget,
+  sem nomes) falharam 2/2 no motivo esperado (`True is not false`):
+  "Widget Alphabeta" casava "Widget Alpha" (substring sem fronteira) e
+  slug da URL satisfazia identidade sem corpo mencionar a entidade.
+- GREEN (escopo: `adaptive_coordinator.py` + teste, sem tocar
+  single-token/`_singleton_rare`/outros chamadores `f"{url}\n{texto}"`):
+  (1) `_identity_matches:941` exige forma cheia com fronteira
+  (`(^| )frase($| )` no texto normalizado, como `_entity_mentioned`) —
+  doc só com prefixo não sustenta ref (demote a insufficiency via
+  `_evaluation_refs_have_identity` False no gate de `_assess_round`);
+  (2) `_evaluation_refs_have_identity:1058` audita só o corpo
+  (`usable_text`/evidência), URL fora do texto auditado (alinha a
+  `_entity_corpus_docs` que usa só corpo). Versão-premissa e interop
+  POS/NEG preservadas (arquivo missão4 19/19).
+- Foco fresco (`-p no:cacheprovider`): missão4 19 passed; combinados
+  (missão4 + accept19 + identity + divergências + missão3 + examined +
+  diagnose) 65 passed, EXIT=0. Ampla: 555 passed, 1 falha pré-existente
+  ambiente (`test_yt_enrich_fix`, igual na árvore limpa 553 passed),
+  15 skipped, 4 scripts-ajuda ignorados (sem `sync_config`, pré-existente).
+  Sem novo run real. RA8 segue PENDENTE.
+- Próximo: commit local sem push; próximo run só sob nova hipótese.

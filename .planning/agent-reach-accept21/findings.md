@@ -431,3 +431,21 @@ Instruções conflitantes — varredura 2026-10-31: nenhuma restante ativa
 nos prompts (writer/assessor já estreitos: numérica sustenta, funcional =
 LACUNA; interop exigida; user:// fora do corpus). Mantidas removidas as 8
 da Missão 4 + 4 da Missão 2.
+
+## Sessão 16 (2026-10-31) — identidade estrita: 2 resíduos do contrato v2-3
+
+1. **Fronteira forma cheia** (`adaptive_coordinator.py:941`):
+   `_identity_matches` usava `frase in doc` (substring) — "Widget Alpha"
+   casava "Widget Alphabeta". Agora exige `(^| )frase($| )` no texto
+   normalizado, mesmo conceito de `_entity_mentioned`. Caso: doc só com
+   prefixo → `_evaluation_refs_have_identity` False → covered/partial
+   com entity_id demitido a insufficiency (gate existente, sem mexer).
+   Single-token fallback e `_singleton_rare` intactos (fora do escopo;
+   singletons raros como "planner" seguem presença).
+2. **Slug não-basta** (`:1058`): `_evaluation_refs_have_identity`
+   auditava `f"{url}\n{corpo}"` — slug com o nome satisfazia identidade
+   sem o corpo mencionar a entidade. Agora audita só o corpo
+   (alinha a `_entity_corpus_docs`, que usa só corpo). Outros chamadores
+   `f"{url}\n{texto}"` (excerpt 2115, discovery 3309/3440) intactos —
+   fora do escopo pedido. TDD 2 RED→GREEN; ampla 555 passed + 1 falha
+   ambiente pré-existente; sem push.
