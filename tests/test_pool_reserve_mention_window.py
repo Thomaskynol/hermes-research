@@ -93,14 +93,27 @@ class PoolReserveTest(unittest.TestCase):
         targets = [o.get("target", "") for o in ops]
         self.assertFalse(any("broken" in t for t in targets),
                          "falha/evidencia nunca reabre")
+        # URL boa assume a reserva: read_source para o candidato valido
+        self.assertTrue(any(o.get("kind") == "read_source"
+                            and "betagadget-tool" in o.get("target", "")
+                            for o in ops),
+                        "URL boa sem falha/evidencia assume a reserva")
+        self.assertTrue(any("pool reserve" in n and "betagadget-tool" in n
+                            for n in st.get("notes", [])),
+                        "reserva registrada em notes")
 
     def test_sem_pool_mantem_comportamento(self):
         st = b3_state([], {})
         ops = ac.select_ops(st, b3_gaps(), 2)
         self.assertEqual(len(ops), 2)
-        self.assertTrue(all(o.get("kind") != "read_source" or
-                            "source_url" in str(o) for o in ops) or True)
         # sem pool: nenhuma reserva inventada
+        self.assertEqual(ac._pick_pool_reserve(st, b3_gaps(), []),
+                         (None, None))
+        self.assertFalse(any(o.get("kind") == "read_source" for o in ops),
+                         "sem pool, sem read_source de reserva")
+        self.assertFalse(any("pool reserve" in n
+                             for n in st.get("notes", [])),
+                         "sem pool, sem nota de reserva")
         self.assertFalse(any(o.get("kind") == "read_source" and
                              "github.com" in o.get("target", "")
                              for o in ops))

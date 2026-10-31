@@ -2,8 +2,13 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (pós-accept22, HEAD `776af89`).
+> Última atualização: 2026-10-31 (revisão: teste estrito pool-reserve +
+> matriz sincronizada; HEAD `534c946` — só docs desde o run).
 > Commits produto e docs separados (sem push).
+>
+> HEADs: produto congelado no `a704463` (executado sob `776af89`, hashes
+> frozen reconferidos pré/pós-run); docs evoluem em `534c946` sem tocar
+> produto. `git show --stat` do intervalo prova docs-only.
 
 ## Objetivo e escopo
 
@@ -37,6 +42,45 @@ do usuário, e o diagnose concordou (sem divergência).
   Suíte combinada fresca pós-commit: **84 passed** (8 arquivos).
 - `776af89` — docs do accept21 + suíte (HEAD congelado do run accept22;
   hashes reconferidos pré/pós-run, sem edição durante o run).
+- `534c946` — **só docs** do accept22 (findings/progress/CONTINUIDADE;
+  `git show --stat` confirma zero arquivo produto). Produto segue == 
+  `a704463`; hashes workdir conferem com `hashes.frozen` do accept22.
+
+## Riscos amarelos (limitações registradas — sem refatorar)
+
+Achados de revisão classificados amarelos (não-críticos; nenhum teste
+prova bug crítico — **sem refatoração neste passo**; reavaliar só com
+evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
+§ Escopo.
+
+- **Janela legado `u>start`** (`adaptive_coordinator.py:473`, `take()`):
+  caminho sem grupos usa `any(start < uend and u > start)` — janela que
+  começa antes mas invade o span usado não é dedupada; caminho com
+  grupos (B4) usa `u < end` estrito. Mantido por testes de regressão do
+  preenchimento legado.
+- **Ranking low** (`_rank_unfetched`, l.1311): contagem de ocorrências
+  de substring na URL; empate mantém ordem original. Sem ranking
+  semântico — URL fraca pode vencer empate.
+- **Nota duplicada** (`select_ops`, l.1537): nota `pool reserve:` anexada
+  por round; mesmo alvo em N rounds ⇒ N notas. Cosmético, sem efeito
+  lógico (reserva em si é dedupada por `used_in_batch`/evidência/falha).
+- **Single-hit transcrição** (`native_transport.py:287`,
+  `_needs_diversity`): 1 hit com marcador `[transcript]/[spoken]`
+  isenta a página inteira da mistura por diversidade — suprime fallback
+  mesmo com restante da página monopolizada.
+- **Versão major nua** (`verification_report.py:150`,
+  `_text_versions`): regex só casa `\d+\.\d+`/`Vn`; "versão 2" isolada
+  é invisível ao gate — par "v2" (frase) × "2.1.4" (doc) decide no
+  overlap genérico, não em lógica de versão.
+- **LACUNA overlap 0** (`verify_support`): frase LACUNA com citação
+  in-corpus mas overlap 0 ⇒ unsupported. 17 casos no accept22 —
+  rigor correto, volume residual a acompanhar.
+- **B5 convergência** (`verify_support` l.1028 + `_selection_window`
+  l.189): ponderação `sentence_support` quando a citação é do doc da
+  entidade; convergência/estabilidade entre rounds provada só em unit
+  (accept21/22 sem alvo: M8 sem disparo, monopólio sem alvo).
+  Divergência excerto-vs-auditado fica explícita via `hash_source`,
+  nunca silenciosa.
 
 ## Resultado accept22 (evidência em `/home/thomaskyn/hermes-runs/accept22/`)
 

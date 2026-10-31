@@ -9,10 +9,12 @@ Fonte normativa: `docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` (SHA-256
 - **PENDENTE** — requisito obrigatório ainda não atendido.
 - **BLOQUEADO** — impedido por ambiente externo (registrado, não fingido).
 
-Atualizada em 2026-10-30. Evidências apontam para teste/comando/doc; nenhum
+Atualizada em 2026-10-31 (accept22; RA8 segue PENDENTE; produto
+congelado, só docs + 1 teste estrito desde o run). Evidências apontam para teste/comando/doc; nenhum
 estado REAL é atribuído sem execução registrada. Promoções IMPL→REAL pela
 validação RAG_001 estão em "Validação real RAG_001 — promoções"; as da
-reabertura do aceite estão em "Reabertura do aceite — 2026-10-29".
+reabertura do aceite estão em "Reabertura do aceite — 2026-10-29"; a
+entrega atual (accept21/accept22) está em "Entrega atual — 2026-10-31".
 
 ## §2 Duas ferramentas, uma base
 
@@ -251,7 +253,7 @@ Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept1
 | RA5 | Entrada Hermes isolada demonstrada ponta a ponta | CLI única + `--control-dir` + `run_control.py status` + pause/resume | accept11 status ao vivo + accept12: pause limpo entre rodadas e `--resume` com contadores preservados (§10) | REAL |
 | RA6 | Generalização em outro assunto | mesmos mecanismos, outra pergunta | genus1 (httpx×requests×aiohttp): 10/16=0.625 partial, SATURATION, support `ok` 37/37 + acadrun5 FAIR-RAG (§5) | REAL |
 | RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
-| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 = 0.2157 parcial; relatório responde com lacunas explícitas, sem declarar completo | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
+| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 parcial; accept22 (2026-10-31): 11/54 = 0.2037 parcial, verification overall `failed` honesto (5 URLs nuas + 3 inferências de combinação + 17 LACUNA sem overlap), denominador nunca reduzido | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
 
 Pendências declaradas: gate de citação literal por avaliação (justificativa do
 assessor não é verificada contra o excerto); conector de inspeção local;
@@ -275,3 +277,52 @@ max-rounds 3). Calibração Lane B (corpus congelado accept15,
 | FIXE | Gaps de critério per_candidate expandem em sub-gaps por entidade (`select_ops`) | `5304231` (completa `1c68e3c`, no-op isolado); genus7: queries Flask-led + docs oficiais Flask no corpus | REAL |
 | RR | Round-robin interleave entre critérios nos slots de op | `c83b892`; genus8: spread intra-round [c1,c2,c3], total 4/26 idêntico | REAL (gargalo vinculante é retrieval, não alocação — stop) |
 | GEN | Série genus2–8; variância single-run dominada por retrieval | genus2 1/10 (expôs bug per_candidate, fix `b861763`) → genus3–8: 7,7,3,7,4,4 /26 | REAL (±0,1 cobertura entre configs idênticas) |
+
+## Entrega atual — runs accept21/accept22 (2026-10-31)
+
+HEAD de execução congelado: `776af89` (produto == `a704463`; hashes
+pré/pós-run reconferidos, sem edição durante o run:
+`adaptive_coordinator.py 9b3a577a…`, `verification_report.py a3ee1baa…`,
+`native_transport.py 5c78c526…`). HEAD atual `534c946` = **só docs**
+(+ 1 teste estrito); produto intacto — hashes conferem com
+`hashes.frozen` do accept22.
+
+| Run | Config | Cobertura | Verification | RA8 |
+|---|---|---|---|---|
+| accept21 | pergunta do aceite, medium/max-rounds-3, contexto 2.1.4, vast UP + SearXNG DOWN, EXIT=0, 343s | 0/15 + 0 N/A (funil YouTube sem transcrição, 0 entidades) | overall `partial` (15 frases LACUNA com citação fora do corpus ⇒ só `partial`; leniência residual vs accept19) | PENDENTE |
+| accept22 | idem, vast DOWN + SearXNG DOWN, EXIT=0, 658s | 11/54 + 0 N/A (ok 10, partial_legit 11, missing 16, selection_context 16, synthesis_unsupported 1) | overall `failed` **honesto** (5 URLs nuas fora do corpus + 3 inferências de combinação reprovadas [12,13,14] + 17 LACUNA sem overlap; métodos de acordo) | PENDENTE |
+
+Detalhes em `docs/CONTINUIDADE.md` (§§ Resultado accept21/accept22) e
+evidências em `/home/thomaskyn/hermes-runs/accept21|22/` (fora do Git).
+
+## Escopo: o que é REAL vs o que segue PENDENTE (limitações — sem fechar aceite)
+
+REAL = validado em run real isolado (RAG_001/accept15, genus1/acadrun5,
+hermdemo5–7, accept22 parcial). PENDENTE = sem validação em run real;
+**não fechar o aceite sobre estes itens** (`docs/ACEITE_V1.md`, Limites):
+
+1. Gateway vast local (`127.0.0.1:8001`) no ar durante run real
+   (accept21 subiu on-demand e desligou; accept22 rodou DOWN confirmado).
+2. Perfil deep 10h (só medium/max-rounds-3 exercitado).
+3. `conduct_research` ponta a ponta da biblioteca (só CLI exercitada).
+4. Pausa no meio de chamada ao modelo (limite conhecido: pausa só vale
+   entre rounds; hermdemo6 validou pause/resume entre rounds).
+5. Multiusuário.
+
+Riscos amarelos (limitações registradas, **sem refatorar** — reavaliar
+só se teste provar bug crítico; detalhe em `docs/CONTINUIDADE.md`):
+
+- janela legado `u>start` (`adaptive_coordinator.py:473`, caminho sem
+  grupos; caminho B4 usa dedupe estrito);
+- ranking low (`_rank_unfetched`: contagem de substrings, empate mantém
+  ordem original — sem ranking semântico);
+- nota duplicada (`select_ops`: nota `pool reserve:` repetida por round
+  p/ mesmo alvo — cosmético, sem efeito lógico);
+- single-hit transcrição (`_needs_diversity`: 1 hit com marcador
+  suprime a mistura por diversidade da página);
+- versão major nua (`_text_versions`: regex só enxerga `x.y`/`Vn`;
+  "versão 2" isolada é invisível ao gate);
+- LACUNA overlap 0 (citação in-corpus sem overlap ⇒ unsupported;
+  17 casos no accept22, rigor correto, volume residual);
+- B5 convergência (ponderação `sentence_support` + `_selection_window`:
+  convergência entre rounds provada só em unit, sem alvo em run real).

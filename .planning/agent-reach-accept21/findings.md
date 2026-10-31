@@ -70,6 +70,24 @@
   frases 15 unsupported ⇒ só `partial`; accept19 falhava 1 caso assim).
   Investigar sem flexibilizar critério.
 
+## Revisão 2026-10-31 (pós-accept22, HEAD `534c946` → novo commit docs)
+
+- Teste `test_pool_reserve_mention_window.py:101` (`or True`) era
+  tautologia — provado RED com ops fabricadas (asserção antiga retorna
+  `True` mesmo sobre `read_source` inventado). GREEN: sem-pool exige
+  `_pick_pool_reserve→(None,None)` + zero `read_source` + zero nota;
+  teste-de-falha exige URL boa em `read_source` + nota registrada.
+  Foco 20 passed, EXIT=0 (sem `cat/head/sed` no fluxo; `grep`+`read`).
+- Matriz sincronizada com entrega atual: RA8 = accept22 11/54 failed
+  honesto, PENDENTE; seção "Entrega atual" + "Escopo REAL vs PENDENTE"
+  (5 itens sem validação: gateway vast, deep 10h, conduct_research,
+  pausa mid-model, multiusuário — limitação, sem fechar aceite);
+  HEADs explicitados (produto frozen `a704463`/`776af89` vs docs).
+- Riscos amarelos registrados como limitação (CONTINUIDADE +
+  matriz): janela legado `u>start`, ranking low, nota duplicada,
+  single-hit transcrição, versão major nua, LACUNA overlap 0,
+  B5 convergência. Sem refatorar — nenhum teste prova bug crítico.
+
 ## Resultado accept22 (evidência: `/home/thomaskyn/hermes-runs/accept22/`)
 
 - **11/54 + 0 N/A (20,4%)**; diagnose: `ok 10, partial_legit 11,

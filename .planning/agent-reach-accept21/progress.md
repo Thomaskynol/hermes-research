@@ -131,3 +131,21 @@
   Residual: selection_context 16 de volta; c11/c12 insufficient.
 - Outputs em `/home/thomaskyn/hermes-runs/accept22/` (fora do repo e do
   /tmp); `.hermes` intocado; sem push.
+
+## 2026-10-31 — Sessão 6: revisão — teste estrito + matriz/CONTINUIDADE (fixer)
+
+- RED: tautologia `or True` (`test_pool_reserve_mention_window.py:101`)
+  provada vacuosa sobre ops fabricadas (antiga retorna `True` sempre).
+- GREEN: `test_sem_pool` exige `_pick_pool_reserve→(None,None)` + zero
+  `read_source` + zero nota; `test_reserva_respeita_falha` exige URL boa
+  em `read_source` + nota `pool reserve`. Nenhum nome de plugin no teste.
+- Foco fresco (`-p no:cacheprovider`): `test_pool_reserve` +
+  `test_audit_granularity` + `test_lacuna_quote_gate` +
+  `test_web_monopoly_break` = **20 passed, EXIT=0**. Produto intocado
+  (hashes == `hashes.frozen` accept22).
+- Docs: `REQUIREMENTS_MATRIX.md` (RA8 accept22 11/54 failed honesto +
+  seções Entrega atual/Escopo REAL-vs-PENDENTE + 5 itens sem validação
+  como limitação + HEADs frozen-vs-docs) e `CONTINUIDADE.md`
+  (header/HEADs + seção Riscos amarelos, sem refatorar).
+- Commit local docs+teste (sem push); próxima ação inalterada
+  (selection_context 16, índices fora da base; depois 5 bloqueadores).
