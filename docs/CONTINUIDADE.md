@@ -316,6 +316,25 @@ segue pendente.
     LACUNA + "INFERÊNCIA NÃO SUSTENTADA, NÃO AFIRMAR"; diagnose sem
     promoção indevida.
 
+## Accept26 (2026-10-31) — sonda de embeddings no path native PROVADA
+
+- Produto mínimo (TDD RED→GREEN, 6 testes `test_native_embeddings.py`):
+  `_assess_round` faz 1× `POST {EMBEDDING_SERVER_URL}/embeddings` por rodada
+  (default `http://172.17.0.1:8082/v1`, modelo `harrier-oss-v1-0.6b`);
+  registra endpoint/modelo/prompt_tokens em `state["embeddings"]` + nota;
+  manifest expõe o resumo. Nunca levanta, nunca gasta budget, nunca altera
+  avaliações; down = `unavailable` + efeito, sem fallback; `sync_config.py`
+  intocado. `adaptive_coordinator.py` +101, `run_manifest.py` +25,
+  `adaptive_state.py` +1.
+- Run real `hermes-runs/accept26` (8082 UP, light, native, max-rounds 2,
+  EXIT=0, stop `rounds`, coverage `partial` 0.04): **3 probes ok**
+  (prompt_tokens 58 cada) em state+notas+manifest; `--metrics`
+  `prompt_tokens_total` 16→76 (repeats no KV-cache: cached 117 ≈ 2×58).
+  Usou embeddings: `_assess_round`. Dispensou: planner, search/fetch,
+  writer, auditor, budgets. Contadores 35/25/25/25/6/7. Relatório:
+  `hermes-runs/accept26/RELATORIO_ACCEPT26.md`. RA8 segue pendente
+  (gargalo é corpus/seleção, não veracidade).
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

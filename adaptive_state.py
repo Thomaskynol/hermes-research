@@ -95,6 +95,7 @@ def save(run_dir: str | Path, state: dict) -> Path:
 def ensure_defaults(state: dict) -> dict:
     """Fill keys added after older runs (retrocompatible; never destructive)."""
     state.setdefault("gaps", [])
+    state.setdefault("embeddings", {"calls": []})
     state.setdefault("quantitative_specs", [])
     state.setdefault("quantitative", [])
     state.setdefault("verification", {})

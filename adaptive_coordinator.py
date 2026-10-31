@@ -61,6 +61,100 @@ class TransportError(RuntimeError):
     """Boundary failure (search/fetch/model transport) — never favourable."""
 
 
+# Embeddings locais (llama-server OpenAI-compatível, GPU do host):
+# 172.17.0.1 alcança do host E do container; nunca só 127.0.0.1.
+EMBEDDING_DEFAULT_BASE = "http://172.17.0.1:8082/v1"
+EMBEDDING_DEFAULT_MODEL = "harrier-oss-v1-0.6b"
+
+
+def _embedding_base() -> str:
+    """Embedding endpoint base: EMBEDDING_SERVER_URL vence, senão o default."""
+    import os as _os
+    return ((_os.environ.get("EMBEDDING_SERVER_URL", "") or "").strip()
+            .rstrip("/") or EMBEDDING_DEFAULT_BASE)
+
+
+def _embedding_model() -> str:
+    """Embedding model declarado: EMBEDDING_MODEL vence, senão o harrier."""
+    import os as _os
+    return ((_os.environ.get("EMBEDDING_MODEL", "") or "").strip()
+            or EMBEDDING_DEFAULT_MODEL)
+
+
+def embed_query_native(text, *, base_url=None, model=None,
+                       timeout: float = 10.0) -> dict:
+    """POST um texto a {base}/embeddings (stdlib, sem dependência nova).
+
+    Retorna {"endpoint","model","prompt_tokens","status":"ok"}.
+    Serviço fora do ar levanta TransportError — o chamador registra a
+    indisponibilidade + efeito explicitamente (nunca fallback silencioso).
+    """
+    import json as _json
+    import urllib.request as _url
+    base = (base_url or _embedding_base()).rstrip("/")
+    mdl = model or _embedding_model()
+    payload = _json.dumps({"model": mdl, "input": text or ""}).encode("utf-8")
+    req = _url.Request(base + "/embeddings", data=payload,
+                       headers={"Content-Type": "application/json"},
+                       method="POST")
+    try:
+        with _url.urlopen(req, timeout=timeout) as resp:
+            body = _json.loads(resp.read().decode("utf-8", "replace") or "{}")
+    except Exception as exc:
+        raise TransportError(
+            f"embeddings indisponível ({base}): {exc}")
+    try:
+        prompt_tokens = int(((body.get("usage") or {}).get("prompt_tokens"))
+                            or 0)
+    except (TypeError, ValueError):
+        prompt_tokens = 0
+    return {"endpoint": base, "model": body.get("model") or mdl,
+            "prompt_tokens": prompt_tokens, "status": "ok"}
+
+
+def _probe_native_embeddings(state: dict, *, context: str = "") -> dict:
+    """Uma chamada embed_query por rodada de avaliação (só registro).
+
+    Nunca levanta, nunca gasta budget de modelo, nunca altera avaliações:
+    anexa endpoint/modelo/prompt_tokens em state["embeddings"]["calls"] +
+    nota. 8082 down => status unavailable + efeito (sem rerank semântico),
+    nunca fallback. HERMES_NATIVE_EMBEDDINGS=0 desliga (skipped).
+    """
+    import os as _os
+    rec = state.setdefault("embeddings", {"calls": []})
+    if not isinstance(rec.get("calls"), list):
+        rec["calls"] = []
+    if _os.environ.get("HERMES_NATIVE_EMBEDDINGS", "1").strip() == "0":
+        rec["status"] = "disabled"
+        state.setdefault("notes", []).append(
+            "embeddings probe desligado (HERMES_NATIVE_EMBEDDINGS=0); "
+            "efeito: sem sinal semântico do 8082 nesta rodada")
+        return {"status": "disabled"}
+    try:
+        got = embed_query_native(context or state.get("question", ""))
+    except TransportError as exc:
+        entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                 "endpoint": _embedding_base(), "model": _embedding_model(),
+                 "status": "unavailable", "error": str(exc)[:200],
+                 "effect": ("sem rerank semântico; "
+                            "seleção por regras inalterada")}
+        rec["calls"].append(entry)
+        rec["status"] = "unavailable"
+        state.setdefault("notes", []).append(
+            f"embeddings indisponível: {exc} "
+            f"(efeito: {entry['effect']})")
+        return entry
+    entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             "endpoint": got["endpoint"], "model": got["model"],
+             "prompt_tokens": got["prompt_tokens"], "status": "ok"}
+    rec["calls"].append(entry)
+    rec["status"] = "ok"
+    state.setdefault("notes", []).append(
+        f"embeddings probe: {got['endpoint']} model={got['model']} "
+        f"prompt_tokens={got['prompt_tokens']}")
+    return entry
+
+
 def resolve_adaptive(profile: str = "light",
                      overrides: dict | None = None) -> dict:
     """Resolved adaptive config: depth profile + independent round/model/time
@@ -2993,6 +3087,13 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
     state["gaps"] = list(block.get("gaps") or [])
+    # Sonda de embeddings do path native (record-only: nunca levanta, nunca
+    # gasta budget, nunca altera as avaliações mescladas acima).
+    try:
+        _probe_native_embeddings(state)
+    except Exception as exc:  # observabilidade nunca quebra a avaliação
+        state.setdefault("notes", []).append(
+            f"embeddings probe failed: {exc}")
     return list(state.get("evaluations", []) or []), block
 
 

@@ -119,6 +119,30 @@ def _consumption(state: dict) -> dict:
     return consumption
 
 
+def _embeddings(state: dict) -> dict:
+    """Resumo da sonda de embeddings do path native (endpoint/modelo/tokens).
+
+    state["embeddings"] é a fonte (calls por rodada); aqui só o resumo da
+    última chamada + contagem — detalhe integral segue em state.json.
+    """
+    emb = state.get("embeddings")
+    if not isinstance(emb, dict):
+        return {"status": "not_probed"}
+    calls = emb.get("calls")
+    if not isinstance(calls, list):
+        calls = []
+    last = calls[-1] if calls else {}
+    if not isinstance(last, dict):
+        last = {}
+    return {
+        "status": emb.get("status", "unknown"),
+        "calls": len(calls),
+        "last": {k: last.get(k) for k in
+                 ("endpoint", "model", "prompt_tokens", "status",
+                  "error", "effect", "at")},
+    }
+
+
 def build_manifest(run_dir, state: dict, *, resolved: dict,
                    model_info=None, environment: dict | None = None,
                    artifacts=None) -> dict:
@@ -146,6 +170,7 @@ def build_manifest(run_dir, state: dict, *, resolved: dict,
         "module_hashes": module_hashes(),
         "artifacts": _artifacts(directory, artifacts),
         "consumption": _consumption(state),
+        "embeddings": _embeddings(state),
         "stop": dict(state.get("stop") or {}),
         "counters": (state.get("counters") or {}).get("counts", "unknown"),
         "cwd": os.getcwd(),
