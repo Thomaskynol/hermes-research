@@ -164,6 +164,7 @@ def _corpus(state: dict) -> list[str]:
     Uses the observed ``obtained`` counter when available, so metadata-only
     records and videos without a transcript never become sources; falls back
     to non-empty evidence for old states without counters.
+    user://context/* nunca e corpus (premissa explicita, sem numero).
     """
     evidence = state.get("evidence") or {}
     raw = state.get("counters")
@@ -175,9 +176,11 @@ def _corpus(state: dict) -> list[str]:
             obtained = set()
         return [u for u, text in evidence.items()
                 if isinstance(text, str) and text.strip()
+                and not (isinstance(u, str) and u.startswith("user://"))
                 and _norm(u) in obtained]
     return [u for u, text in evidence.items()
-            if isinstance(text, str) and text.strip()]
+            if isinstance(text, str) and text.strip()
+            and not (isinstance(u, str) and u.startswith("user://"))]
 
 
 def _numbers(state: dict) -> dict[str, int]:
@@ -202,19 +205,21 @@ def _rewrite_refs(text: str, numbers: dict[str, int],
 
     def bare(match):
         raw = match.group(0)
-        url = raw.rstrip(".,;:\"'")
+        url = raw.rstrip(".,;:\"'”’“‘")
         norm = _norm(url)
         if norm in numbers:
             cited.add(norm)
             return f"[{numbers[norm]}]"
-        outside.append(url)
         # URL dentro de literal citado ("plugin": ["x@git+https://..."]) é
         # texto documentado, não citação: preservar em vez de corromper a
-        # citação (accept9: 'superpowers@git+[fora do corpus]').
+        # citação (accept9: 'superpowers@git+[fora do corpus]'). Preservada
+        # como literal, nunca registrada em outside.
         line_start = match.string.rfind("\n", 0, match.start()) + 1
         prefix = match.string[line_start:match.start()]
-        if prefix.count('"') % 2 == 1 or prefix.count("`") % 2 == 1:
+        if (prefix.count('"') % 2 == 1 or prefix.count("`") % 2 == 1
+                or prefix.count("“") % 2 == 1 or prefix.count("‘") % 2 == 1):
             return raw.rstrip(".,;:")
+        outside.append(url)
         return "[fora do corpus]"
 
     src = text or ""

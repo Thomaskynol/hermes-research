@@ -14,11 +14,12 @@ OUT = "https://fora.example/s"
 
 class QuotedLiteralTest(unittest.TestCase):
     def test_url_dentro_de_literal_citado_e_preservada(self):
+        # consultado vs mencionado: literal preservada nao e citacao fora
         text = ('Instale com "plugin": ["superpowers@git+%s"].' % OUT)
         out, outside = rr._rewrite_refs(text, {}, set())
         self.assertIn(OUT, out)
         self.assertNotIn("[fora do corpus]", out)
-        self.assertEqual(outside, [OUT])
+        self.assertEqual(outside, [])
 
     def test_url_solta_fora_do_corpus_vira_marcador(self):
         out, outside = rr._rewrite_refs("Veja %s agora." % OUT, {}, set())

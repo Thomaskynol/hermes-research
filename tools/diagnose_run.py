@@ -39,9 +39,15 @@ sys.path.insert(0, str(ROOT))
 import report_renderer as renderer  # noqa: E402
 from adaptive_coordinator import _expand_terms_en, _PT_EN_RESEARCH  # noqa: E402
 from verification_report import (  # noqa: E402
+    _audit_inference,
     _entity_mentioned,
     _expand_support_tokens,
+    _has_inference_marker,
+    _is_user_premise,
     _mentions_version_gap,
+    _split_inference,
+    _text_exact_versions,
+    _text_family_versions,
     _text_versions,
     is_lacuna_declaration,
 )
@@ -430,7 +436,10 @@ def synthesis_audit(state: dict) -> dict:
     markdown = report.get("markdown") or report.get("text") or ""
     numbers = _number_map(state)
     docs = {renderer._norm(url): norm_text(text or "")
-            for url, text in (state.get("evidence") or {}).items()}
+            for url, text in (state.get("evidence") or {}).items()
+            if not (isinstance(url, str) and url.startswith("user://"))}
+    # remove a chave None de user:// (norm None) se existir
+    docs.pop(None, None)
     entities = _audit_entities(state)
     supported = unsupported = uncited = 0
     items: list[dict] = []
@@ -462,6 +471,23 @@ def synthesis_audit(state: dict) -> dict:
                 cited_docs.append((n, doc))
         named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(line) for t in toks)]
+        # Premissa explicita do usuario: citavel sem numero de corpus,
+        # nunca LACUNA automatica (isenta o gate da versao do contexto).
+        if _is_user_premise(line) and not is_lacuna_declaration(line):
+            if cited_docs and not missing:
+                _prem = sum(
+                    1 for _, doc in cited_docs
+                    if not named or any(
+                        _entity_mentioned(label, eid, doc)
+                        for label, eid, _toks in named))
+                if named and not _prem:
+                    unsupported += 1
+                    items.append({"sentence": line[:300], "cites": cites,
+                                  "reason": "entidade ausente no doc citado "
+                                            "(premissa sem doc da entidade)"})
+                    continue
+                supported += 1
+                continue
         # Absence declaration over consulted sources: sustained by the
         # consultation itself (mirrors verification_report.check_support)
         # — but the cited source must be about the named entity (S2
@@ -480,6 +506,46 @@ def synthesis_audit(state: dict) -> dict:
                 continue
             supported += 1
             continue
+        # Inferencia marcada: audita ancora E relacao separadamente
+        # (complementaridade plausivel != integracao testada).
+        if _has_inference_marker(line):
+            from verification_report import _factual_anchor as _anchor_fn
+            from verification_report import _content_tokens as _ctoks
+            _anchor_txt, _rel_txt = _split_inference(line)
+            _a_toks = set(_ctoks(_anchor_txt))
+            _r_toks = set(_ctoks(_rel_txt)) or set(_ctoks(line))
+            _named_a = [(label, eid, toks) for label, eid, toks in entities
+                        if any(t in norm_text(_anchor_txt) for t in toks)]
+            _named_r = [(label, eid, toks) for label, eid, toks in entities
+                        if any(t in norm_text(_rel_txt or line)
+                               for t in toks)]
+            # converte entidades do diagnose para o formato do verificador
+            _ent_a = [(set(t for t in _t if len(t) >= 4), _l, _e)
+                      for _l, _e, _t in _named_a]
+            _ent_r = [(set(t for t in _t if len(t) >= 4), _l, _e)
+                      for _l, _e, _t in _named_r]
+            _interop = False
+            _any_a = False
+            _rel_reason = ""
+            for _, doc in cited_docs:
+                a_ok, r_ok, _ar, rr = _audit_inference(
+                    _anchor_txt, _rel_txt or line, doc, _ent_a, _ent_r)
+                if a_ok:
+                    _any_a = True
+                if a_ok and r_ok:
+                    _interop = True
+                    break
+                _rel_reason = rr or _ar
+            if _interop:
+                supported += 1
+                continue
+            unsupported += 1
+            items.append({"sentence": line[:300], "cites": cites,
+                          "reason": _rel_reason or
+                          "inferência sem citação de interoperabilidade "
+                          "(complementaridade plausível, não integração "
+                          "testada)"})
+            continue
         # Inference-marked claim: audit the factual anchor only (mirrors
         # verification_report._factual_anchor).
         from verification_report import _factual_anchor as _anchor
@@ -489,19 +555,30 @@ def synthesis_audit(state: dict) -> dict:
                  if any(t in norm_text(anchor) for t in toks)] \
             if anchor != line else named
         # Cell entity must be named in full ("opencode agents" is not
-        # "opencode-planner"); a claimed version absent from the cited
-        # doc never sustains, however high the remaining overlap is.
-        # Both mirror verification_report (shared helpers, single source).
+        # "opencode-planner"); gate separado tag exata vs familia
+        # funcional (conclusoes separadas). Ambos espelham o verificador.
         missing_entities = []
         if named and not any(
                 _entity_mentioned(label, eid, doc)
                 for label, eid, _toks in named for _, doc in cited_docs):
             missing_entities = [label for label, _eid, _toks in named]
-        claim_vers = _text_versions(anchor)
-        version_miss = bool(claim_vers) \
-            and not _mentions_version_gap(anchor) and not any(
-            not (claim_vers - _text_versions(doc))
-            for _, doc in cited_docs)
+        _exact_c = _text_exact_versions(anchor)
+        _fam_c = _text_family_versions(anchor)
+        version_miss = False
+        version_reason = "versão ausente no doc citado"
+        if (_exact_c or _fam_c) and not _mentions_version_gap(anchor) \
+                and not _is_user_premise(anchor):
+            _exact_u: set[str] = set()
+            _fam_u: set[str] = set()
+            for _, doc in cited_docs:
+                _exact_u |= _text_exact_versions(doc)
+                _fam_u |= _text_family_versions(doc)
+            if _exact_c and not _exact_c <= _exact_u:
+                version_miss = True
+                version_reason = "versão exata ausente no doc citado"
+            elif _fam_c and not _fam_c <= _fam_u:
+                version_miss = True
+                version_reason = "família funcional ausente no doc citado"
         expanded = _expand_support_tokens(words)
         best, rare = 0.0, 0
         for _, doc in cited_docs:
@@ -516,7 +593,7 @@ def synthesis_audit(state: dict) -> dict:
             reason = "entidade ausente no doc citado: " + ", ".join(
                 missing_entities)
         elif version_miss:
-            reason = "versão ausente no doc citado"
+            reason = version_reason
         elif best < 0.35 and rare < 2:
             reason = (f"overlap {best:.2f} < 0.35 e "
                       f"{rare} palavra(s) rara(s) em comum")

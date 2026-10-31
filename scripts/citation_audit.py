@@ -16,11 +16,13 @@ def normalize_url(raw: str) -> str | None:
     """Conservative normalization. Returns None when malformed.
 
     Preserves path/query (no equivalence claims). Drops only: surrounding
-    whitespace/quotes/backticks, fragment, default ports, scheme/host case.
+    whitespace/quotes/backticks (incl. curvas), fragment, default ports,
+    scheme/host case.
     """
     if not isinstance(raw, str):
         return None
-    u = raw.strip().strip("\"'`)]}").strip()
+    # aspas curvas + retas nas bordas (accept22: URL com ” grudada)
+    u = raw.strip().strip("\"'`)]}”’»").strip("“‘«").strip()
     if re.search(r"\s", u):
         return None
     try:
@@ -57,7 +59,7 @@ def extract_references(report: str) -> list[dict]:
                          "snippet": line.strip()[:160],
                          "spoken": spoken or None, "in_code": in_code})
         for m in re.finditer(r"(?<![\(=/'\"`])\bhttps?://[^\s`)\]]+", line):
-            url = m.group(0).rstrip(".,;:")
+            url = m.group(0).rstrip(".,;:\"'”’").rstrip("”’")
             if any(r["line"] == n and r["url"] in url for r in refs):
                 continue
             refs.append({"raw": url, "url": url, "format": "bare",
@@ -76,9 +78,18 @@ def classify_reference(ref: dict) -> str:
     commands/examples are NOT auto-counted as consulted sources."""
     if ref["format"] in ("source_marker", "markdown") or ref["spoken"]:
         return "evidence"
+    # in_code (linha com exemplo/codigo) nunca e consulta: antes do padrao
+    # para nao contar URL dentro de `...` como fonte
+    try:
+        if ref.get("in_code"):
+            return "in_command"
+    except Exception:
+        pass
     snip = ref["snippet"]
-    if re.search(r"(npm i|pip install|curl |wget |git clone|apt(-get)? install|"
-                 r"install [-–]|\.\.\.|\$\s)", snip):
+    if re.search(r"(npm\s+(i|install)|pip install|curl |wget |git clone|"
+                 r"apt(-get)?\s+install|npx\s|bunx\s|pnpm\s|yarn\s|"
+                 r"install [-–]|\.\.\.|\$\s)", snip,
+                 re.IGNORECASE):
         return "in_command"
     return "utility"
 

@@ -403,8 +403,10 @@ class VerificationTest(unittest.TestCase):
         execution = verify.verify_execution(state)
         question = verify.verify_question(state, ledger)
         review = verify.verify_review(state, state["semantic"])
+        # consultado vs mencionado: so evidence pondera unknown; bare e
+        # utilidade, markdown e evidencia (fora do corpus falha)
         support = verify.verify_support(
-            state, f"Conclusão sustentada em {A} e em {OUTSIDE}.",
+            state, f"Conclusão sustentada em [{A}]({A}) e em [fora]({OUTSIDE}).",
             state["semantic"])
         self.assertEqual(execution["status"], "ok")
         self.assertEqual(question["status"], "partial")

@@ -167,3 +167,48 @@
 - Nenhuma lógica de produto tocada (escopo: só plano + CONTINUIDADE).
 - Próximo: commit local (sem push); depois investigar `selection_context`
   16 + índices `[N]` fora da base, sem flexibilizar.
+
+## 2026-10-31 — Sessão 8: consultado/mencionado + inferência + fato usuário + janela (fixer, TDD)
+
+- RED: `tests/test_consultado_inferencia_usuario_janela.py` novo (13 testes,
+  genérico sem nomes de produto) falhou 11/13 no caminho real
+  (check_support/verify_support/diagnose + citation_audit + renderer).
+- GREEN (escopo: verification_report.py, report_renderer.py,
+  scripts/citation_audit.py, tools/diagnose_run.py + testes focados):
+  1) Consultado vs mencionado: normalize com aspas curvas, classify com
+     npx/in_code (in_code nunca é consulta), `_rewrite_refs` não registra
+     outside quando preserva literal, `verify_support` exclui linhas de nota
+     própria e só evidence pondera unknown.
+  2) Inferência por premissas: âncora E relação auditadas separadamente;
+     INFERÊNCIA vira declared-inference (nunca supported por âncora); exige
+     citação de interoperabilidade (doc com ≥2 entidades quando a frase
+     nomeia ≥2), senão LACUNA explícita (complementaridade plausível vs
+     integração testada).
+  3) Fato usuário: `_corpus` (verify + renderer) exclui user://; citável como
+     premissa explícita sem número, nunca LACUNA automática (isenta gate de
+     versão do contexto); gate separado tag exata vs família funcional,
+     conclusões separadas.
+  4) Janela: síntese cita janela (writer_included_urls/chars/cuts +
+     selection_hashes), LACUNA com escopo janela vs global
+     (declared[].scope), auditoria na mesma janela ou diff
+     excerto×full-text antes de "só links" (excerpt_vs_fulltext).
+- Contratos antigos atualizados (nova semântica, sem flexibilizar):
+  `test_support_check` (gate família + inferência declarada),
+  `test_product_core` (evidence markdown para falha fora do corpus),
+  `test_report_refs` (literal preservada fora de outside),
+  `test_calibration` (versão exata). `test_yt_enrich_fix` falha pré-existente
+  por `gpt_researcher` ausente (ambiente, sem relação).
+- Foco fresco (`-p no:cacheprovider`): 137 passed, 6 skipped, EXIT=0
+  (consultado/inferência/usuário/janela + s2 + lacuna + granularidade +
+  accept19 + produto + pool + monopólio + diagnose + refs + calibração +
+  síntese + gap). Suite ampla (sem 4 arquivos de config): 508 passed,
+  15 skipped, 1 falha pré-existente ambiente.
+- Efeito isolado em CÓPIA (`/tmp/opencode/accept22-copy/`, original intacto
+  md5 igual): antes verification failed unknown 5 + corpus 30 + diagnose
+  65/9; depois verification failed unknown [] (evidence 0, utility ignorada)
+  + corpus 29 (sem user://) + diagnose 66/8 + check 54/70 ok com 4 lacunas,
+  2 inferências declaradas, 1 premissa usuário; audit_window com
+  writer_included_urls (7) + excerpt_vs_fulltext. RA8 segue PENDENTE
+  (failed honesto por 3 inferências sem suporte semântico [12,13,14]).
+- Próximo: commit local sem push; depois investigar selection_context 16
+  residual, sem flexibilizar.

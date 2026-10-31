@@ -146,6 +146,10 @@ _VERSION_RE = re.compile(
     r"\b\d+\.\d+(?:\.\d+)?(?:[-+][a-z0-9.]+)?\b|\bV\d+\b",
     re.IGNORECASE)
 
+_EXACT_VERSION_RE = re.compile(
+    r"\b\d+\.\d+(?:\.\d+)?(?:[-+][a-z0-9.]+)?\b", re.IGNORECASE)
+_FAMILY_VERSION_RE = re.compile(r"\bV\d+\b", re.IGNORECASE)
+
 
 def _text_versions(text: str) -> set[str]:
     """Normalized version tags in a sentence/doc (v/@ stripped, lowered)."""
@@ -155,6 +159,44 @@ def _text_versions(text: str) -> set[str]:
         if norm:
             out.add(norm)
     return out
+
+
+def _text_exact_versions(text: str) -> set[str]:
+    """Tag exata pontilhada (2.1.4): conclusao separada da familia."""
+    out = set()
+    for raw in _EXACT_VERSION_RE.findall(str(text or "")):
+        norm = raw.lower().lstrip("v@")
+        if norm:
+            out.add(norm)
+    return out
+
+
+def _text_family_versions(text: str) -> set[str]:
+    """Familia funcional (V2): conclusao separada da tag exata."""
+    out = set()
+    for raw in _FAMILY_VERSION_RE.findall(str(text or "")):
+        norm = raw.lower().lstrip("v@")
+        if norm:
+            out.add(norm)
+    return out
+
+
+#: Proveniencia de fato do usuario: citavel como premissa explicita sem
+#: numero de corpus, nunca LACUNA automatica.
+_USER_CONTEXT_MARKERS = ("user://", "contexto informado pelo usuário",
+                         "contexto informado pelo usuario",
+                         "informado pelo usuário", "informado pelo usuario",
+                         "user-provided", "versão instalada",
+                         "versao instalada", "installed_opencode_version")
+
+
+def _is_user_premise(sentence: str) -> bool:
+    """True quando a frase cita o fato do usuario como premissa explicita."""
+    try:
+        low = str(sentence or "").lower()
+    except Exception:
+        return False
+    return any(m.lower() in low for m in _USER_CONTEXT_MARKERS)
 
 
 def _window_hash(text: str) -> str:
@@ -373,22 +415,29 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     """(supported, reason) for one sentence against one cited document.
 
     ``named_entities`` holds (tokens, label, entity_id) per plan entity.
-    A version tag claimed by the sentence but absent from the doc never
-    sustains (same "sem sobreposição" reason: audit consumers compare it
-    for equality). A named cell entity must occur in its full form.
+    Gate separado: tag exata (2.1.4) vs familia funcional (V2), conclusoes
+    separadas (razoes distintas, nunca o mesmo "sem sobreposição").
+    A named cell entity must occur in its full form.
     """
     doc_tokens = set(_content_tokens(doc_text))
     if not sentence_tokens:
         return False, "sem sobreposição"
-    # A claimed release/generation absent from the doc is not sustained,
-    # however high the remaining overlap is — unless the sentence itself
-    # declares the version unknown/absent (then absence is the content).
-    if sentence_raw and not _text_versions(sentence_raw) <= _text_versions(
-            doc_text):
-        if _mentions_version_gap(sentence_raw):
-            pass
-        else:
-            return False, "sem sobreposição"
+    # Gate separado tag exata vs familia funcional: ausencia de cada uma
+    # tem conclusao propria — a mesma frase nao decide no overlap generico.
+    # Isencao de lacuna ("desconhecida") vale para ambas.
+    if sentence_raw:
+        _exact_sent = _text_exact_versions(sentence_raw)
+        _family_sent = _text_family_versions(sentence_raw)
+        if _exact_sent or _family_sent:
+            if _mentions_version_gap(sentence_raw):
+                pass
+            else:
+                _exact_doc = _text_exact_versions(doc_text)
+                _family_doc = _text_family_versions(doc_text)
+                if _exact_sent and not _exact_sent <= _exact_doc:
+                    return False, "versão exata ausente no doc"
+                if _family_sent and not _family_sent <= _family_doc:
+                    return False, "família funcional ausente no doc"
     common = _expand_support_tokens(set(sentence_tokens)) & doc_tokens
     ratio = len(common) / len(sentence_tokens)
     title = set()
@@ -474,7 +523,9 @@ def is_lacuna_declaration(sentence: str) -> bool:
 #: cited doc does not contain — resolvability alone is not premise.
 #: Short labels/ids (``cand-x``, `c1`) are references, not excerpt
 #: quotes, and stay exempt (M7 writer template preserved).
-_QUOTED_LITERAL_RE = re.compile(r'"([^"]{3,})"|\'([^\']{3,})\'|`([^`]{3,})`')
+_QUOTED_LITERAL_RE = re.compile(
+    r'"([^"]{3,})"|\'([^\']{3,})\'|`([^`]{3,})`|'
+    r'“([^”]{3,})”|‘([^’]{3,})’')
 
 
 def _quoted_literals(sentence: str) -> list[str]:
@@ -482,8 +533,8 @@ def _quoted_literals(sentence: str) -> list[str]:
     out = []
     try:
         for m in _QUOTED_LITERAL_RE.finditer(str(sentence or "")):
-            lit = m.group(1) or m.group(2) or m.group(3) or ""
-            lit = lit.strip().strip("\"'`")
+            lit = next((g for g in m.groups() if g), "") or ""
+            lit = lit.strip().strip("\"'`“”‘’")
             if len(lit) >= 3:
                 out.append(lit)
     except Exception:
@@ -502,11 +553,36 @@ def _is_evidence_literal(lit: str) -> bool:
     return len(s) >= 8
 
 
-# An explicitly marked inference ("INFERÊNCIA: ...") is audited on its
-# factual anchor, not on the inference itself: strip the inference clause
-# (text from the marker on) before the overlap check. A sentence that is
-# pure inference with no anchor falls back to the full-text audit.
+# Inferencia por premissas: ancora E relacao auditadas separadamente.
+# INFERENCIA vira declared-inference (nunca supported por ancora); exige
+# citacao de interoperabilidade para supported, senao LACUNA explicita.
+# Complementaridade plausivel (ancora ok, relacao sem prova) != integracao
+# testada (relacao com citacao de interoperabilidade).
 INFERENCE_MARKERS = ("inferência", "inferencia", "inference", "inferido")
+
+
+def _has_inference_marker(sentence: str) -> bool:
+    try:
+        low = str(sentence or "").lower()
+    except Exception:
+        return False
+    return any(m in low for m in INFERENCE_MARKERS)
+
+
+def _split_inference(sentence: str) -> tuple[str, str]:
+    """(ancora, relacao) split no marcador de inferencia."""
+    try:
+        low = str(sentence or "").lower()
+    except Exception:
+        return str(sentence or ""), ""
+    cuts = [low.find(m) for m in INFERENCE_MARKERS]
+    cuts = [c for c in cuts if c >= 0]
+    if not cuts:
+        return str(sentence or ""), ""
+    idx = min(cuts)
+    anchor = str(sentence or "")[:idx].strip(" -–—:;,.\"'`*“”‘’")
+    relation = str(sentence or "")[idx:].strip(" -–—:;,.\"'`*“”‘’")
+    return anchor or str(sentence or ""), relation or ""
 
 
 def _factual_anchor(sentence: str) -> str:
@@ -529,6 +605,63 @@ def _factual_anchor(sentence: str) -> str:
     if not (has_acronym or has_digit or len(substance) >= 3):
         return sentence
     return anchor if len(anchor.split()) >= 3 else sentence
+
+
+def _window_scope_for(sentence: str) -> str:
+    """Escopo da lacuna: janela (excertos avaliados) vs global (corpus)."""
+    try:
+        low = str(sentence or "").lower()
+    except Exception:
+        return "janela (excertos avaliados)"
+    if "excerto" in low or "excerpt" in low:
+        return "janela (excertos avaliados)"
+    if "corpus" in low:
+        return "global (corpus integral)"
+    # padrao: auditoria por bullet e na janela do writer
+    return "janela (excertos avaliados)"
+
+
+def _audit_inference(anchor: str, relation: str, doc_text: str,
+                     named_anchor: list, named_relation: list) -> tuple[bool, bool, str, str]:
+    """Audita ancora E relacao separadamente contra um doc.
+
+    Retorna (anchor_ok, relation_ok, anchor_reason, relation_reason).
+    Interoperabilidade: quando a frase nomeia >=2 entidades, a relacao
+    so e sustentada pelo doc que menciona >=2 delas (integracao testada);
+    doc de entidade unica e complementaridade plausivel, nunca prova.
+    """
+    anchor_tokens = set(_content_tokens(anchor)) if anchor else set()
+    relation_tokens = set(_content_tokens(relation)) if relation else set()
+    if not anchor_tokens:
+        anchor_ok, anchor_reason = False, "sem sobreposição"
+    else:
+        anchor_ok, anchor_reason = _sentence_supported(
+            anchor_tokens, doc_text, named_anchor, anchor)
+    if not relation_tokens:
+        relation_ok, relation_reason = False, "sem sobreposição"
+    else:
+        # exige mencao das entidades da relacao no mesmo doc
+        if named_relation:
+            _mentioned = sum(
+                1 for _toks, label, eid in named_relation
+                if _entity_mentioned(label, eid, doc_text))
+            if len(named_relation) >= 2 and _mentioned < 2:
+                return anchor_ok, False, anchor_reason, \
+                    "inferência sem citação de interoperabilidade " \
+                    "(complementaridade plausível, não integração testada)"
+        relation_ok, relation_reason = _sentence_supported(
+            relation_tokens, doc_text, named_relation, relation)
+        if not relation_ok and "não mencionada" in relation_reason:
+            relation_reason = (
+                "inferência sem citação de interoperabilidade "
+                "(complementaridade plausível, não integração testada)")
+        elif not relation_ok:
+            # ancora pode passar no overlap, mas a relacao (combinacao)
+            # exige prova de integracao, nao so plausibilidade
+            relation_reason = (
+                "inferência sem citação de interoperabilidade "
+                "(complementaridade plausível, não integração testada)")
+    return anchor_ok, relation_ok, anchor_reason, relation_reason
 
 
 def check_support(synthesis_text: str, numbers, corpus, plan,
@@ -589,6 +722,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
 
     claims = supported = uncited = 0
     declared: list[dict] = []
+    declared_inference: list[dict] = []
+    user_premises: list[dict] = []
     unsupported: list[dict] = []
     # B2: unidades por bullet/linha, não por blob multi-bullet. O split
     # antigo (re.split sobre o texto inteiro) juntava bullets sem
@@ -618,6 +753,49 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         factual = _factual_anchor(sentence)
         sent_tokens = set(_content_tokens(factual))
         named = [entry for entry in entities if sent_tokens & entry[0]]
+        # Fato do usuario como premissa explicita (sem numero de corpus,
+        # nunca LACUNA automatica): isenta o gate de versao da versao
+        # vinda do contexto e audita a premissa da entidade.
+        if _is_user_premise(sentence) and not is_lacuna_declaration(sentence):
+            _cited_docs_u: list[str] = []
+            _missing_u: list[int] = []
+            for _n in citations:
+                _url = n_to_url.get(_n)
+                _doc = _doc_for(_url) if _url else ""
+                if not _url or not _doc:
+                    _missing_u.append(_n)
+                else:
+                    _cited_docs_u.append(_doc)
+            if _missing_u:
+                unsupported.append({
+                    "sentence": sentence, "citations": citations,
+                    "reason": "citação fora do corpus: "
+                              + ", ".join(f"[{n}]" for n in _missing_u)})
+                continue
+            _prem_u = sum(
+                1 for _doc in _cited_docs_u
+                if not named or any(
+                    _entity_mentioned(label, eid, _doc)
+                    for _toks, label, eid in named))
+            if named and not _prem_u:
+                unsupported.append({"sentence": sentence,
+                                    "citations": citations,
+                                    "reason": "entidade não mencionada no "
+                                              "doc"})
+                continue
+            # premissa explicita do usuario + doc da entidade: sustentada
+            # sem exigir a tag exata do contexto no doc
+            supported += 1
+            user_premises.append({"sentence": sentence,
+                                  "citations": citations,
+                                  "premise_docs": _prem_u,
+                                  "scope": "premissa explícita do usuário "
+                                           "(sem número de corpus)"})
+            declared.append({"sentence": sentence, "citations": citations,
+                             "premise_docs": _prem_u,
+                             "scope": "premissa explícita do usuário "
+                                      "(sem número de corpus)"})
+            continue
         # Absence declaration over consulted sources: sustained by the
         # consultation itself (the cited doc was read and says nothing),
         # never by word overlap with an empty statement — but a quoted
@@ -660,15 +838,24 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             # content must occur in the cited doc, even in an absence
             # declaration. Version-gap language ("desconhecida", "sem
             # menção") keeps the exemption: absence is the content.
-            _vers = _text_versions(sentence)
-            if _vers and not _mentions_version_gap(sentence):
-                _union_vers: set[str] = set()
+            # Gate separado tag exata vs familia funcional.
+            _exact_s = _text_exact_versions(sentence)
+            _fam_s = _text_family_versions(sentence)
+            if (_exact_s or _fam_s) and not _mentions_version_gap(sentence):
+                _exact_u: set[str] = set()
+                _fam_u: set[str] = set()
                 for _doc in _cited_docs:
-                    _union_vers |= _text_versions(_doc)
-                if not _vers <= _union_vers:
+                    _exact_u |= _text_exact_versions(_doc)
+                    _fam_u |= _text_family_versions(_doc)
+                if _exact_s and not _exact_s <= _exact_u:
                     unsupported.append({
                         "sentence": sentence, "citations": citations,
-                        "reason": "versão ausente no doc citado"})
+                        "reason": "versão exata ausente no doc citado"})
+                    continue
+                if _fam_s and not _fam_s <= _fam_u:
+                    unsupported.append({
+                        "sentence": sentence, "citations": citations,
+                        "reason": "família funcional ausente no doc citado"})
                     continue
             _lits = [lit for lit in _quoted_literals(sentence)
                      if _is_evidence_literal(lit)]
@@ -684,9 +871,70 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     continue
             supported += 1
             declared.append({"sentence": sentence, "citations": citations,
-                             "premise_docs": _premise_docs})
+                             "premise_docs": _premise_docs,
+                             "scope": _window_scope_for(sentence)})
             continue
-        # Inference-marked claim: audit the factual anchor only.
+        # Inferencia marcada: audita ancora E relacao separadamente.
+        # INFERENCIA vira declared-inference (nunca supported por ancora);
+        # exige citacao de interoperabilidade para supported, senao
+        # LACUNA explicita (complementaridade plausivel != integracao).
+        if _has_inference_marker(sentence):
+            _anchor, _relation = _split_inference(sentence)
+            _anchor_toks = set(_content_tokens(_anchor))
+            _rel_toks = set(_content_tokens(_relation))
+            _named_anchor = [e for e in entities if _anchor_toks & e[0]]
+            _named_rel = [e for e in entities if _rel_toks & e[0]]
+            # sem marcador util: usa a frase cheia como relacao
+            if not _relation:
+                _relation, _rel_toks, _named_rel = (
+                    sentence, set(_content_tokens(sentence)),
+                    [e for e in entities
+                     if set(_content_tokens(sentence)) & e[0]])
+            _interop_ok = False
+            _anchor_any_ok = False
+            _rel_reasons: list[str] = []
+            for n in citations:
+                url = n_to_url.get(n)
+                if not url:
+                    _rel_reasons.append("citação fora do corpus")
+                    continue
+                _doc = _doc_for(url)
+                if not _doc:
+                    _rel_reasons.append("citação fora do corpus")
+                    continue
+                a_ok, r_ok, _a_r, r_r = _audit_inference(
+                    _anchor, _relation, _doc, _named_anchor, _named_rel)
+                if a_ok:
+                    _anchor_any_ok = True
+                if a_ok and r_ok:
+                    _interop_ok = True
+                    break
+                _rel_reasons.append(r_r or _a_r)
+            if _interop_ok:
+                supported += 1
+                declared_inference.append(
+                    {"sentence": sentence, "citations": citations,
+                     "anchor_ok": True, "relation_ok": True,
+                     "scope": "integração testada (interoperabilidade "
+                              "citada)"})
+                continue
+            # ancora ok mas relacao sem prova = complementaridade plausivel
+            reason = _rel_reasons[0] if _rel_reasons else \
+                ("inferência sem citação de interoperabilidade "
+                 "(complementaridade plausível, não integração testada)")
+            if "interoperabilidade" not in reason and "integra" not in reason:
+                reason = ("inferência sem citação de interoperabilidade "
+                          "(complementaridade plausível, não integração "
+                          "testada)")
+            unsupported.append({"sentence": sentence,
+                                "citations": citations,
+                                "reason": reason})
+            declared_inference.append(
+                {"sentence": sentence, "citations": citations,
+                 "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
+                 "scope": "LACUNA explícita exigida (sem prova de "
+                          "integração)"})
+            continue
         ok = False
         reasons: list[str] = []
         for n in citations:
@@ -703,9 +951,16 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         if ok:
             supported += 1
         else:
-            reason = ("entidade não mencionada no doc"
-                      if "entidade não mencionada no doc" in reasons
-                      else "sem sobreposição")
+            # conclusoes separadas: preserva a razao do gate (exata vs
+            # familia vs entidade) em vez de colapsar em "sem sobreposição"
+            _prio = [r for r in reasons
+                     if r in ("versão exata ausente no doc",
+                              "família funcional ausente no doc",
+                              "entidade não mencionada no doc")]
+            reason = _prio[0] if _prio else (
+                "entidade não mencionada no doc"
+                if "entidade não mencionada no doc" in reasons
+                else (reasons[0] if reasons else "sem sobreposição"))
             unsupported.append({"sentence": sentence,
                                 "citations": citations,
                                 "reason": reason})
@@ -722,8 +977,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
               f"{uncited} sem citação")
     if declared:
         detail += f"; {len(declared)} declaração(ões) de lacuna sustentada(s)"
-    # B5: registra qual janela foi auditada (texto usable integral +
+    if declared_inference:
+        detail += (f"; {len(declared_inference)} inferência(s) declarada(s) "
+                   f"(nunca supported por âncora)")
+    # B5+janela: registra qual janela foi auditada (texto usable integral +
     # hashes no formato last_selection, com seleção quando exposta).
+    # Audita na mesma janela do writer ou diff excerto×full-text antes de
+    # concluir "só links": o modo carrega o escopo (janela vs global).
     try:
         _doc_hashes = {url: _window_hash(txt) for url, txt in docs.items()}
     except Exception:
@@ -732,6 +992,12 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         "mode": "usable_text integral (full-text); por bullet/linha",
         "granularity": "linha+frase (trava de versão por bullet)",
         "doc_hashes": _doc_hashes,
+        "window": "janela (excertos avaliados) vs global (corpus integral): "
+                  "ver declared[].scope",
+        "excerpt_vs_fulltext": "auditado em usable_text integral; "
+                               "writer usa excertos (2000 chars/doc, teto "
+                               "12000): LACUNA 'só links' é da janela, "
+                               "não global sem diff",
     }
     try:
         if isinstance(selection, dict):
@@ -743,7 +1009,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         pass
     return {"status": status, "claims": claims, "supported": supported,
             "uncited": uncited, "unsupported": unsupported, "detail": detail,
-            "declared": declared, "audit_window": _audit_window}
+            "declared": declared, "declared_inference": declared_inference,
+            "user_premises": user_premises, "audit_window": _audit_window}
 
 
 def _utcnow() -> str:
@@ -922,11 +1189,17 @@ def verify_review(state: dict, audit: dict | None = None) -> dict:
 
 
 def _corpus(state: dict) -> dict:
-    """URLs that really sustain claims: obtained text, qualification allows."""
+    """URLs that really sustain claims: obtained text, qualification allows.
+
+    user://context/* nunca e corpus (premissa explicita do usuario, sem
+    numero; nunca LACUNA automatica).
+    """
     evidence = state.get("evidence") or {}
     qualification = state.get("qualification") or {}
     corpus = {}
     for url, text in evidence.items():
+        if isinstance(url, str) and url.startswith("user://"):
+            continue
         if not isinstance(text, str) or not text.strip():
             continue
         qual = qualification.get(url) or {}
@@ -938,9 +1211,33 @@ def _corpus(state: dict) -> dict:
     return corpus
 
 
+def _is_own_note_line(line: str) -> bool:
+    """Linha de nota propria do renderer/verificacao, nao afirmacao."""
+    try:
+        s = str(line or "").strip()
+    except Exception:
+        return False
+    if not s:
+        return False
+    if s.startswith("|"):
+        return True
+    low = s.lower()
+    # notas que listam outside/beyond + tabela de fontes
+    if "fora do corpus" in low or "fora da base" in low:
+        return True
+    if low.startswith("- render:") or low.startswith("- support:"):
+        return True
+    return False
+
+
 def verify_support(state: dict, report_text: str,
                    audit: dict | None = None) -> dict:
-    """Every citation must resolve to real evidence; unknown never supports."""
+    """Every citation must resolve to real evidence; unknown never supports.
+
+    Consultado vs mencionado: exclui linhas de nota propria e aplica
+    classify_reference (so evidence pondera unknown); utility/in_command
+    mencionado sem citacao como fonte nunca falha.
+    """
     try:
         from scripts import citation_audit as ca
     except ImportError:  # pragma: no cover - scripts/ on sys.path
@@ -951,9 +1248,22 @@ def verify_support(state: dict, report_text: str,
         norm = ca.normalize_url(url)
         if norm:
             norm_corpus[norm] = url
-    refs = ca.extract_references(report_text or "")
+    _all_refs = ca.extract_references(report_text or "")
+    # exclui linhas de nota propria (tabela §7, notas render/support)
+    refs = [r for r in _all_refs
+            if not _is_own_note_line(r.get("snippet") or "")]
+    # so evidence pondera unknown (consultado); mencionado (utility/
+    # in_command) nunca vira unknown
     resolved, unknown = [], []
+    _evidence_refs = []
     for ref in refs:
+        try:
+            kind = ca.classify_reference(ref)
+        except Exception:
+            kind = "utility"
+        if kind != "evidence":
+            continue
+        _evidence_refs.append(ref)
         norm = ca.normalize_url(ref.get("url"))
         if norm and norm in norm_corpus:
             resolved.append(norm)
@@ -970,7 +1280,9 @@ def verify_support(state: dict, report_text: str,
                        if v.get("verdict") not in ("review_incomplete",
                                                    "missing_result"))
     evidence = {
-        "citations": len(refs),
+        "citations": len(_all_refs),
+        "citations_evidence": len(_evidence_refs),
+        "citations_all_mentions": len(_all_refs),
         "citations_resolved": len(set(resolved)),
         "citations_unknown": sorted(set(unknown)),
         "claims_extracted": claims,
@@ -991,19 +1303,25 @@ def verify_support(state: dict, report_text: str,
         for _line in (report_text or "").splitlines():
             if _line.strip().startswith("|") and "http" in _line:
                 for _m in re.finditer(r"https?://[^\s`)\]|]+", _line):
-                    _n = ca.normalize_url(_m.group(0).rstrip(".,;:"))
+                    _n = ca.normalize_url(_m.group(0).rstrip('.,;:\"\'”“’'))
                     if _n:
                         _table_urls.add(_n)
-        beyond = sorted((set(resolved) - {ca.normalize_url(u) for u in used
+        _resolved_all: set[str] = set()
+        for _r in _all_refs:
+            if _is_own_note_line(_r.get("snippet") or ""):
+                continue
+            _nn = ca.normalize_url(_r.get("url"))
+            if _nn and _nn in norm_corpus:
+                _resolved_all.add(_nn)
+        beyond = sorted((_resolved_all - {ca.normalize_url(u) for u in used
                                            if ca.normalize_url(u)}
                          ) - _table_urls)
     except Exception:
         beyond = []
     evidence["cited_beyond_synthesis"] = beyond
-    # B5: registra qual janela foi auditada (converge excerto vs full-text).
-    # O texto auditado aqui é o usable_text integral; os hashes seguem o
-    # formato last_selection (sha256[:16]) e a seleção efetiva é reusada
-    # quando o state a expõe (assessments/report.selection/last_selection).
+    # Janela Context7: sintese cita a janela (selection_hashes); LACUNA
+    # com escopo de janela vs global; audita na mesma janela do writer ou
+    # diff excerto×full-text antes de "só links".
     try:
         _ev_all = state.get("evidence") or {}
         _qual_all = state.get("qualification") or {}
@@ -1015,34 +1333,45 @@ def verify_support(state: dict, report_text: str,
             except Exception:
                 continue
         _sel_win = _selection_window(state)
+        _rep_sel = ((state.get("report") or {}).get("selection") or {})
+        _writer_urls = list(_rep_sel.get("included_urls") or [])
         evidence["audit_window"] = {
             "mode": "usable_text integral (full-text)",
             "doc_hashes": _doc_hashes,
             "selection_urls": _sel_win.get("urls") or [],
             "selection_hashes": _sel_win.get("hashes") or {},
             "hash_source": _sel_win.get("hash_source") or "",
+            # sintese cita a janela do writer (teto 12000/2000/doc)
+            "writer_included_urls": _writer_urls,
+            "writer_chars": _rep_sel.get("chars"),
+            "writer_cuts": str(_rep_sel.get("cuts") or "")[:600],
+            "excerpt_vs_fulltext": "auditado em full-text; writer em "
+                                   "excertos: 'só links' e LACUNA sem diff "
+                                   "sao da janela, nao global",
         }
     except Exception:
         pass
     notes = []
     # B5: pondera sentence_support quando a citação é do doc da entidade.
     # Sem reescrever auditores: roda o audit por frase (por bullet, B2) nas
-    # linhas de afirmação (fora tabela/cabeçalho) com a mesma numeração
-    # persistida do relatório; versão/entidade/literal ausente no doc e
-    # citação fora do corpus ponderam (overlap genérico baixo nunca força
-    # falha, para preservar a verificação existente).
+    # linhas de afirmação (fora tabela/cabeçalho/nota propria) com a mesma
+    # numeração persistida do relatório; versão/entidade/literal/interop
+    # ausente no doc e citação fora do corpus ponderam (overlap genérico
+    # baixo nunca força falha, para preservar a verificação existente).
     _sent_weighted = None
     try:
         _plan = state.get("plan") or {}
         _has_entities = bool((_plan.get("entities") or []))
         _rep_numbers = ((state.get("report") or {}).get("numbers") or {})
-        if _has_entities and refs and _rep_numbers:
+        if _has_entities and _rep_numbers:
             _claim_lines: list[str] = []
             for _line in (report_text or "").splitlines():
                 _s = _line.strip()
                 if not _s:
                     continue
                 if _s.startswith(("|", "#", ">", "```")):
+                    continue
+                if _is_own_note_line(_s):
                     continue
                 _low = re.sub(r"^[\s*_`]+", "", _s)
                 if re.match(r"(refer[êe]ncias?|fontes?)\s*:",
@@ -1070,21 +1399,36 @@ def verify_support(state: dict, report_text: str,
                     if _sraw.strip().startswith(
                             ("|", "#", ">", "```")):
                         continue
+                    if _is_own_note_line(_sraw):
+                        continue
                     _reason = str(_item.get("reason") or "")
                     if _reason == "entidade não mencionada no doc":
                         _weighted_misses.append(_item)
                         continue
-                    # LACUNA+quote/corpus: literal citado ausente no doc e
-                    # citação fora do corpus ponderam como versão/entidade.
+                    # LACUNA+quote/corpus/interop: literal/interop ausente
+                    # e citação fora do corpus ponderam como versão/entidade.
                     if _reason.startswith(("literal ausente no doc citado",
-                                           "citação fora do corpus")):
+                                           "citação fora do corpus",
+                                           "inferência sem citação de "
+                                           "interoperabilidade",
+                                           "inferencia sem citacao")):
+                        _weighted_misses.append(_item)
+                        continue
+                    if _reason.startswith(("versão exata ausente",
+                                           "versao exata ausente",
+                                           "família funcional ausente",
+                                           "familia funcional ausente",
+                                           "versão ausente")):
                         _weighted_misses.append(_item)
                         continue
                     # Trava de versão por bullet: versão afirmada sem
                     # isenção de lacuna nunca é overlap genérico.
+                    # Gate separado tag exata vs familia funcional.
                     try:
-                        if (_text_versions(_sraw)
-                                and not _mentions_version_gap(_sraw)):
+                        if ((_text_exact_versions(_sraw)
+                             or _text_family_versions(_sraw))
+                                and not _mentions_version_gap(_sraw)
+                                and not _is_user_premise(_sraw)):
                             _weighted_misses.append(_item)
                     except Exception:
                         continue
@@ -1097,8 +1441,8 @@ def verify_support(state: dict, report_text: str,
                     notes.append(
                         "sentence_support pondera: "
                         f"{len(_weighted_misses)} afirmação(ões) com "
-                        "versão/entidade/literal ausente no doc ou citação "
-                        "fora do corpus "
+                        "versão/entidade/literal/interop ausente no doc ou "
+                        "citação fora do corpus "
                         f"(janela: {len(_doc_hashes)} doc(s) em "
                         "usable_text integral)")
     except Exception:
@@ -1114,7 +1458,7 @@ def verify_support(state: dict, report_text: str,
                      + ", ".join(sorted(set(unknown))))
     if unsupported:
         notes.append(f"{len(unsupported)} afirmação(ões) sem suporte")
-    if not refs:
+    if not _all_refs and not _rep_numbers:
         return _result("support", "not_run", evidence,
                        notes + ["relatório sem citações verificáveis"])
     if unknown or unsupported:

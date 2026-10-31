@@ -146,11 +146,12 @@ class DiagnoseMirrorTest(unittest.TestCase):
         self.assertEqual(out["supported"], 1, out)
 
     def test_diagnose_versao_divergente(self):
+        # gate separado tag exata vs familia: 2.0.0 ausente vira exata
         doc = "The current release is 0.6.0."
         st = self._state("Release 2.0.0 is current", doc)
         out = diag.synthesis_audit(st)
         self.assertEqual(out["unsupported"], 1, out)
-        self.assertIn("versão ausente",
+        self.assertIn("versão exata ausente",
                       out["unsupported_items"][0]["reason"])
 
     def test_diagnose_outra_entidade(self):

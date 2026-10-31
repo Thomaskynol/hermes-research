@@ -51,6 +51,8 @@ class CheckSupportTest(unittest.TestCase):
         self.assertEqual(result["unsupported"], [])
 
     def test_other_version_is_unsupported(self):
+        # gate separado tag exata vs familia: V2 ausente vira familia,
+        # nao generico "sem sobreposição"
         result = verify.check_support(
             VERSION_SENTENCE, {1: URL}, {URL: VERSION_DOC}, PLAN)
         self.assertEqual(result["status"], "failed")
@@ -58,7 +60,7 @@ class CheckSupportTest(unittest.TestCase):
         self.assertEqual(len(result["unsupported"]), 1)
         self.assertEqual(result["unsupported"][0]["citations"], [1])
         self.assertEqual(result["unsupported"][0]["reason"],
-                         "sem sobreposição")
+                         "família funcional ausente no doc")
 
     def test_entity_missing_from_cited_doc_is_unsupported(self):
         sentence = "A Biblioteca Alfa oferece suporte completo e estável [1]."
@@ -133,12 +135,17 @@ class CheckSupportTest(unittest.TestCase):
             "Funciona sem planejamento prévio [1]."))
 
     def test_inference_marked_claim_audits_factual_anchor(self):
+        # INFERENCIA vira declared-inference (nunca supported por ancora);
+        # exige citacao de interoperabilidade para supported
         sentence = ("`License MIT` — fonte: [1] — INFERÊNCIA autorizada: "
                     "licença sem custo de licença.")
         result = verify.check_support(sentence, {URL: 1},
                                       {URL: PARAPHRASE_DOC}, PLAN)
-        self.assertEqual(result["supported"], 1)
-        self.assertEqual(result["unsupported"], [])
+        self.assertEqual(result["supported"], 0, result)
+        self.assertEqual(len(result["unsupported"]), 1, result)
+        self.assertIn("interoperabilidade",
+                      result["unsupported"][0]["reason"].lower())
+        self.assertTrue(result.get("declared_inference"), result)
 
     def test_pure_inference_without_anchor_still_fails(self):
         sentence = "INFERÊNCIA: provavelmente é grátis e sem limites [1]."
