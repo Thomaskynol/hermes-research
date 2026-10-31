@@ -481,3 +481,10 @@ lane, condições registradas no RELATORIO_ACCEPT25.md). 437s, EXIT=0.
   ponderação estreita + `tests/test_divergencias_auditores.py` 11 TDD);
   `8040f87` no intervalo é só docs do accept24 (zero produto — excluído).
   Validação por teste cobrindo cada mudança (RED→GREEN + foco/ampla + cópia).
+
+## Nota pós-accept25 — embeddings UP, path native sem uso (sem produto)
+
+- `172.17.0.1:8082` UP (`/health` 200, `{"status":"ok"}`), mas o path
+  `native` do accept25 fez **zero requests** (manifest/counters/verification
+  sem embedding; hits em `state.json` são texto de corpus). Conexão/
+  demonstração integrada fica para o próximo lane; produto intocado.

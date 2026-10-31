@@ -303,7 +303,9 @@ segue pendente.
   two-pass §8=final, identidade sem promoção; support ok 2ª vez; overall
   `partial` por cobertura (0/35), não por veracidade — gargalo é
   corpus/seleção (`selection_context 22`, `assessor_error 0`), não
-  leniência. Fechar Phase 5 (ACEITE_V1_RESULTADO + check-complete); próximo
+  leniência. Nota: embeddings `:8082` UP mas path native fez zero requests
+  — conexão/demonstração integrada fica para o próximo lane, sem produto
+  neste lane. Fechar Phase 5 (ACEITE_V1_RESULTADO + check-complete); próximo
   run só sob nova hipótese explícita.
   - (1) `[N]` resolve — **PROVADO em run real**: citations 68, evidence
     51, resolved 5, unknown [] (accept24); `support failed→ok`;

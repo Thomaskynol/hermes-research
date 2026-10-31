@@ -470,3 +470,14 @@
 - Outputs em `/home/thomaskyn/hermes-runs/accept25/` (fora do repo e do /tmp);
   `docs/CONTINUIDADE.md` + plano sincronizados (Phase 10 complete, Phase 5
   in-progress; conflitantes Missão 4 listadas como removidas). Sem push.
+
+## 2026-10-31 — Sessão 18: finalização accept25 + nota embeddings (fixer)
+
+- Diagnose já rodada (`diagnose_accept25.json`, JSON válido após truncar
+  resumo stdout acoplado); hashes pós-run 8/8 OK; originais accept23/24
+  intactos (accept24 `state.json` md5 `233a3ef6…` confere com o frozen da
+  Missão 4); `diffstat.frozen` vazio; RELATORIO_ACCEPT25.md com tabela
+  esperado×observado v2 + intervalo `a70d837..a656535` + cobertura/utilidade.
+- Nota embeddings: `:8082` UP pós-run mas path native com zero requests —
+  integração fica para próximo lane, sem produto neste lane. Commit docs
+  local, sem push.
