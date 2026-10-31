@@ -469,6 +469,39 @@ def is_lacuna_declaration(sentence: str) -> bool:
     return re.search(r"sem\s+\w+\s+demonstrad[oa]\b", lowered) is not None
 
 
+#: Quoted evidence strings in a LACUNA sentence (accept21): even an
+#: absence declaration misattributes when it quotes a flag/version the
+#: cited doc does not contain — resolvability alone is not premise.
+#: Short labels/ids (``cand-x``, `c1`) are references, not excerpt
+#: quotes, and stay exempt (M7 writer template preserved).
+_QUOTED_LITERAL_RE = re.compile(r'"([^"]{3,})"|\'([^\']{3,})\'|`([^`]{3,})`')
+
+
+def _quoted_literals(sentence: str) -> list[str]:
+    """Quoted/backticked spans in the sentence (generic, no plugin names)."""
+    out = []
+    try:
+        for m in _QUOTED_LITERAL_RE.finditer(str(sentence or "")):
+            lit = m.group(1) or m.group(2) or m.group(3) or ""
+            lit = lit.strip().strip("\"'`")
+            if len(lit) >= 3:
+                out.append(lit)
+    except Exception:
+        pass
+    return out
+
+
+def _is_evidence_literal(lit: str) -> bool:
+    """Substantive excerpt quote vs short label/id reference."""
+    s = (lit or "").strip()
+    if len(s) < 4:
+        return False
+    # Code-like strings always count, even when short (flags with `_`).
+    if any(c in s for c in "_./:=#"):
+        return True
+    return len(s) >= 8
+
+
 # An explicitly marked inference ("INFERÊNCIA: ...") is audited on its
 # factual anchor, not on the inference itself: strip the inference clause
 # (text from the marker on) before the overlap check. A sentence that is
@@ -587,19 +620,35 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         named = [entry for entry in entities if sent_tokens & entry[0]]
         # Absence declaration over consulted sources: sustained by the
         # consultation itself (the cited doc was read and says nothing),
-        # never by word overlap with an empty statement.
-        if is_lacuna_declaration(sentence) and all(
-                n_to_url.get(n) and _doc_for(n_to_url[n])
-                for n in citations):
+        # never by word overlap with an empty statement — but a quoted
+        # literal/version the cited doc does not contain misattributes
+        # the excerpt (accept21): resolvability alone is not premise.
+        if is_lacuna_declaration(sentence):
+            _cited_docs: list[str] = []
+            _missing_nums: list[int] = []
+            for _n in citations:
+                _url = n_to_url.get(_n)
+                _doc = _doc_for(_url) if _url else ""
+                if not _url or not _doc:
+                    _missing_nums.append(_n)
+                else:
+                    _cited_docs.append(_doc)
+            if _missing_nums:
+                unsupported.append({
+                    "sentence": sentence, "citations": citations,
+                    "reason": "citação fora do corpus: "
+                              + ", ".join(f"[{n}]"
+                                           for n in _missing_nums)})
+                continue
             # S2 premise: an absence claim over consulted sources is
             # sustained by the consultation itself — but the cited source
             # must be about the named entity when the sentence names one.
             # Citing a foreign doc as absence premise is a loose citation,
             # not a verified premise.
             _premise_docs = sum(
-                1 for n in citations
+                1 for _doc in _cited_docs
                 if not named or any(
-                    _entity_mentioned(label, eid, _doc_for(n_to_url[n]))
+                    _entity_mentioned(label, eid, _doc)
                     for _toks, label, eid in named))
             if named and not _premise_docs:
                 unsupported.append({"sentence": sentence,
@@ -607,6 +656,32 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                                     "reason": "entidade não mencionada no "
                                               "doc"})
                 continue
+            # LACUNA+quote gate: a literal/version quoted as excerpt
+            # content must occur in the cited doc, even in an absence
+            # declaration. Version-gap language ("desconhecida", "sem
+            # menção") keeps the exemption: absence is the content.
+            _vers = _text_versions(sentence)
+            if _vers and not _mentions_version_gap(sentence):
+                _union_vers: set[str] = set()
+                for _doc in _cited_docs:
+                    _union_vers |= _text_versions(_doc)
+                if not _vers <= _union_vers:
+                    unsupported.append({
+                        "sentence": sentence, "citations": citations,
+                        "reason": "versão ausente no doc citado"})
+                    continue
+            _lits = [lit for lit in _quoted_literals(sentence)
+                     if _is_evidence_literal(lit)]
+            if _lits:
+                _absent = [lit for lit in _lits
+                           if not any(lit.lower() in (_doc or "").lower()
+                                      for _doc in _cited_docs)]
+                if _absent:
+                    unsupported.append({
+                        "sentence": sentence, "citations": citations,
+                        "reason": "literal ausente no doc citado: "
+                                  + ", ".join(_absent)[:160]})
+                    continue
             supported += 1
             declared.append({"sentence": sentence, "citations": citations,
                              "premise_docs": _premise_docs})
@@ -953,9 +1028,9 @@ def verify_support(state: dict, report_text: str,
     # B5: pondera sentence_support quando a citação é do doc da entidade.
     # Sem reescrever auditores: roda o audit por frase (por bullet, B2) nas
     # linhas de afirmação (fora tabela/cabeçalho) com a mesma numeração
-    # persistida do relatório; só versão/entidade ausente no doc da
-    # entidade pondera (overlap genérico baixo nunca força falha, para
-    # preservar a verificação existente).
+    # persistida do relatório; versão/entidade/literal ausente no doc e
+    # citação fora do corpus ponderam (overlap genérico baixo nunca força
+    # falha, para preservar a verificação existente).
     _sent_weighted = None
     try:
         _plan = state.get("plan") or {}
@@ -999,6 +1074,12 @@ def verify_support(state: dict, report_text: str,
                     if _reason == "entidade não mencionada no doc":
                         _weighted_misses.append(_item)
                         continue
+                    # LACUNA+quote/corpus: literal citado ausente no doc e
+                    # citação fora do corpus ponderam como versão/entidade.
+                    if _reason.startswith(("literal ausente no doc citado",
+                                           "citação fora do corpus")):
+                        _weighted_misses.append(_item)
+                        continue
                     # Trava de versão por bullet: versão afirmada sem
                     # isenção de lacuna nunca é overlap genérico.
                     try:
@@ -1016,7 +1097,8 @@ def verify_support(state: dict, report_text: str,
                     notes.append(
                         "sentence_support pondera: "
                         f"{len(_weighted_misses)} afirmação(ões) com "
-                        "versão/entidade ausente no doc da entidade "
+                        "versão/entidade/literal ausente no doc ou citação "
+                        "fora do corpus "
                         f"(janela: {len(_doc_hashes)} doc(s) em "
                         "usable_text integral)")
     except Exception:

@@ -239,6 +239,97 @@ def _payload(result) -> dict:
     return payload
 
 
+# Sinais genericos de conteudo (capability, nunca nome de origem): a secao
+# de transcricao que o enriquecimento adiciona viaja no snippet (os
+# primeiros 500 chars cobrem o cabecalho, que comeca apos ~400 de
+# descricao). Dominancia so se julga com pagina cheia o bastante para nao
+# ser ruido de amostra pequena; acima da metade, um unico host decide o
+# corpus da op sozinho (medido: pagina cheia sem transcricao virava
+# boilerplate no fetch e o fallback nunca tentava).
+_TRANSCRIPT_MARKERS: tuple[str, ...] = ("[transcript", "[spoken")
+_DIVERSITY_MIN_HITS: int = 4
+_DIVERSITY_MAX_SHARE: float = 0.5
+
+
+def _hit_host(url: str) -> str:
+    """Host canonico generico (sem www) para agrupar; vazio se irreconhecivel."""
+    try:
+        host = (urlsplit(str(url or "")).hostname or "").lower()
+    except Exception:  # noqa: BLE001 - URL malformada nunca derruba a busca
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def _hit_has_transcript_signal(hit: dict) -> bool:
+    """True quando o snippet carrega secao de transcricao (conteudo real)."""
+    if not isinstance(hit, dict):
+        return False
+    text = f"{hit.get('title') or ''}\n{hit.get('snippet') or ''}".lower()
+    return any(marker in text for marker in _TRANSCRIPT_MARKERS)
+
+
+def _needs_diversity(primary: list[dict]) -> bool:
+    """Pagina cheia dominada por um host e sem nenhum sinal de transcricao.
+
+    Monopolio sem enriquecimento: o fetch vira boilerplate e o short-circuit
+    desperdica a op. Com transcricao (conteudo real) ou corpus ja diverso, o
+    primario vence sozinho como antes.
+    """
+    if len(primary) < _DIVERSITY_MIN_HITS:
+        return False
+    hosts = [_hit_host(h.get("url")) for h in primary if isinstance(h, dict)]
+    hosts = [h for h in hosts if h]
+    if not hosts:
+        return False
+    top = max(hosts.count(h) for h in set(hosts))
+    if top / len(hosts) <= _DIVERSITY_MAX_SHARE:
+        return False
+    return not any(_hit_has_transcript_signal(h) for h in primary
+                   if isinstance(h, dict))
+
+
+def _merge_diverse(primary: list[dict], extras: list[dict],
+                   limit: int) -> list[dict]:
+    """Mistura priorizando conteudo comprovado e diversidade, sem perder dado.
+
+    Ordem: primario COM transcricao (bom, mantem primeiro), extras diversos,
+    primario SEM transcricao de hosts nao-dominantes (usaveis isolados),
+    resto dominante por ultimo. Trunca no limite anterior (nunca amplia).
+    """
+    counts: dict[str, int] = {}
+    for h in primary:
+        if isinstance(h, dict):
+            host = _hit_host(h.get("url"))
+            if host:
+                counts[host] = counts.get(host, 0) + 1
+    dominant = max(counts, key=lambda k: counts[k]) if counts else ""
+    seen: set[str] = set()
+    out: list[dict] = []
+
+    def push(hit: dict) -> None:
+        url = hit.get("url") if isinstance(hit, dict) else None
+        if not isinstance(url, str) or not url or url in seen:
+            return
+        seen.add(url)
+        out.append(hit)
+
+    for hit in primary:
+        if isinstance(hit, dict) and _hit_has_transcript_signal(hit):
+            push(hit)
+    for hit in extras:
+        if isinstance(hit, dict):
+            push(hit)
+    for hit in primary:
+        if (isinstance(hit, dict) and not _hit_has_transcript_signal(hit)
+                and _hit_host(hit.get("url")) != dominant):
+            push(hit)
+    for hit in primary:
+        if (isinstance(hit, dict) and not _hit_has_transcript_signal(hit)
+                and _hit_host(hit.get("url")) == dominant):
+            push(hit)
+    return out[:max(1, int(limit or SEARCH_LIMIT))]
+
+
 def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEOUT_S,
                             github_token: str | None = None, page_transport=None,
                             academic_search_fn=None, web_search_fn=None,
@@ -284,7 +375,7 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
             return _github_search(query, timeout=timeout, token=github_token)
         if name == "web":
             try:
-                return _web_hits(web_search_fn(
+                primary = _web_hits(web_search_fn(
                     query, limit=SEARCH_LIMIT, channel="web"))
             except Exception as primary_exc:
                 try:
@@ -298,6 +389,23 @@ def build_native_transports(*, model_client=None, timeout: float = DEFAULT_TIMEO
                             f"({primary_exc}); searxng failed ({searxng_exc}); "
                             f"fallback failed ({fallback_exc})"
                         ) from fallback_exc
+            if not _needs_diversity(primary):
+                return primary
+            # Monopolio de um host sem transcricao: tenta as rotas seguintes
+            # na mesma op e mistura por diversidade. Falha nas extras nao
+            # perde o primario (devolve o que ja tinha).
+            extras: list[dict] = []
+            for attempt in (searxng_search_fn, web_fallback_fn):
+                try:
+                    got = attempt(query, limit=SEARCH_LIMIT) or []
+                except Exception:  # noqa: BLE001 - rota honesta que falhou
+                    continue
+                for hit in got:
+                    if isinstance(hit, dict) and hit.get("url"):
+                        extras.append(hit)
+            if not extras:
+                return primary
+            return _merge_diverse(primary, extras, SEARCH_LIMIT)
         if name == "youtube":
             # No search connector for YouTube in native scope: discovery of
             # videos needs web search (unavailable here); known URLs can
