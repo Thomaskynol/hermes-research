@@ -367,9 +367,26 @@ def _criterion_groups(plan) -> dict[str, list[str]]:
     return groups
 
 
+def _mention_positions(haystack: str, needle: str) -> list[int]:
+    """Offsets of every non-overlapping occurrence (stdlib, deterministic).
+
+    Same anchor concept as the diagnose tool: an entity mention pins the
+    window that must survive excerpting. Local copy to keep the coordinator
+    offline without importing tools/.
+    """
+    pos, out = 0, []
+    while True:
+        i = haystack.find(needle, pos)
+        if i < 0:
+            return out
+        out.append(i)
+        pos = i + max(1, len(needle))
+
+
 def _relevant_excerpt(text: str, limit: int,
                       terms: "list[str] | tuple[str, ...] | None" = None,
-                      groups: "dict[str, list[str]] | None" = None
+                      groups: "dict[str, list[str]] | None" = None,
+                      entity_terms: "list[str] | tuple[str, ...] | None" = None
                       ) -> tuple[str, int, str]:
     """Excerpt centered on relevance windows, not on the document head.
 
@@ -390,19 +407,26 @@ def _relevant_excerpt(text: str, limit: int,
     version/install/price) is seen even when criterion terms dominate the
     document; remaining budget is filled by the global ranking (the
     pre-existing behaviour). ``groups=None`` keeps the old output exactly.
+
+    ``entity_terms`` (optional) pins one window containing the cell entity
+    mention before the group round-robin, within the same ``limit`` (no
+    budget increase): full text sustains the cell but the head-only fact
+    windows hide the name. ``None``/empty keeps the old output exactly.
     """
     body, stripped = _substantive_body(text)
     if not body.strip():
         return "", stripped, "vazio"
     norm_terms = sorted({t.strip().lower() for t in (terms or [])
                          if t and len(t.strip()) >= 4})
+    norm_entity = sorted({str(t).strip().lower() for t in (entity_terms or [])
+                          if str(t).strip() and len(str(t).strip()) >= 2})
     norm_groups: dict[str, list[str]] = {}
     for name in sorted(groups or {}):
         toks = sorted({str(t).strip().lower() for t in (groups.get(name) or ())
                        if str(t).strip() and len(str(t).strip()) >= 2})
         if toks:
             norm_groups[str(name)] = toks
-    if not norm_terms and not norm_groups:
+    if not norm_terms and not norm_groups and not norm_entity:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
         return head, stripped, "cabeca (sem termos ou corpo curto)"
@@ -423,7 +447,10 @@ def _relevant_excerpt(text: str, limit: int,
     group_scored = {name: _excerpt_windows(low, toks, strict_short=True,
                                           wsize=cap)
                     for name, toks in norm_groups.items()}
-    if not scored and not any(group_scored.values()):
+    _ent_scored_early = (_excerpt_windows(low, list(norm_entity),
+                                       strict_short=True, wsize=cap)
+                           if norm_entity else [])
+    if not scored and not any(group_scored.values()) and not _ent_scored_early:
         head = body[:limit]
         stripped += max(0, len(body) - len(head))
         return head, stripped, "cabeca (termos sem ocorrencia)"
@@ -461,6 +488,21 @@ def _relevant_excerpt(text: str, limit: int,
         total += len(chunk) + sep_cost
         winlog.append(f"@{start}")
         return True
+
+    # B4: janela da menção da entidade primeiro, mesmo limite. O ranking
+    # global perde para os grupos quando o budget esgota (8 janelas de 150
+    # em 1200 chars); sem a âncora, full-text sustenta mas o excerto só tem
+    # instalação. Uma janela por documento, sem aumentar tetos.
+    if norm_entity:
+        try:
+            _ent_scored = _ent_scored_early
+            for _negd, _negt, _start in _ent_scored:
+                if total >= limit:
+                    break
+                if take(_start, cap):
+                    break
+        except Exception:
+            pass
 
     if norm_groups:
         # Round-robin entre dimensões: uma janela por grupo por passada,
@@ -1281,6 +1323,70 @@ def _rank_unfetched(state: dict, unfetched: list[str], gap: dict) -> list[str]:
     return [c for _, _, c in scored]
 
 
+def _pick_pool_reserve(state: dict, rank_gaps: list[dict],
+                       unfetched_all: list[str]) -> "tuple[str | None, dict | None]":
+    """Best pool candidate tied to an open entity (one reserved slot).
+
+    Same ranking as the failed/nogain branch (``_rank_unfetched``): for
+    each open gap in order, rank the pool and take the top when it really
+    mentions a gap term (overlap > 0). Untied pool (no overlap) keeps the
+    legacy behaviour (no reservation). Never invents: returns None when
+    the pool is empty, discovery is closed, or nothing ties. No plugin
+    names; deterministic.
+    """
+    try:
+        if not unfetched_all:
+            return None, None
+        if not (state.get("discovery") or {}).get("open"):
+            return None, None
+        evidence = state.get("evidence") or {}
+        failed_targets: set[str] = set()
+        for _att in state.get("attempts", {}).values():
+            for _a in _att or []:
+                if isinstance(_a, dict) and _a.get("outcome") == "failed" \
+                        and _a.get("target"):
+                    failed_targets.add(_normalize_fetch_key(_a["target"]))
+        cands: list[str] = []
+        seen: set[str] = set()
+        for _c in unfetched_all:
+            if not isinstance(_c, str) or not _c:
+                continue
+            if _c in evidence or _normalize_fetch_key(_c) in failed_targets:
+                continue
+            _k = _normalize_fetch_key(_c)
+            if _k in seen:
+                continue
+            seen.add(_k)
+            cands.append(_c)
+        if not cands:
+            return None, None
+        for _gap in rank_gaps or []:
+            if not isinstance(_gap, dict):
+                continue
+            try:
+                _terms = _gap_overlap_terms(state, _gap)
+            except Exception:
+                continue
+            if not _terms:
+                continue
+            try:
+                _ranked = _rank_unfetched(state, cands, _gap)
+            except Exception:
+                continue
+            if not _ranked:
+                continue
+            _top = _ranked[0]
+            try:
+                _low = _top.lower()
+            except Exception:
+                continue
+            if any(_t in _low for _t in _terms):
+                return _top, _gap
+        return None, None
+    except Exception:
+        return None, None
+
+
 def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     """One specific op per top gap; vary channel/target after flat attempts.
 
@@ -1381,6 +1487,63 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
         _gaps = _expanded
     except Exception:
         _gaps = gaps
+        _cells = []
+    # B3: 1 slot reservado ao pool minerado (mesmo ranking _rank_unfetched),
+    # após as células G1 e antes das queries. Candidato minerado sem célula
+    # própria morria no pool (só lido em failed/nogain); menção gera partial
+    # e _maybe_substitute nunca dispara. Dentro do cap, sem teto novo.
+    try:
+        _cell_urls = {(g.get("source_url") or "").strip()
+                      for g in (_cells or []) if isinstance(g, dict)}
+        _rank_gaps = [g for g in (_gaps or [])
+                      if isinstance(g, dict) and not (g.get("source_url") or "").strip()]
+        _res_target, _res_gap = _pick_pool_reserve(
+            state, _rank_gaps or (gaps or []), list(unfetched_all))
+        if _res_target and cap and cap > 0:
+            _rk = _normalize_fetch_key(_res_target)
+            if (_res_target not in state.get("evidence", {})
+                    and _rk not in failed_targets
+                    and _rk not in used_in_batch
+                    and _res_target not in _cell_urls):
+                _syn = {"criterion_id": (_res_gap or {}).get("criterion_id", ""),
+                        "entity_id": (_res_gap or {}).get("entity_id"),
+                        "entity_label": (_res_gap or {}).get("entity_label"),
+                        "label": (_res_gap or {}).get("label", ""),
+                        "state": "insufficient",
+                        "source_url": _res_target}
+                # A reserva substitui a query da celula que a ancorou
+                # (mesma celula nao ganha read + query no lote; o slot
+                # liberado vai para a proxima entidade aberta).
+                _gaps = list(_gaps or [])
+                _repl = None
+                for _i, _g in enumerate(_gaps):
+                    if _g is _res_gap:
+                        _repl = _i
+                        break
+                if _repl is None:
+                    for _i, _g in enumerate(_gaps):
+                        if not isinstance(_g, dict):
+                            continue
+                        if (( _g.get("criterion_id") == (_res_gap or {}).get("criterion_id"))
+                                and (_g.get("entity_id") == (_res_gap or {}).get("entity_id"))
+                                and not (_g.get("source_url") or "").strip()):
+                            _repl = _i
+                            break
+                if _repl is not None:
+                    _gaps[_repl] = _syn
+                else:
+                    _insert_at = len(_cells or [])
+                    _gaps = list(_gaps[:_insert_at]) + [_syn] + list(_gaps[_insert_at:])
+                state.setdefault("notes", []).append(
+                    f"pool reserve: {_res_target[:80]} "
+                    f"(candidato minerado ligado a "
+                    f"{(_res_gap or {}).get('entity_id') or (_res_gap or {}).get('criterion_id')})")
+    except Exception as _exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"pool reserve skipped: {_exc}")
+        except Exception:
+            pass
     for gap in _gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
         # Célula nova com fonte própria (G1): entidade versionada por
@@ -1838,12 +2001,48 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # Real selection: complete units within the JSON budget.
         items, cuts = [], []
         used_budget = 0
+        # B4: raridade singleton por entidade (uma vez por lote): palavra
+        # comum so identifica quando rara aqui; sem isso a ancora da
+        # mencao priorizaria janela errada.
+        _rare_cache: dict[str, bool] = {}
+        try:
+            _all_bodies = [str((qualification.get(_u) or {}).get("usable_text")
+                               or evidence.get(_u) or "")
+                           for _u in evidence
+                           if not (isinstance(_u, str) and _u.startswith("user://"))]
+        except Exception:
+            _all_bodies = []
+        def _doc_entity_terms(_url: str, _text: str) -> list[str]:
+            try:
+                _req = [e for e in (plan or {}).get("entities", [])
+                        if isinstance(e, dict) and e.get("required", True)]
+                if not _req:
+                    return []
+                _out: list[str] = []
+                for _ent in _req:
+                    _eid = str(_ent.get("id") or "")
+                    if _eid not in _rare_cache:
+                        try:
+                            _rare_cache[_eid] = _singleton_rare(_ent, _all_bodies)
+                        except Exception:
+                            _rare_cache[_eid] = True
+                    try:
+                        if _identity_matches(_ent, f"{_url}\n{_text}",
+                                             single_ok=_rare_cache.get(_eid, True)):
+                            for _tok in _entity_distinctive_tokens(_ent):
+                                if _tok and _tok not in _out:
+                                    _out.append(_tok)
+                    except Exception:
+                        continue
+                return _out
+            except Exception:
+                return []
         for url in ordered[:max_docs]:
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
             excerpt, _stripped, _windows = _relevant_excerpt(
                 text, excerpt_chars, list(_terms) + list(_extra_terms),
-                groups=_groups)
+                groups=_groups, entity_terms=_doc_entity_terms(url, text))
             if _stripped:
                 cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
             if len(text or "") > len(excerpt) + _stripped:

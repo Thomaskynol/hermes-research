@@ -14,6 +14,7 @@ corpus NEVER counts as support. Unknown stays unknown, never 0.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -154,6 +155,74 @@ def _text_versions(text: str) -> set[str]:
         if norm:
             out.add(norm)
     return out
+
+
+def _window_hash(text: str) -> str:
+    """Hash curto do texto efetivamente auditado (mesmo formato do assessor).
+
+    Reusa o formato de ``assess.last_selection`` (sha256[:16] do excerto):
+    quando o state expõe ``hashes`` da seleção, eles são registrados
+    lado a lado; aqui vai o hash do texto auditado (usable_text integral).
+    """
+    try:
+        return hashlib.sha256((text or "").encode("utf-8",
+                                                  "replace")).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def _audited_text_for(url: str, evidence, qualification) -> str:
+    """Texto efetivamente auditado: usable_text qualificado, senão bruto."""
+    try:
+        qual = (qualification or {}).get(url) or {}
+        if isinstance(qual, dict) and qual.get("usable_text"):
+            return str(qual.get("usable_text") or "")
+    except Exception:
+        pass
+    try:
+        value = (evidence or {}).get(url)
+    except Exception:
+        value = None
+    return _doc_text(value)
+
+
+def _selection_window(state: dict) -> dict:
+    """Seleção efetiva quando o state a expõe (last_selection.hashes).
+
+    O assessor expõe ``assess.last_selection = {urls, hashes, ...}`` por
+    chamada; o state persiste urls em ``assessments``/``report.selection``
+    mas nem sempre os hashes. Reusa os hashes quando presentes, senão
+    registra a fonte fallback (texto auditado) para a divergência
+    excerto vs full-text ficar explícita, nunca silenciosa.
+    """
+    urls: list[str] = []
+    hashes: dict[str, str] = {}
+    hash_source = "texto-auditado (last_selection.hashes ausente no state)"
+    try:
+        for key in ("last_selection", "selection"):
+            cand = (state or {}).get(key)
+            if isinstance(cand, dict):
+                if isinstance(cand.get("hashes"), dict):
+                    for k, v in cand["hashes"].items():
+                        if isinstance(k, str) and isinstance(v, str):
+                            hashes[k] = v
+                    hash_source = f"state[{key}].hashes"
+                for u in cand.get("urls") or []:
+                    if isinstance(u, str) and u not in urls:
+                        urls.append(u)
+        for rec in (state or {}).get("assessments") or []:
+            if not isinstance(rec, dict):
+                continue
+            for u in rec.get("selection") or []:
+                if isinstance(u, str) and u not in urls:
+                    urls.append(u)
+        rep_sel = ((state or {}).get("report") or {}).get("selection") or {}
+        for u in rep_sel.get("included_urls") or []:
+            if isinstance(u, str) and u not in urls:
+                urls.append(u)
+    except Exception:
+        pass
+    return {"urls": urls, "hashes": hashes, "hash_source": hash_source}
 
 
 def _norm_mention(text) -> str:
@@ -429,7 +498,8 @@ def _factual_anchor(sentence: str) -> str:
     return anchor if len(anchor.split()) >= 3 else sentence
 
 
-def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
+def check_support(synthesis_text: str, numbers, corpus, plan,
+                  selection=None) -> dict:
     """Sentence-level support audit of the synthesis (audit only, no rewrite).
 
     Each sentence with a ``[n]`` citation is mapped back to the cited URL
@@ -438,6 +508,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
     or >=2 rare words (len>=6, absent from the title) are shared, and (b)
     every plan entity named by the sentence is mentioned in the doc.
     Uncited sentences are counted (informative, never a failure).
+
+    Granularity is per bullet/line (B2): multi-bullet blobs are split by
+    line first, then by sentence within each line, so the version gate
+    (``_text_versions``/``_mentions_version_gap``) and the lacuna
+    exemption apply per bullet, exactly as the line-based diagnose.
+    A "desconhecida" bullet never exempts a neighbouring concrete
+    version claim (e.g. user-context facts) from its own check.
     """
     text = str(synthesis_text or "")
     n_to_url = _n_to_url(numbers)
@@ -480,10 +557,23 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
     claims = supported = uncited = 0
     declared: list[dict] = []
     unsupported: list[dict] = []
-    for raw in re.split(r"(?<=[.!?])\s+", text):
-        sentence = raw.strip()
-        if not sentence:
+    # B2: unidades por bullet/linha, não por blob multi-bullet. O split
+    # antigo (re.split sobre o texto inteiro) juntava bullets sem
+    # pontuação terminal num único "sentence", diluindo a trava de
+    # versão e a isenção de lacuna. Linha primeiro, frase depois: mesma
+    # regra do diagnose (que audita por linha).
+    _units: list[str] = []
+    for _line in str(text).splitlines():
+        _stripped = _line.strip()
+        if not _stripped:
             continue
+        for _raw in re.split(r"(?<=[.!?])\s+", _stripped):
+            _s = _raw.strip()
+            if _s:
+                _units.append(_s)
+    if not _units and text.strip():
+        _units = [text.strip()]
+    for sentence in _units:
         citations = [int(n) for n in re.findall(r"\[(\d+)\]", sentence)]
         if not citations:
             uncited += 1
@@ -557,9 +647,28 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
               f"{uncited} sem citação")
     if declared:
         detail += f"; {len(declared)} declaração(ões) de lacuna sustentada(s)"
+    # B5: registra qual janela foi auditada (texto usable integral +
+    # hashes no formato last_selection, com seleção quando exposta).
+    try:
+        _doc_hashes = {url: _window_hash(txt) for url, txt in docs.items()}
+    except Exception:
+        _doc_hashes = {}
+    _audit_window: dict = {
+        "mode": "usable_text integral (full-text); por bullet/linha",
+        "granularity": "linha+frase (trava de versão por bullet)",
+        "doc_hashes": _doc_hashes,
+    }
+    try:
+        if isinstance(selection, dict):
+            _sel_hashes = selection.get("hashes")
+            if isinstance(_sel_hashes, dict) and _sel_hashes:
+                _audit_window["selection_hashes"] = dict(_sel_hashes)
+                _audit_window["hash_source"] = "arg selection.hashes"
+    except Exception:
+        pass
     return {"status": status, "claims": claims, "supported": supported,
             "uncited": uncited, "unsupported": unsupported, "detail": detail,
-            "declared": declared}
+            "declared": declared, "audit_window": _audit_window}
 
 
 def _utcnow() -> str:
@@ -816,7 +925,105 @@ def verify_support(state: dict, report_text: str,
     except Exception:
         beyond = []
     evidence["cited_beyond_synthesis"] = beyond
+    # B5: registra qual janela foi auditada (converge excerto vs full-text).
+    # O texto auditado aqui é o usable_text integral; os hashes seguem o
+    # formato last_selection (sha256[:16]) e a seleção efetiva é reusada
+    # quando o state a expõe (assessments/report.selection/last_selection).
+    try:
+        _ev_all = state.get("evidence") or {}
+        _qual_all = state.get("qualification") or {}
+        _doc_hashes = {}
+        for _u in list(corpus.keys()):
+            try:
+                _doc_hashes[_u] = _window_hash(
+                    _audited_text_for(_u, _ev_all, _qual_all))
+            except Exception:
+                continue
+        _sel_win = _selection_window(state)
+        evidence["audit_window"] = {
+            "mode": "usable_text integral (full-text)",
+            "doc_hashes": _doc_hashes,
+            "selection_urls": _sel_win.get("urls") or [],
+            "selection_hashes": _sel_win.get("hashes") or {},
+            "hash_source": _sel_win.get("hash_source") or "",
+        }
+    except Exception:
+        pass
     notes = []
+    # B5: pondera sentence_support quando a citação é do doc da entidade.
+    # Sem reescrever auditores: roda o audit por frase (por bullet, B2) nas
+    # linhas de afirmação (fora tabela/cabeçalho) com a mesma numeração
+    # persistida do relatório; só versão/entidade ausente no doc da
+    # entidade pondera (overlap genérico baixo nunca força falha, para
+    # preservar a verificação existente).
+    _sent_weighted = None
+    try:
+        _plan = state.get("plan") or {}
+        _has_entities = bool((_plan.get("entities") or []))
+        _rep_numbers = ((state.get("report") or {}).get("numbers") or {})
+        if _has_entities and refs and _rep_numbers:
+            _claim_lines: list[str] = []
+            for _line in (report_text or "").splitlines():
+                _s = _line.strip()
+                if not _s:
+                    continue
+                if _s.startswith(("|", "#", ">", "```")):
+                    continue
+                _low = re.sub(r"^[\s*_`]+", "", _s)
+                if re.match(r"(refer[êe]ncias?|fontes?)\s*:",
+                            _low, re.I):
+                    continue
+                _claim_lines.append(_line)
+            _claim_text = "\n".join(_claim_lines)
+            if _claim_text and re.search(r"\[\d+\]", _claim_text):
+                _corpus_check: dict[str, str] = {}
+                for _u in list(corpus.keys()):
+                    _corpus_check[_u] = _audited_text_for(
+                        _u, state.get("evidence") or {},
+                        state.get("qualification") or {})
+                _sent = check_support(_claim_text, _rep_numbers,
+                                      _corpus_check, _plan)
+                _sent_weighted = {"claims": _sent.get("claims"),
+                                  "supported": _sent.get("supported"),
+                                  "status": _sent.get("status")}
+                evidence["sentence_weighted"] = _sent_weighted
+                _weighted_misses: list[dict] = []
+                for _item in _sent.get("unsupported") or []:
+                    if not isinstance(_item, dict):
+                        continue
+                    _sraw = str(_item.get("sentence") or "")
+                    if _sraw.strip().startswith(
+                            ("|", "#", ">", "```")):
+                        continue
+                    _reason = str(_item.get("reason") or "")
+                    if _reason == "entidade não mencionada no doc":
+                        _weighted_misses.append(_item)
+                        continue
+                    # Trava de versão por bullet: versão afirmada sem
+                    # isenção de lacuna nunca é overlap genérico.
+                    try:
+                        if (_text_versions(_sraw)
+                                and not _mentions_version_gap(_sraw)):
+                            _weighted_misses.append(_item)
+                    except Exception:
+                        continue
+                if _weighted_misses:
+                    evidence["sentence_misses"] = [
+                        {"sentence": str(m.get("sentence") or "")[:300],
+                         "citations": m.get("citations"),
+                         "reason": m.get("reason")}
+                        for m in _weighted_misses[:8]]
+                    notes.append(
+                        "sentence_support pondera: "
+                        f"{len(_weighted_misses)} afirmação(ões) com "
+                        "versão/entidade ausente no doc da entidade "
+                        f"(janela: {len(_doc_hashes)} doc(s) em "
+                        "usable_text integral)")
+    except Exception:
+        pass
+    if _sent_weighted is None:
+        # Sem ponderação aplicável: mantém só a janela registrada.
+        pass
     if beyond:
         notes.append("citação no relatório fora da base declarada de síntese "
                      f"({len(beyond)} no total): " + ", ".join(beyond))
@@ -830,6 +1037,21 @@ def verify_support(state: dict, report_text: str,
                        notes + ["relatório sem citações verificáveis"])
     if unknown or unsupported:
         return _result("support", "failed", evidence, notes)
+    # Convergência B5: a sentença (full-text por bullet) pondera quando a
+    # citação é do doc da entidade. Base aqui seria ok/partial (failed já
+    # retornou); adota o pior sem reescrever os auditores.
+    try:
+        _has_weighted = bool(evidence.get("sentence_misses"))
+    except Exception:
+        _has_weighted = False
+    if _has_weighted:
+        try:
+            _sent_status = (_sent_weighted or {}).get("status") or "partial"
+        except Exception:
+            _sent_status = "partial"
+        if _sent_status == "failed":
+            return _result("support", "failed", evidence, notes)
+        return _result("support", "partial", evidence, notes)
     if not audit.get("enabled") or reviewed < claims:
         notes.append("citações resolvem no corpus, mas as afirmações não "
                      "foram integralmente revisadas")
