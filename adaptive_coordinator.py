@@ -814,18 +814,24 @@ def _note_model_call(state: dict) -> None:
         state.get("consumption", {}).get("model_calls", 0) or 0) + 1
 
 
-def _accumulate_reading(state: dict, excerpt_chars: int, docs: int) -> None:
+def _accumulate_reading(state: dict, excerpt_chars: int, docs: int,
+                        urls=None) -> None:
     """M9 reading metric: collected vs excerpted chars (observed only).
 
     ``collected_*`` recompute from the current corpus (user:// context
     excluded, never evidence); ``excerpted_*`` accumulate every excerpt
-    batch really sent to the assessor/writer. Never alters coverage:
-    URL saturation is not exhausted analysis (shown beside the metric).
+    batch really sent to the assessor/writer. ``docs_excerpted`` counts
+    batches (repetitions across calls included); ``docs_excerpted_unique``
+    counts distinct URLs (reconciliation with the analyzed counter, which
+    is unique by construction). Never alters coverage: URL saturation is
+    not exhausted analysis (shown beside the metric).
     """
     reading = state.setdefault("reading", {"collected_chars": 0,
                                            "excerpted_chars": 0,
                                            "docs_collected": 0,
-                                           "docs_excerpted": 0})
+                                           "docs_excerpted": 0,
+                                           "docs_excerpted_unique": 0,
+                                           "unique_urls": []})
     try:
         corpus = {u: t for u, t in (state.get("evidence") or {}).items()
                   if not (isinstance(u, str) and u.startswith("user://"))}
@@ -837,9 +843,110 @@ def _accumulate_reading(state: dict, excerpt_chars: int, docs: int) -> None:
                 0, int(excerpt_chars or 0))
         reading["docs_excerpted"] = int(
             reading.get("docs_excerpted") or 0) + max(0, int(docs or 0))
+        try:
+            seen = set(reading.get("unique_urls") or [])
+            for u in urls or []:
+                if isinstance(u, str) and u and u not in seen:
+                    seen.add(u)
+                    reading.setdefault("unique_urls", []).append(u)
+            reading["docs_excerpted_unique"] = len(seen)
+        except Exception:
+            pass
     except Exception as exc:
         state.setdefault("notes", []).append(
             f"reading metric failed: {exc}")
+
+
+def _examined_urls(state: dict) -> set[str]:
+    """Union of assessor selections recorded in state['assessments']."""
+    out: set[str] = set()
+    try:
+        for rec in state.get("assessments") or []:
+            if isinstance(rec, dict):
+                for u in rec.get("selection") or []:
+                    if isinstance(u, str) and u:
+                        out.add(u)
+    except Exception:
+        pass
+    return out
+
+
+def _entity_corpus_docs(entity: dict, evidence: dict,
+                        qualification: dict) -> list[str]:
+    """Corpus URLs about the entity (distinctive-token mention, observed)."""
+    if not isinstance(entity, dict):
+        return []
+    distinctive = _entity_distinctive_tokens(entity)
+    label = str(entity.get("label") or "").lower()
+    out = []
+    for url, text in (evidence or {}).items():
+        if not isinstance(url, str) or url.startswith("user://"):
+            continue
+        try:
+            body = str((qualification.get(url) or {}).get("usable_text")
+                       or text or "").lower()
+        except Exception:
+            continue
+        if (label and label in body) or any(
+                t in body for t in distinctive):
+            out.append(url)
+    return out
+
+
+def _criterion_scope(state: dict, crit: dict) -> str:
+    """Examined scope of one criterion: doc/trecho vs corpus (observed).
+
+    Distinguishes "não examinado por orçamento" (material exists in the
+    corpus but no selection examined it) from "desconhecido-legítimo"
+    (nothing in the corpus about the entity). A missing_dimension-style
+    verdict only ever speaks about the examined excerpts, never the
+    unexamined corpus.
+    """
+    try:
+        plan = state.get("plan") or {}
+        emap = {e.get("id"): e for e in (plan.get("entities") or [])
+                if isinstance(e, dict)}
+        applies = crit.get("applies_to") or [None]
+        req = [e for e in (plan.get("entities") or [])
+               if isinstance(e, dict) and e.get("required", True)]
+        eids = [eid for eid in applies
+                if eid is None or (isinstance(eid, str) and eid in emap)]
+        if not eids:
+            eids = [e.get("id") for e in req]
+        evidence = state.get("evidence") or {}
+        qualification = state.get("qualification") or {}
+        examined = _examined_urls(state)
+        reading = state.get("reading") or {}
+        ex_chars = int(reading.get("excerpted_chars") or 0)
+        col_chars = int(reading.get("collected_chars") or 0)
+        parts = []
+        tot_e, tot_n = 0, 0
+        for eid in eids:
+            ent = emap.get(eid) or {}
+            label = str(ent.get("label") or ent.get("id") or eid
+                        if eid else "global")
+            docs = _entity_corpus_docs(ent, evidence,
+                                       qualification) if eid else list(
+                u for u in evidence if not str(u).startswith("user://"))
+            n = len(docs)
+            e = sum(1 for u in docs if u in examined)
+            tot_e += e
+            tot_n += n
+            if not eid or not ent:
+                parts.append(f"global: excertos examinados ({e}/{n} docs)")
+            elif n == 0:
+                parts.append(f"{label}: desconhecido-legítimo "
+                             f"(nada no corpus sobre a entidade)")
+            elif e == 0:
+                parts.append(f"{label}: não examinado por orçamento "
+                             f"({n} doc(s) no corpus fora da seleção)")
+            else:
+                parts.append(f"{label}: excerto examinado ({e}/{n} docs)")
+        return (f"alcance examinado: excertos de {tot_e}/{tot_n} docs das "
+                f"entidades ({ex_chars} chars de {col_chars} coletados); "
+                + "; ".join(parts))
+    except Exception as exc:
+        return f"alcance examinado: indisponível ({exc})"
 
 
 def _update_ledger_counts(state: dict, ledger) -> None:
@@ -2220,8 +2327,10 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             if isinstance(_rsel, dict) else {}
         _rtotal = sum(v for v in _rmap.values()
                       if isinstance(v, (int, float)))
-        _accumulate_reading(state, _rtotal, len(_rmap))
+        _accumulate_reading(state, _rtotal, len(_rmap),
+                            urls=list(_rmap))
     except Exception:
+        _rtotal = 0
         pass
     # Seleção analisada DAQUELA chamada (quando o assessor a expõe):
     # referência fora da seleção nunca justifica covered nessa avaliação.
@@ -2243,6 +2352,16 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     # (avaliações mescladas, não as brutas da rodada): rebaixamento sem
     # evidência nova rejeitado no merge nunca chega ao ledger, então
     # block/proportion refletem os estados mantidos.
+    try:
+        _examined = {
+            "selection_docs": len(_sel_urls or []),
+            "excerpt_chars": int(_rtotal or 0),
+            "collected_chars": int(
+                (state.get("reading") or {}).get("collected_chars") or 0),
+            "round": len(state.get("rounds") or []),
+        }
+    except Exception:
+        _examined = {}
     applied = []
     for ev in evals:
         if not isinstance(ev, dict) or "criterion_id" not in ev:
@@ -2270,6 +2389,10 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                     f"references material outside the analyzed selection: "
                     f"kept as insufficiency")
                 continue
+        # Alcance examinado do veredito: a avaliação fala sobre o material
+        # desta chamada (doc/trecho), nunca sobre o corpus integral.
+        if isinstance(ev, dict) and _examined:
+            ev.setdefault("examined", dict(_examined))
         applied.append(ev)
     # Teto do contexto do usuário: critério sustentado SÓ por contexto
     # capa em partial, nunca covered (origin user-provided não cobre).
@@ -4379,6 +4502,20 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         _elapsed = None
     _control_status(control, state, "finalize", elapsed_s=_elapsed,
                     stop=dict(state.get("stop") or {}))
+    # Alcance examinado por critério (doc/trecho vs corpus): vereditos
+    # de ausência falam do material examinado, nunca do corpus integral;
+    # "não investigado por orçamento" não é "desconhecido-legítimo".
+    try:
+        for _entry in (block or {}).get("criteria") or []:
+            if isinstance(_entry, dict) and "examined_scope" not in _entry:
+                _crit = next(
+                    (c for c in (state.get("plan") or {}).get("criteria", [])
+                     if isinstance(c, dict)
+                     and c.get("id") == _entry.get("id")), {})
+                _entry["examined_scope"] = _criterion_scope(state, _crit)
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"scope annotation failed: {exc}")
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
@@ -4447,7 +4584,8 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             # M9: excertos do writer entram na métrica de leitura.
             _accumulate_reading(
                 state, (selection or {}).get("chars") or 0,
-                len((selection or {}).get("included_urls") or []))
+                len((selection or {}).get("included_urls") or []),
+                urls=(selection or {}).get("included_urls") or [])
     except Exception as exc:
         state["notes"].append(f"counters used_in_synthesis failed: {exc}")
     # -- audit (transportes efetivos: lotes/votos/reparos/retentativas)

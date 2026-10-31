@@ -374,6 +374,8 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             lines.append("|---|---|")
             for eid, est in entity_states.items():
                 lines.append(f"| {eid} | {_state_label(labels, est)} |")
+        if crit.get("examined_scope"):
+            lines.append(f"Alcance examinado: {crit['examined_scope']}")
         for nc in crit.get("na_cells", []) or []:
             lines.append(
                 f"- **N/A** {nc.get('entity_id')}: "
@@ -508,12 +510,17 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
     lines.append("")
     if collected or excerpted:
         pct = min(100.0, excerpted / collected * 100.0) if collected else 0.0
+        _unique = int(reading.get("docs_excerpted_unique") or 0)
+        _batches = int(reading.get("docs_excerpted", 0) or 0)
+        _analyzed = int(counters["counts"].get("analyzed", 0))
         lines.append(
             f"**Leitura:** {pct:.1f}% dos caracteres do corpus incluídos "
             f"em excertos avaliados ({excerpted}/{collected} chars; "
-            f"{reading.get('docs_excerpted', 0)} docs em excertos de "
-            f"{reading.get('docs_collected', 0)} coletados)")
-        lines.append("saturação de URLs novas ≠ análise esgotada")
+            f"{_batches} batches de excerto em {_unique} docs únicos de "
+            f"{reading.get('docs_collected', 0)} coletados; avaliados "
+            f"únicos pelo assessor: {_analyzed})")
+        lines.append("saturação de URLs novas ≠ análise esgotada; batches "
+                     "contam repetições entre chamadas, únicos não")
     else:
         lines.append("**Leitura:** não medida")
     return lines
