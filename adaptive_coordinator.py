@@ -3463,6 +3463,38 @@ def _hit_relevance_terms(state: dict, op: dict) -> list[str]:
     return [w for w in toks if not (w in seen or seen.add(w))]
 
 
+#: Tokens that never identify a project on their own: shared by every
+#: candidate of a comparison (the platform name, generic kind words).
+#: Entity aboutness needs a distinctive name part; without one the legacy
+#: vocabulary gate applies (never stricter than before when the entity
+#: has no distinctive name part).
+_GENERIC_IDENTITY_TOKENS = frozenset({
+    "plugin", "plugins", "opencode", "open", "code", "command", "commands",
+    "tool", "tools", "extension", "extensions", "skill", "skills",
+    "package", "packages", "agent", "agents", "test", "tests", "testing",
+    "review", "reviews", "marketplace", "manager", "helper", "utils",
+    "addon", "addons", "extensao", "extensoes", "ferramenta",
+})
+
+
+def _entity_distinctive_tokens(entity: dict) -> list[str]:
+    """Name parts that identify THIS entity (generic kind words removed).
+
+    Deterministic, no model, no question-specific names: normalized
+    label+id tokens (>=4 chars) minus the shared-vocabulary set. An
+    entity whose whole name is generic (e.g. "OpenCode Marketplace
+    Plugin") yields [] and keeps the legacy gate.
+    """
+    if not isinstance(entity, dict):
+        return []
+    toks = _norm_tokens(
+        f"{entity.get('label') or ''} {entity.get('id') or ''}", min_len=4)
+    seen: set[str] = set()
+    return [t for t in toks
+            if t not in _GENERIC_IDENTITY_TOKENS
+            and not (t in seen or seen.add(t))]
+
+
 def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
     """True when a PRESENT title/snippet shows zero term overlap.
 
@@ -3482,6 +3514,32 @@ def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
     url = hit.get("url") if isinstance(hit.get("url"), str) else ""
     hay = " ".join(_norm_tokens(" ".join(parts) + " " + str(url or "")))
     if any(t in hay for t in terms):
+        # Identity (aboutness por entidade): um op liderado por entidade
+        # exige menção à parte distintiva do nome no hit (título/snippet/
+        # URL). Vocabulário genérico compartilhado ("opencode", "plugin",
+        # "review") não identifica o candidato: blog genérico, espelho
+        # (uptodown), PDF alheio e homônimo (open-code.ai × opencode.ai)
+        # passam no gate de vocabulário mas não tratam da entidade.
+        # shortcut: homônimos que diferem só por separador/prefixo de
+        # domínio mas citam a parte distintiva passam (menção real decide,
+        # não heurística de domínio).
+        eid = op.get("entity_id") if isinstance(op, dict) else None
+        if eid:
+            try:
+                ent = next(
+                    (e for e in (state.get("plan") or {}).get("entities", [])
+                     if isinstance(e, dict) and e.get("id") == eid), None)
+                distinctive = _entity_distinctive_tokens(ent or {})
+            except Exception:
+                distinctive = []
+            if distinctive:
+                hay_toks = set(hay.split())
+                if not any(d in hay_toks or d in hay.replace(" ", "")
+                           for d in distinctive):
+                    state["notes"].append(
+                        f"op {op.get('op_id')}: hit ignorado por identidade "
+                        f"(sem menção à entidade {eid}) {str(url)[:80]}")
+                    return True
         return False
     state["notes"].append(
         f"op {op.get('op_id')}: hit ignorado por irrelevância "
