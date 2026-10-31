@@ -249,3 +249,39 @@ genus8 4/26. Variância single-run é dominada por retrieval.
 5. Gateway vast fora; ponte SearXNG com IP frágil.
 6. Variância de retrieval single-run (~±0,1 de cobertura entre configs
    idênticas).
+
+## 16. Rodada accept19/accept20 — correções de identidade/síntese (2026-10-31, HEADs `c78331a`→`b81e8f6`)
+
+Diagnóstico do accept18 (4 perguntas, evidência em
+`/home/thomaskyn/hermes-runs/accept19/`): [27] (planning-with-files) morreu
+na **seleção do writer** (ordem alfabética + teto 12k, refs por entidade
+ignoradas); lit-opencode×lit.dev tinha **vínculo zero** (só custo de
+orçamento); M8 em **deadlock** (qualquer ref bloqueia troca; pool de
+substitutos vazio por desenho); `support: ok` × 2 unsupported do diagnose ×
+`beyond` de 22 URLs = convenção de marca `LACUNA:` não reconhecida +
+**tabela §7 contada como citação**. Correções gerais (conceito
+identidade/entidade, não regra lexical): piso por entidade no writer +
+refs de avaliações no ordenamento; identidade estrita (forma-cheia ou
+token-único-raro no corpus); M8 com pool de descoberta + alternativas
+não-exploradas declaradas; suporte excluindo tabela §7; marca inicial com
+`lacuna` auditada pela premissa. Antes/depois controlado no estado
+congelado: [27] fora→dentro do prompt; e5 28→1 doc; beyond 22→0; síntese
+44/2→46/0. Testes: 476 passed / 15 skipped / 1 falha pré-existente de
+ambiente (`requests` ausente; ocorre na árvore limpa).
+
+`accept19`: tentativa falha preservada — race com o commit (usou código
+antigo) + assessor flakou no round 0 (não-lista 2×); `support failed`
+corretamente (síntese citava o SearXNG morto). `accept20` (código novo,
+`rounds`, 48/14/14/14/6/7, 57 avaliações, **5/52 + 4 N/A**): 5 candidatos
+com identidade real (lit-opencode coberto; shannon N/A com evidência +
+fork contraditório declarado; oh-my-opencode/Context7/local-memory LACUNA
+honesta com recusa de misattribution no texto); 1 combinação documentada;
+`selection_context` 17→4; buckets `ok 5, partial_legit 10, na_scoped 4,
+assessor_error 17 (todos corretos — classe proximidade-em-listagem),
+missing 16`; síntese 37/1/76. `verification` overall **failed** por 1
+inferência com versão de contexto do usuário — diagnose concorda (sem
+divergência); **RA8 segue PENDENTE, sem flexibilizar**. Pós-run (unit
+tests apenas, não validados em run): contexto do usuário ⇒ LACUNA no
+prompt (`cc0f3ff`); entidade fraca registra pool não explorado (`b81e8f6`).
+Relatórios: `/home/thomaskyn/hermes-runs/accept19/DIAGNOSIS_accept18.md`,
+`/home/thomaskyn/hermes-runs/accept20/RELATORIO_ACCEPT20.md`.
