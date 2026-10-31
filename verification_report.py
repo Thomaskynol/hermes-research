@@ -120,6 +120,26 @@ def _expand_support_tokens(tokens: set[str]) -> set[str]:
     return out
 
 
+#: Uncertainty language about a version: its absence from the doc is the
+#: claim's content, not a mismatch ("compatibilidade com 2.1.4
+#: desconhecida" must not fail for not containing "2.1.4").
+_VERSION_UNCERTAIN = (
+    "desconhec", "unknown", "nao informa", "não informa",
+    "nao menciona", "não menciona", "sem mencao", "sem menção",
+    "nao consta", "não consta", "sem evidencia", "sem evidência",
+    "nao declara", "não declara", "ausente", "ausencia", "ausência",
+    "nao ha", "não há", "nao cobre", "não cobre", "sem registro",
+)
+
+
+def _mentions_version_gap(sentence: str) -> bool:
+    """True when the sentence declares the version unknown/absent."""
+    import unicodedata as _ud
+    norm = "".join(c for c in _ud.normalize(
+        "NFKD", str(sentence or "").lower()) if not _ud.combining(c))
+    return any(m in norm for m in _VERSION_UNCERTAIN)
+
+
 #: Dotted releases (0.6.0, 2.1.4) and host generations (V1/V2/V3).
 _VERSION_RE = re.compile(
     r"\b\d+\.\d+(?:\.\d+)?(?:[-+][a-z0-9.]+)?\b|\bV\d+\b",
@@ -148,8 +168,11 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
     """The cell entity is named in the cited doc (label or id, full form).
 
     Token overlap ("opencode" + "agents" via "sub-agents") is not a
-    mention: the normalized label/id itself must occur. Short ids
-    ("e1") are skipped, the label decides.
+    mention: the normalized label/id itself must occur — or the doc
+    must share at least two longer content tokens with the label (a doc
+    about "OpenCode Plugin" is about the "OpenCode Eclipse Plugin"
+    cell; a doc sharing only "opencode" is not). Short ids ("e1") are
+    skipped, the label decides.
     """
     doc = _norm_mention(doc_text)
     if not doc:
@@ -161,6 +184,13 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
             continue
         if ent in doc or ent.replace(" ", "") in compact_doc:
             return True
+    try:
+        label_toks = {w for w in _content_tokens(label) if len(w) >= 4}
+        doc_toks = {w for w in _content_tokens(doc_text) if len(w) >= 4}
+        if len(label_toks & doc_toks) >= 2:
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -282,10 +312,14 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     if not sentence_tokens:
         return False, "sem sobreposição"
     # A claimed release/generation absent from the doc is not sustained,
-    # however high the remaining overlap is.
+    # however high the remaining overlap is — unless the sentence itself
+    # declares the version unknown/absent (then absence is the content).
     if sentence_raw and not _text_versions(sentence_raw) <= _text_versions(
             doc_text):
-        return False, "sem sobreposição"
+        if _mentions_version_gap(sentence_raw):
+            pass
+        else:
+            return False, "sem sobreposição"
     common = _expand_support_tokens(set(sentence_tokens)) & doc_tokens
     ratio = len(common) / len(sentence_tokens)
     title = set()
@@ -425,19 +459,39 @@ def check_support(synthesis_text: str, numbers, corpus, plan) -> dict:
             uncited += 1
             continue
         claims += 1
+        # Named entities of this sentence (factual anchor for inference
+        # markers): computed before the lacuna branch, which needs the
+        # S2 premise check on the same set.
+        factual = _factual_anchor(sentence)
+        sent_tokens = set(_content_tokens(factual))
+        named = [entry for entry in entities if sent_tokens & entry[0]]
         # Absence declaration over consulted sources: sustained by the
         # consultation itself (the cited doc was read and says nothing),
         # never by word overlap with an empty statement.
         if is_lacuna_declaration(sentence) and all(
                 n_to_url.get(n) and _doc_for(n_to_url[n])
                 for n in citations):
+            # S2 premise: an absence claim over consulted sources is
+            # sustained by the consultation itself — but the cited source
+            # must be about the named entity when the sentence names one.
+            # Citing a foreign doc as absence premise is a loose citation,
+            # not a verified premise.
+            _premise_docs = sum(
+                1 for n in citations
+                if not named or any(
+                    _entity_mentioned(label, eid, _doc_for(n_to_url[n]))
+                    for _toks, label, eid in named))
+            if named and not _premise_docs:
+                unsupported.append({"sentence": sentence,
+                                    "citations": citations,
+                                    "reason": "entidade não mencionada no "
+                                              "doc"})
+                continue
             supported += 1
-            declared.append({"sentence": sentence, "citations": citations})
+            declared.append({"sentence": sentence, "citations": citations,
+                             "premise_docs": _premise_docs})
             continue
         # Inference-marked claim: audit the factual anchor only.
-        factual = _factual_anchor(sentence)
-        sent_tokens = set(_content_tokens(factual))
-        named = [entry for entry in entities if sent_tokens & entry[0]]
         ok = False
         reasons: list[str] = []
         for n in citations:

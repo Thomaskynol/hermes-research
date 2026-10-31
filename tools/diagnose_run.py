@@ -41,6 +41,7 @@ from adaptive_coordinator import _expand_terms_en, _PT_EN_RESEARCH  # noqa: E402
 from verification_report import (  # noqa: E402
     _entity_mentioned,
     _expand_support_tokens,
+    _mentions_version_gap,
     _text_versions,
     is_lacuna_declaration,
 )
@@ -365,8 +366,21 @@ def synthesis_audit(state: dict) -> dict:
         named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(line) for t in toks)]
         # Absence declaration over consulted sources: sustained by the
-        # consultation itself (mirrors verification_report.check_support).
+        # consultation itself (mirrors verification_report.check_support)
+        # — but the cited source must be about the named entity (S2
+        # premise); a foreign doc is a loose citation, not a premise.
         if cited_docs and not missing and is_lacuna_declaration(line):
+            _premise = sum(
+                1 for _, doc in cited_docs
+                if not named or any(
+                    _entity_mentioned(label, eid, doc)
+                    for label, eid, _toks in named))
+            if named and not _premise:
+                unsupported += 1
+                items.append({"sentence": line[:300], "cites": cites,
+                              "reason": "entidade ausente no doc citado "
+                                        "(premissa sem doc da entidade)"})
+                continue
             supported += 1
             continue
         # Inference-marked claim: audit the factual anchor only (mirrors
@@ -387,7 +401,8 @@ def synthesis_audit(state: dict) -> dict:
                 for label, eid, _toks in named for _, doc in cited_docs):
             missing_entities = [label for label, _eid, _toks in named]
         claim_vers = _text_versions(anchor)
-        version_miss = bool(claim_vers) and not any(
+        version_miss = bool(claim_vers) \
+            and not _mentions_version_gap(anchor) and not any(
             not (claim_vers - _text_versions(doc))
             for _, doc in cited_docs)
         expanded = _expand_support_tokens(words)
