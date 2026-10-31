@@ -293,3 +293,38 @@
   (só histórico, mantido).
 - Próximo: re-run da pergunta de aceite p/ prova real dos 3 contratos
   (Phase 5); RA8 segue pendente até overall `passed` em run real. Sem push.
+
+## 2026-10-31 — Sessão 12: run real accept24 sob a70d837 — prova dos 3 contratos (fixer, lane isolado)
+
+- HEAD `a70d837` congelado pré/pós-run (`HEAD.frozen`, `diffstat.frozen` vazio,
+  `hashes.frozen` 8/8 OK — produto inalterado no run); só untracked
+  pré-existente `.planning/.active_plan`. Sem edição de produto neste lane.
+- Provisionamento investigado antes do run: `docker images` sem searx, sem
+  compose/scripts no repo; vast deps OK (`fastapi/uvicorn/httpx`); embeddings
+  sem launcher (harrier externo `172.17.0.1:8082`, pinga sem listener).
+  vast DOWN + SearXNG DOWN + embeddings DOWN confirmados curl 000 pré E pós.
+  vast NÃO subido (decisão): accept21 provou colapso YouTube com UP; controle
+  vs accept23 exige DOWN; sem nova hipótese (Phase 2). `~/.hermes` intacto
+  (pré 20756408046 B/304479 → pós 20756446409 B/304481; deriva = ruído).
+- Run: pergunta do aceite, medium/max-rounds-3, contexto 2.1.4 (instalado real
+  2.2.5), 715s, EXIT=0, parada `rounds`. 30 descobertos/16 analisados/8
+  citados/6 síntese; queries 10, extractions 26, yt_live 0, model_calls 7.
+- Cobertura oficial 9/56 + 0 N/A (16,1%); diagnose ok 8/partial 14/missing 15/
+  assessor_error 11/selection_context 7/synth_unsup 1; síntese 49/2/66;
+  sentença 38 + 13 LACUNA + 25 sem citação; `unsupported_claims []`,
+  `outside_corpus []`; verification execution ok/question partial/review
+  partial/**support ok** (1ª vez); overall **partial — RA8 segue PENDENTE**.
+- 3 contratos PROVADOS em run real (previsto cópia congelada: cit 68, ev ~50,
+  res ≥4): citations 68, evidence 51 (era 0), resolved 5 (era 0); versão
+  2.1.4≥2.1.2 sustentada + funcional sem fonte = LACUNA `versão exata
+  ausente` (3×), fato-usuário contido 3º run; 5 frases-combinação LACUNA +
+  "INFERÊNCIA NÃO SUSTENTADA, NÃO AFIRMAR".
+- 5 nomes (planner, planning-with-files, Plannotator, handoff, local-memory;
+  local-memory = LACUNA de identidade no excerto, declarada; `c-discover`
+  synth_unsup pelo elo fraco). 0 URLs nuas. Combinação recusada por escrito.
+- Resíduos registrados sem corrigir: renderer-§8 `support not_run/sem
+  citações verificáveis` vs auditor final `support ok` (mensagem, sem efeito);
+  `selection_context 7` (miss do assessor); monopólio-break e M8 sem alvo.
+- Outputs em `/home/thomaskyn/hermes-runs/accept24/` (fora do repo e do /tmp);
+  `docs/CONTINUIDADE.md` + plano sincronizados (Phase 7 complete, Phase 5
+  in-progress). Sem push.

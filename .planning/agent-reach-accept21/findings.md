@@ -252,3 +252,19 @@ Contratos (objetivo da Missão 3; implementação fora de escopo desta sessão):
 4. **Pausa mid-model como pendência acionável** (Phase 4 item 4):
    contradiz o limite conhecido do roteiro + R14.3 REAL — registrada como
    limite documentado, sem ação associada.
+
+## Resultado accept24 (evidência: `/home/thomaskyn/hermes-runs/accept24/`, HEAD `a70d837`)
+
+Run real sob `a70d837` (hashes 8/8 OK pré/pós, sem edição no run), mesma
+pergunta/config/infra DOWN (curl 000 pré/pós; vast NÃO subido por decisão —
+colapso YouTube provado no accept21; SearxNG/embeddings impossíveis neste
+lane, condições registradas no RELATORIO_ACCEPT24.md). 715s, EXIT=0.
+
+- Cobertura oficial 9/56 + 0 N/A; diagnose ok 8/partial 14/missing 15/
+  assessor_error 11/selection_context 7/synth_unsup 1; síntese 49/2/66.
+- `support ok` (primeira vez) com `unsupported_claims []`; overall `partial`
+  (question + review) — gargalo é cobertura/corpus, não veracidade.
+- 3 contratos provados em run real: citations 68, evidence 51 (era 0),
+  resolved 5 (era 0); versão numérica sustentada + funcional = LACUNA;
+  combinação recusada por escrito. 5 nomes (local-memory com LACUNA de
+  identidade declarada). **RA8 segue PENDENTE.**

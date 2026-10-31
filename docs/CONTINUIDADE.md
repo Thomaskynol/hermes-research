@@ -2,15 +2,14 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 11: Missão 3 implementada — 3
-> contratos ([N] resolve; versão-premissa; inferência-complementaridade),
-> TDD RED→GREEN + prova isolada em cópia congelada do accept23; RA8 segue
-> PENDENTE). Commits produto e docs separados (sem push).
+> Última atualização: 2026-10-31 (Sessão 12: run real accept24 sob a70d837 —
+> prova dos 3 contratos: support failed→ok, evidence 0→51, resolved 0→5;
+> overall `partial`, RA8 segue PENDENTE). Commits produto e docs separados
+> (sem push).
 >
-> HEADs: produto `49508fe` (consultado/mencionado + inferência-por-premissas
-> + fato-usuário + janela; executado no run accept23, hashes frozen
-> reconferidos pré/pós-run); docs `cc1bf1c` (Missão 3 registrada no plano).
-> `git show --stat` do intervalo prova docs-only (plano + CONTINUIDADE).
+> HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
+> hashes frozen reconferidos pré/pós-run); docs `cc1bf1c` (Missão 3 registrada
+> no plano). `git show --stat` do intervalo prova docs-only (plano + CONTINUIDADE).
 
 ## Objetivo e escopo
 
@@ -63,8 +62,43 @@ do usuário, e o diagnose concordou (sem divergência).
 - `cc1bf1c` — **só docs** do accept23 (plano + findings + CONTINUIDADE;
   `git show --stat` confirma zero arquivo produto). Produto segue ==
   `49508fe`. Base da Missão 3 (Sessão 10: 3 contratos registrados).
+- `d2e5438` — docs do plano (Missão 3 registrada, HEAD `cc1bf1c`).
+- `a70d837` — **produto**: 3 contratos ([N] resolve + versão-premissa +
+  complementaridade; `verification_report.py` + `tools/diagnose_run.py` +
+  `adaptive_coordinator.py` + `tests/test_missao3_contratos.py`, 16 testes;
+  prova isolada em cópia congelada do accept23). Executado no run accept24
+  (hashes 8/8 OK pré/pós-run, sem edição no run).
 
-## Resultado accept23 (evidência em `/home/thomaskyn/hermes-runs/accept23/`)
+## Resultado accept24 (evidência em `/home/thomaskyn/hermes-runs/accept24/`)
+
+- Config: pergunta do aceite, medium/max-rounds-3, contexto 2.1.4,
+  **vast DOWN + SearXNG DOWN** (curl 000 pré e pós-run), EXIT=0, 715s.
+  Código `a70d837` (hashes 8/8 OK pré/pós-run, sem edição no run).
+  Provisionamento investigado antes do run: vast provisionável
+  (`vast_local_retriever.py`, deps OK) mas NÃO subido — accept21 provou
+  colapso YouTube com vast UP; SearXNG impossível (sem imagem/script;
+  condição: `docker pull searxng/searxng`); embeddings impossível (sem
+  launcher; condição: harrier UP em `172.17.0.1:8082`).
+- Cobertura **9/56 + 0 N/A (16,1%)** (ok 8, partial_legit 14, missing 15,
+  assessor_error 11, selection_context 7, synthesis_unsupported 1);
+  síntese diagnose 49/2/66; sentence 38 sustentadas + 13 LACUNA com reason
+  + 25 sem citação; `unsupported_claims []`, `outside_corpus []`;
+  **support `ok` (primeira vez: accept21 partial, accept22/23 failed)**;
+  **overall `partial`; RA8 segue PENDENTE**.
+- Prova real dos 3 contratos (previsto na cópia congelada: citations 68,
+  evidence ~50, resolved ≥4): **confirmado** — citations 68, evidence 51
+  (era 0), resolved 5 (era 0), unknown []; versão numérica 2.1.4≥2.1.2
+  sustentada + funcional sem fonte = LACUNA (`versão exata ausente`, 3×);
+  5 frases-combinação LACUNA + "INFERÊNCIA NÃO SUSTENTADA, NÃO AFIRMAR".
+- Corpus web sem YouTube (30 descobertos/16 usáveis, 8 citados, 6 na
+  síntese): **5 nomes** (planner, planning-with-files, Plannotator,
+  handoff, local-memory — este último LACUNA de identidade no excerto,
+  declarado; `c-discover` synthesis_unsupported pelo elo fraco).
+- Resíduos sem corrigir (sem edição de produto neste lane): snapshot do
+  renderer-§8 diz `support not_run/sem citações verificáveis` (camada
+  claim/URL-nua) vs auditor final `support ok` — divergência de mensagem,
+  sem efeito no veredito; `selection_context 7` (miss do assessor, não
+  leniência).
 
 ## Riscos amarelos (limitações registradas — sem refatorar)
 
@@ -161,12 +195,15 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
   corpus ⇒ só `partial` (accept19 falhava corretamente 1 citação assim) —
   suspeita de **leniência LACUNA × citação**.
 
-## Serviços (2026-10-31, pós-run)
+## Serviços (2026-10-31, pós-run accept24)
 
 - `hermes-gateway` UP (9119/8081). **vast `:8001` DOWN** (accept21 subiu
-  on-demand e desligou; accept22 e accept23 rodaram com DOWN pré/pós
-  confirmado). SearxNG DOWN (sem imagem docker), embeddings DOWN — igual
-  ao accept20.
+  on-demand e desligou; accept22, accept23 e accept24 rodaram com DOWN
+  pré/pós confirmado; accept24: provisionável mas não subido — decisão
+  registrada no RELATORIO_ACCEPT24.md). SearxNG DOWN (sem imagem docker;
+  condição: `docker pull searxng/searxng`), embeddings DOWN (sem launcher;
+  condição: harrier UP em `172.17.0.1:8082`) — ver tabela de
+  provisionamento no RELATORIO_ACCEPT24.md.
 
 ## Ambiente e configuração efetiva
 
@@ -187,6 +224,7 @@ evidência de teste). Espelho resumido em `docs/REQUIREMENTS_MATRIX.md`
 |--------|------------|--------------------|
 | `cc0f3ff` | contexto do usuário não é evidência (regra estreita Missão 3: comparação numérica contra mínimo declarado = sustentada (premissa+corpus); compat funcional/integração sem fonte que mencione a versão = LACUNA); bucket `na_scoped` no diagnose | unit test + **contido em 2 runs reais (accept22: 1º sinal; accept23: 2º sinal, `user://` fora do corpus)** |
 | `49508fe` | consultado-vs-mencionado + inferência-por-premissas + fato-usuário + janela | foco 137 passed + **exercitado em run real (accept23: inferência contida, fato-usuário contido 2º run, janela sem divergência)**; resíduo: contador cego a `([N])` (registrado, sem corrigir) |
+| `a70d837` | 3 contratos: `[N]` resolve + versão-premissa + complementaridade | 16 testes (TDD RED→GREEN) + prova isolada em cópia congelada + **PROVADO em run real accept24: support failed→ok, evidence 0→51, resolved 0→5; versão numérica sustentada; combinação recusada**; resíduos: renderer-§8 `not_run` vs auditor `ok` (mensagem, sem efeito), `selection_context 7`, local-memory sem identidade literal |
 | `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
 | `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
 | `a704463` | quebra de monopólio single-host + diversidade; gate de quote em LACUNA | unit test + suíte 84 passed; accept22 sem alvo para monopólio, quote-gate manteve `failed` em URL nua |
@@ -210,20 +248,23 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (Missão 3, implementada nesta sessão — falta prova em
-  run real):** re-run cobrindo prova isolada dos 3 contratos, sem
-  flexibilizar critério; depois fechar Phase 5/7.
-  RA8 segue pendente até overall `passed` em run real. (`selection_context`
-  zerou no accept23 — sai da lista de resíduos ativos.)
-  - (1) `[N]` resolve — `verify_support` resolve in-text `([N])` via
-    `state[report][numbers]` (accept23 congelado: evidence 0→50, resolved
-    0→4; `failed` mantido pelas 4 unsupported semânticas);
-  - (2) versão-premissa — comparação numérica vs mínimo = sustentada;
-    funcional sem fonte com a versão = LACUNA (regra estreita em prompts
-    + auditores + docs);
-  - (3) inferência-complementaridade — ≥2 entidades exige doc de
-    interoperabilidade, senão LACUNA explícita (unificado marcado +
-    genérico + diagnose).
+- **Próxima ação (Missão 3, prova real obtida no accept24 — RA8 segue
+  pendente):** 3 contratos exercitados e seguraram em run real (support
+  failed→ok, evidence 0→51, resolved 0→5; versão numérica sustentada +
+  funcional=LACUNA; combinação recusada). Overall `partial` por cobertura
+  (9/56), não por veracidade — gargalo agora é corpus/seleção
+  (`selection_context 7`, `assessor_error 11`), não leniência do produto.
+  Fechar Phase 5/7 (docs + matriz); próximo run só sob nova hipótese
+  explícita. (`selection_context` voltou a 7 no accept24 — miss do
+  assessor, não resíduo de produto; acompanhar por corpus.)
+  - (1) `[N]` resolve — **PROVADO em run real**: citations 68, evidence
+    51, resolved 5, unknown [] (accept24); `support failed→ok`;
+  - (2) versão-premissa — **PROVADO em run real**: 2.1.4≥2.1.2 sustentada
+    ([5]); funcional sem fonte = LACUNA `versão exata ausente` (3×);
+    fato-usuário contido (3º run);
+  - (3) inferência-complementaridade — **PROVADO em run real**: 5 frases
+    LACUNA + "INFERÊNCIA NÃO SUSTENTADA, NÃO AFIRMAR"; diagnose sem
+    promoção indevida.
 
 ## Referências
 

@@ -10,19 +10,11 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-Missão 3 — 3 contratos, sem flexibilizar; depois re-run cobrindo prova
-isolada. RA8 segue pendente até overall `passed` em run real
-(accept23: 0/55 failed honesto sob `49508fe`; `selection_context` zerou —
-sai da lista de resíduos ativos).
-
-Contratos: (1) `[N]` resolve — contador/extrator enxerga citação in-text
-`([N])`, não só URL nua (resíduo accept23: evidence/resolved 0 vs sentença
-48/50); (2) versão-premissa — versão vinda de premissa explícita
-(usuário/contexto) não reprova como inferência; gate tag-exata vs família
-funcional com conclusões separadas; (3) inferência-complementaridade —
-frase que nomeia ≥2 entidades exige citação de interoperabilidade
-(doc com ≥2 entidades), senão LACUNA explícita (complementaridade plausível
-vs integração testada).
+Re-run accept24 CONCLUÍDO (HEAD `a70d837`, 9/56 partial, support ok,
+3 contratos provados em run real). RA8 segue pendente até overall
+`passed` em run real (gargalo atual: cobertura/corpus, não veracidade).
+Fechar Phase 5/7 (docs + matriz); próximo run só sob nova hipótese
+explícita — sem re-investigar `selection_context` como resíduo de produto.
 
 ## Current Phase
 
@@ -64,11 +56,14 @@ Phase 7 (Missão 3: 3 contratos)
 ### Phase 5: Fechar aceite
 
 - [x] `selection_context` 16 (residual accept22) — zerou no accept23
-  (0 ocorrências); sai da lista de resíduos ativos, sem ação associada
-- [ ] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
+  (0 ocorrências); reapareceu como 7 no accept24 (miss do assessor sobre
+  corpus distinto, não leniência do produto — acompanhar por corpus,
+  sem ação de produto associada)
+- [x] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
+  (accept24 sob `a70d837`: 9/56 partial, support ok, 3 contratos provados)
 - [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com nova rodada
 - [ ] `check-complete.sh` verde
-- **Status:** pending (só re-run + docs; sem re-investigar `selection_context`)
+- **Status:** in-progress (falta só docs + matriz; sem re-run sem nova hipótese)
 
 ### Phase 6 (Missão 2): Coerência do plano — COMPLETE
 
@@ -79,30 +74,27 @@ Phase 7 (Missão 3: 3 contratos)
 - [x] `docs/CONTINUIDADE.md` atualizado como ponto de entrada
 - **Status:** complete (commitado em `bf5507b` + `cc1bf1c`; nada pendente)
 
-### Phase 7 (Missão 3): 3 contratos — IN PROGRESS (implementado, sem re-run)
+### Phase 7 (Missão 3): 3 contratos — PROVA REAL OBTIDA (accept24)
 
 - [x] Missão registrada (este plano + `findings.md` + `progress.md` Sessão 10
   + `docs/CONTINUIDADE.md` como ponto de entrada); sem lógica produto
-- [x] (1) `[N]` resolve — `verify_support` resolve in-text `([N])` via
-  `state[report][numbers]` (fallback tabela §7); unknown = `[N]` sem URL +
-  URL fora do corpus; reason "citação fora do corpus" nos dois auditores;
-  gate vazio não diz "Sem citações verificáveis" com refs válidas
-  (accept23 congelado: evidence 0→50, resolved 0→4, failed mantido pelas
-  4 unsupported semânticas; diagnose 49/1/66 inalterado)
-- [x] (2) versão-premissa — prompts estreitados (comparação numérica contra
-  mínimo declarado = sustentada; funcional sem fonte com a versão = LACUNA);
-  ramo user-premise: comparação numérica vs mínimo = sustentada, claim
-  funcional com versão sem fonte que a mencione = reprovado como "versão
-  exata ausente no doc"; instrução geral removida de prompts +
-  CONTINUIDADE + ACEITE_V1_RESULTADO + findings
-  (histórico de runs preservado)
-- [x] (3) inferência-complementaridade — trava interop unificada nos ramos
-  marcado + genérico + diagnose: interop citada→supported; âncoras em docs
-  separados→declared/LACUNA explícita (não unsupported genérico); resto
-  unsupported; trava só arma com menção estrita de ≥2 entidades na frase
-- [ ] Re-run da pergunta de aceite cobrindo prova isolada dos 3 contratos
-- **Status:** in-progress (implementado + suíte verde nesta sessão; prova em
-  run real pendente — Phase 5)
+- [x] (1) `[N]` resolve — **PROVADO accept24**: citations 68, evidence 51
+  (era 0), resolved 5 (era 0), unknown []; support failed→ok
+- [x] (2) versão-premissa — **PROVADO accept24**: 2.1.4≥2.1.2 sustentada
+  ([5]); funcional sem fonte = LACUNA `versão exata ausente` (3×);
+  fato-usuário contido (3º run, `user://` fora do corpus)
+- [x] (3) inferência-complementaridade — **PROVADO accept24**: 5 frases
+  LACUNA + "INFERÊNCIA NÃO SUSTENTADA, NÃO AFIRMAR"; sem promoção indevida
+- [x] Re-run da pergunta de aceite cobrindo prova isolada dos 3 contratos
+  (accept24, HEAD `a70d837`, 715s, EXIT=0, hashes 8/8 OK pré/pós)
+- **Status:** complete (prova real; RA8 segue pendente — overall `partial`
+  por cobertura 9/56, não por veracidade; ver Phase 5)
+
+> Nota histórica (implementação, Sessão 11): `verify_support` resolve
+> in-text `([N])` via `state[report][numbers]` (fallback tabela §7);
+> prompts estreitados versão-premissa; trava interop unificada
+> (marcado + genérico + diagnose). Prova isolada em cópia congelada do
+> accept23 precedeu o run real.
 
 ## Decisions Made
 
