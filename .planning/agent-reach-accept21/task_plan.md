@@ -10,18 +10,17 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-3 divergências pós-accept24 CORRIGIDAS via TDD (HEAD a definir, sem push):
-diagnose extrai URLs evidência sem `[N]`, LACUNA espelha gates
-versão/liter, ponderação aplica regra estreita; 11 passed novo +
-73 foco verde; efeito isolado em cópia congelada accept24 (49/2→39/12,
-verify ok→partial). RA8 segue pendente até overall `passed` em run real
-(gargalo: cobertura/corpus, não veracidade). Fechar Phase 5 (docs +
-matriz sync Missão 3 + accept24); próximo run só sob nova hipótese
-explícita.
+Missão 4 REGISTRADA (HEAD `a656535`, sem push, sem lógica produto): 3
+contratos v2 — (1) inferência positiva, (2) consistência entrega,
+(3) identidade/atribuição; versão-premissa preservada (regra estreita
+Missão 3); instruções conflitantes listadas para remover em `findings.md`.
+Próximo: implementar os 3 contratos v2 em lane próprio, TDD RED→GREEN;
+próximo run só sob nova hipótese explícita. RA8 segue pendente até
+overall `passed` em run real (gargalo: cobertura/corpus, não veracidade).
 
 ## Current Phase
 
-Phase 7 (Missão 3: 3 contratos)
+Phase 9 (Missão 4: 3 contratos v2 — registro, sem implementação)
 
 ## Phases
 
@@ -119,12 +118,41 @@ Phase 7 (Missão 3: 3 contratos)
 > (marcado + genérico + diagnose). Prova isolada em cópia congelada do
 > accept23 precedeu o run real.
 
+### Phase 9 (Missão 4): 3 contratos v2 — REGISTRADA (sem implementação)
+
+- [x] Missão registrada (este plano + `findings.md` + `progress.md` Sessão 14
+  + `docs/CONTINUIDADE.md` como ponto de entrada); sem lógica produto
+- [ ] (v2-1) inferência positiva — definir quando inferência PODE ser
+  `supported` (condições positivas estreitas: âncora + relação auditadas
+  em separado + citação de interoperabilidade quando a frase nomeia ≥2
+  entidades); fora disso, declarada/LACUNA, nunca promoção silenciosa
+- [ ] (v2-2) consistência entrega — camadas de entrega convergem
+  (relatório §8 × `verification.json` × diagnose/check: mesmo veredito
+  de suporte, denominador nunca reduzido, divergência excerto-vs-full
+  explícita via `hash_source`, nunca silenciosa)
+- [ ] (v2-3) identidade/atribuição — toda afirmação atribuída tem entidade
+  resolvida + origem (`fabricante vs independente vs usuário vs
+  inferência`, R11.2; `user://` fora do corpus, citável só como premissa
+  explícita sem número); sem identidade literal = LACUNA declarada
+  (caso local-memory accept24), nunca promoção
+- [x] versão-premissa PRESERVADA (regra estreita Missão 3/Sessão 13:
+  comparação numérica contra mínimo declarado = sustentada
+  (premissa+corpus); compat funcional/integração sem fonte que mencione
+  a versão = LACUNA `versão exata ausente`; ponderação estreita idem)
+- [x] Instruções conflitantes listadas para remover (ver `findings.md`
+  Missão 4: isenção ampla de premissa, promoção de combinação plausível,
+  LACUNA sem gates, bare utility ponderando, fora-do-corpus como
+  `uncited`/ok, divergência silenciosa, redução de denominador)
+- **Status:** registrada (contratos a implementar em lane próprio,
+  TDD RED→GREEN; RA8 segue PENDENTE; sem push)
+
 ## Decisions Made
 
 | Decision | Rationale |
 |----------|-----------|
 | Plano em `.planning/agent-reach-accept21/` (slug exato, sem prefixo de data) | Escopo exigido pelo orquestrador; `init-session` gerou prefixo `2026-10-31-`, renomeado via `mv` e `.active_plan` atualizado |
 | RA8 não flexibilizado | `verification` do accept20 falhou por 1 inferência com versão de contexto do usuário; diagnose concordou (sem divergência) |
+| Versão-premissa preservada na Missão 4 | Regra estreita Missão 3/Sessão 13 mantida como invariante dos 3 contratos v2; instruções conflitantes (isenção ampla, promoção indevida, LACUNA sem gates) listadas para remover, não para coexistir |
 | Sem alteração de código produto neste passo | Escopo restrito a docs + plano |
 
 ## Errors Encountered

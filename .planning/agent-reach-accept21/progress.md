@@ -356,3 +356,21 @@
   RA8 alfinetado PENDENTE; plano + CONTINUIDADE sincronizados.
 - Próximo: commit local sem push; depois `ACEITE_V1_RESULTADO.md` +
   `check-complete.sh`; próximo run só sob nova hipótese explícita.
+
+## 2026-10-31 — Sessão 14: Missão 4 — registro dos 3 contratos v2 (fixer)
+
+- HEAD `a656535` (3 divergências unificadas, TDD 11 passed); árvore
+  rastreada limpa (só untracked pré-existente `.planning/.active_plan`);
+  baseline DOWN restaurada; sem push.
+- `task_plan.md`: Next Step reescrito (Missão 4); Current Phase = Phase 9;
+  Phase 9 aberta (3 contratos v2 a implementar + versão-premissa
+  preservada + conflitantes listadas); decisão registrada.
+- `findings.md`: seção Missão 4 com estado HEAD/infra + 3 contratos v2
+  (inferência positiva, consistência entrega, identidade/atribuição) +
+  versão-premissa como invariante + 8 instruções conflitantes a remover
+  (7 novas + 4 superadas Missão 2 mantidas removidas).
+- `docs/CONTINUIDADE.md`: header/HEADs/próxima ação sincronizados
+  (Sessão 14, HEAD `a656535`, Missão 4); sem lógica produto tocada.
+- Próximo: implementar os 3 contratos v2 em lane próprio, TDD
+  RED→GREEN; próximo run só sob nova hipótese explícita. RA8 segue
+  pendente até overall `passed` em run real.

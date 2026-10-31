@@ -305,3 +305,71 @@ Efeito isolado em cópia congelada accept24 (`/tmp/opencode/accept24-frozen2`,
 39/12/66 (10 LACUNA versão/liter agora `unsupported`); verify `ok` →
 `partial` com 8 misses — convergindo com check (`partial`), sem novo run.
 **RA8 segue PENDENTE** (cobertura, não veracidade).
+
+## Missão 4 — 3 contratos v2 (2026-10-31, HEAD `a656535`)
+
+Estado (evidência: `git log` + `git status`, 2026-10-31): branch
+`feat/product-v1`, HEAD `a656535` ("fix(verify,diagnose): 3 divergências
+unificadas (TDD 11 passed; sem push)"); produto = `a70d837` + 3 fixes de
+divergência (Sessão 13); árvore rastreada limpa (só untracked
+pré-existente `.planning/.active_plan`); baseline DOWN restaurada
+(vast/searxng/embeddings; gateway UP). Registro só em plano + docs;
+**nenhuma lógica produto tocada**.
+
+Contratos v2 (objetivo da Missão 4; implementação fora de escopo deste passo):
+
+1. **inferência positiva** — hoje a inferência só é contida/recusada
+   (declarada/LACUNA, Sessão 8 + Missão 3 provada no accept24). Falta o
+   lado positivo: condições estreitas sob as quais uma inferência PODE ser
+   `supported` (âncora + relação auditadas em separado; frase com ≥2
+   entidades exige citação de interoperabilidade com ≥2 entidades no
+   mesmo doc; fora disso, declarada/LACUNA, nunca promoção silenciosa).
+2. **consistência entrega** — camadas de entrega convergem para o mesmo
+   veredito: relatório §8 × `verification.json` (check/verify/ponderação)
+   × diagnose. Resíduos que motivam: renderer-§8 `not_run/sem citações`
+   vs auditor final `ok` (mensagem, accept24); verify `ok` vs check
+   `partial` pré-Sessão 13 (unificado em cópia: verify → `partial` com
+   8 misses). Invariantes: denominador nunca reduzido; divergência
+   excerto-vs-full explícita via `hash_source`, nunca silenciosa.
+3. **identidade/atribuição** — toda afirmação atribuída tem entidade
+   resolvida + origem declarada (`fabricante vs independente vs usuário
+   vs inferência`, R11.2; `user://` fora do corpus, citável só como
+   premissa explícita sem número, Sessão 8). Sem identidade literal no
+   excerto = LACUNA de identidade declarada (caso local-memory,
+   accept24), nunca promoção por proximidade-em-listagem (classe
+   accept20/23: assessor `insufficient` × revisor reprova).
+
+**versão-premissa PRESERVADA** (invariante, regra estreita Missão 3 +
+Sessão 13, sem flexibilizar): comparação numérica contra mínimo declarado
+= sustentada (premissa explícita + doc de corpus com a tag); compat
+funcional/integração sem fonte que mencione a versão = LACUNA (`versão
+exata ausente` / `família funcional ausente` / `literal ausente`);
+ponderação aplica a mesma regra estreita (numérico sustenta, funcional
+reprova). Os 3 contratos v2 herdam essa regra, não a redefinem.
+
+Instruções conflitantes — varredura 2026-10-31, a remover / manter removidas:
+
+1. **Isenção ampla de premissa** (`_is_user_premise` isentando qualquer
+   premissa): conflita com versão-premissa estreita + ponderação estreita
+   (Sessão 13). Manter removida: só premissa numérica sustenta.
+2. **Promoção de combinação plausível como `supported`**: conflita com
+   v2-1 + trava interop (Missão 3 provada: combinação recusada por
+   escrito no accept24). Manter removida: sem citação de
+   interoperabilidade = LACUNA explícita.
+3. **LACUNA sem gates como `supported`** (só premissa de entidade):
+   conflita com v2-1/v2-2 (Sessão 13: espelho dos gates versão
+   exata/família + literal). Manter removida.
+4. **Bare `utility`/`in_command` ponderando veredito**: conflita com
+   v2-2 (Sessão 13: nunca ponderam, como no verify). Manter removida.
+5. **Evidência fora do corpus como `uncited`/ok**: conflita com v2-2
+   (Sessão 13: fora do corpus = `unsupported` "citação fora do corpus",
+   nunca `uncited`). Manter removida.
+6. **Divergência excerto-vs-full silenciosa**: conflita com v2-2
+   (`hash_source` + `excerpt_vs_fulltext`, Sessão 8). Manter removida:
+   divergência sempre explícita.
+7. **Redução de denominador para fechar RA8**: conflita com v2-2
+   (denominador estável, §M6; RA8 PENDENTE por cobertura retrieval-bound,
+   não por critério ajustável). Manter removida.
+8. Instruções superadas Missão 2 seguem removidas: run-vast-UP,
+   rounds-fixo, 5-itens-como-requisito, pausa-mid-model (ver seção
+   Missão 2 acima).

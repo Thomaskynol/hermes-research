@@ -2,16 +2,16 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 13: 3 divergências unificadas via
-> TDD — diagnose URLs sem `[N]`, LACUNA com gates, ponderação estreita;
-> 11 passed novo + 73 foco verde; efeito isolado em cópia accept24 49/2→39/12,
-> verify ok→partial; overall `partial`, RA8 segue PENDENTE). Commit local
-> sem push.
+> Última atualização: 2026-10-31 (Sessão 14: Missão 4 REGISTRADA — 3
+> contratos v2 (inferência positiva, consistência entrega,
+> identidade/atribuição); versão-premissa preservada (regra estreita);
+> 8 instruções conflitantes listadas para remover; sem lógica produto).
+> Commit local sem push.
 >
 > HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
-> hashes frozen reconferidos pré/pós-run) + 3 fixes de divergência (este passo,
-> TDD, sem novo run); docs `8040f87` (accept24) + matriz sync Missão 3/accept24
-> (este passo).
+> hashes frozen reconferidos pré/pós-run) + 3 fixes de divergência `a656535`
+> (Sessão 13, TDD, sem novo run); docs + matriz sync Missão 3/accept24
+> (Sessão 13) + registro Missão 4 (este passo).
 
 ## Objetivo e escopo
 
@@ -251,11 +251,21 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (pós-accept24 + 3 divergências unificadas — RA8 segue
-  pendente):** 3 contratos seguraram em run real (support failed→ok,
-  evidence 0→51, resolved 0→5; versão numérica sustentada +
-  funcional=LACUNA; combinação recusada). Overall `partial` por cobertura
-  (9/56), não por veracidade — gargalo é corpus/seleção
+- **Próxima ação (Missão 4 REGISTRADA, HEAD `a656535` — RA8 segue
+  pendente):** 3 contratos v2 a implementar em lane próprio, TDD
+  RED→GREEN (sem lógica produto neste passo): (v2-1) inferência positiva
+  (condições estreitas para `supported`; fora disso, declarada/LACUNA);
+  (v2-2) consistência entrega (relatório §8 × verification.json ×
+  diagnose convergem; denominador nunca reduzido; divergência
+  excerto-vs-full sempre explícita); (v2-3) identidade/atribuição
+  (entidade resolvida + origem; sem identidade literal = LACUNA
+  declarada). versão-premissa PRESERVADA (regra estreita Missão 3 +
+  Sessão 13); 8 instruções conflitantes listadas para remover
+  (`findings.md` Missão 4). Próximo run só sob nova hipótese explícita.
+  Missão 3 + divergências preservadas: 3 contratos seguraram em run real
+  (support failed→ok, evidence 0→51, resolved 0→5; versão numérica
+  sustentada + funcional=LACUNA; combinação recusada). Overall `partial`
+  por cobertura (9/56), não por veracidade — gargalo é corpus/seleção
   (`selection_context 7`, `assessor_error 11`), não leniência. Divergências
   unificadas sem novo run (cópia congelada: diagnose 49/2→39/12, verify
   ok→partial, convergindo com check). Fechar Phase 5 (ACEITE_V1_RESULTADO
