@@ -360,9 +360,39 @@ LACUNA_DECLARATION_MARKERS = (
 )
 
 
+# A leading explicit mark is a declaration, not prose: the writer
+# convention labels absence/inference FIRST ("LACUNA: ...",
+# "INFERÊNCIA/LACUNA ..."). Bare "lacuna" mid-sentence stays excluded
+# ("a lacuna foi preenchida" is a positive claim and must pass the
+# overlap check) — only the leading label counts as marked.
+LEADING_DECLARATION_PREFIXES = ("lacuna", "inferencia", "inferência",
+                                "inference", "inferred")
+
+
+def _has_leading_declaration_mark(lowered: str) -> bool:
+    stripped = str(lowered or "").lstrip("-–—*#> \t`\"'")
+    for prefix in LEADING_DECLARATION_PREFIXES:
+        if stripped.startswith(prefix):
+            rest = stripped[len(prefix):len(prefix) + 1]
+            if rest not in ("", ":", "/", " ", "-", "–", "—"):
+                continue
+            # Lacuna-leading mark ("LACUNA:", "INFERÊNCIA/LACUNA ..."):
+            # explicit absence declaration, audited on the premise.
+            # Bare leading "INFERÊNCIA:" keeps the factual-anchor path
+            # (pure inference without anchor must still fail).
+            head = stripped[:24]
+            if "lacuna" in head:
+                return True
+    return False
+
+
 def is_lacuna_declaration(sentence: str) -> bool:
     lowered = str(sentence or "").lower()
     if any(m in lowered for m in LACUNA_DECLARATION_MARKERS):
+        return True
+    # Leading explicit mark (writer convention): audited on the premise,
+    # never on word overlap with the marked absence/inference.
+    if _has_leading_declaration_mark(lowered):
         return True
     # Template do writer para célula insufficient: "sem <dimensão>
     # demonstrad[o/a]" (ex. accept15 "sem revisão demonstrada") — afirma
@@ -765,23 +795,34 @@ def verify_support(state: dict, report_text: str,
         "unsupported_claims": unsupported,
         "corpus_size": len(corpus),
     }
-    # Informational (never fails): cited in the report but outside the
-    # writer-declared synthesis base. Both are observed events; a gap here
-    # means findings reference material the writer did not list as base.
+    # Informational (never fails): cited in claim sections but outside
+    # the writer-declared synthesis base. Both are observed events; a gap
+    # here means findings reference material the writer did not list as
+    # base. The §7 sources table is inventory (every corpus URL is listed
+    # there by design), not a claim — its rows never count as beyond.
     try:
         used = set(((state.get("counters") or {}).get("documents") or {})
                    .get("used_in_synthesis") or [])
-        beyond = sorted(set(resolved) - {ca.normalize_url(u) for u in used
-                                         if ca.normalize_url(u)})
+        _table_urls: set[str] = set()
+        for _line in (report_text or "").splitlines():
+            if _line.strip().startswith("|") and "http" in _line:
+                for _m in re.finditer(r"https?://[^\s`)\]|]+", _line):
+                    _n = ca.normalize_url(_m.group(0).rstrip(".,;:"))
+                    if _n:
+                        _table_urls.add(_n)
+        beyond = sorted((set(resolved) - {ca.normalize_url(u) for u in used
+                                           if ca.normalize_url(u)}
+                         ) - _table_urls)
     except Exception:
         beyond = []
     evidence["cited_beyond_synthesis"] = beyond
     notes = []
     if beyond:
-        notes.append("citação no relatório fora da base declarada de síntese: "
-                     + ", ".join(beyond[:5]))
+        notes.append("citação no relatório fora da base declarada de síntese "
+                     f"({len(beyond)} no total): " + ", ".join(beyond))
+    if unknown:
         notes.append("citação fora do corpus (não é fonte): "
-                     + ", ".join(sorted(set(unknown))[:5]))
+                     + ", ".join(sorted(set(unknown))))
     if unsupported:
         notes.append(f"{len(unsupported)} afirmação(ões) sem suporte")
     if not refs:

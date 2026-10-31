@@ -150,6 +150,45 @@ def docs_mentioning(corpus: dict, terms: list[str]) -> list[str]:
     return out
 
 
+def entity_docs_strict(corpus: dict, ent: dict) -> list[str]:
+    """Corpus URLs really about the entity (identity as concept).
+
+    One shared word ("planning", "memory") is not aboutness, and neither
+    is a far-apart coincidence of common words: the doc must name the
+    entity (label full form, separator-insensitive); only single-token
+    entities fall back to token presence. Mirrors the product selection
+    rule (adaptive_coordinator._identity_matches).
+    """
+    label = str((ent or {}).get("label") or "")
+    if not label:
+        return []
+    toks = entity_tokens(ent or {})
+    phrase = re.sub(r"[^a-z0-9]+", " ", norm_text(label)).strip()
+    cleaned = []
+    for _u, _t in (corpus or {}).items():
+        if isinstance(_u, str) and not _u.startswith("user://"):
+            cleaned.append(
+                re.sub(r"[^a-z0-9]+", " ", norm_text(_t or "")).strip())
+    # Singleton gate, corpus-relative (mirrors the product rule): a lone
+    # common word never identifies; a rare one keeps the presence rule.
+    single_ok = True
+    if len(toks) == 1:
+        df = sum(1 for _d in cleaned if toks[0] in _d)
+        single_ok = df <= max(2, len(cleaned) // 10)
+    out = []
+    for url, text in (corpus or {}).items():
+        if not isinstance(url, str) or url.startswith("user://"):
+            continue
+        doc = re.sub(r"[^a-z0-9]+", " ", norm_text(text or "")).strip()
+        if not doc:
+            continue
+        if phrase and phrase in doc:
+            out.append(url)
+        elif single_ok and len(toks) == 1 and toks[0] in doc:
+            out.append(url)
+    return out
+
+
 def latest_eval(evals: list, cid: str, eid):
     found = None
     for ev in evals:
@@ -179,6 +218,58 @@ def required_cells(plan: dict) -> list[tuple[str, str | None]]:
     return cells
 
 
+DIMENSION_LOCALITY_WINDOW = 1500
+
+
+def _mention_positions(haystack: str, needle: str) -> list[int]:
+    pos, out = 0, []
+    while True:
+        i = haystack.find(needle, pos)
+        if i < 0:
+            return out
+        out.append(i)
+        pos = i + max(1, len(needle))
+
+
+def dimension_supports(text: str, label: str, toks: list[str],
+                       cterms: list[str],
+                       window: int = DIMENSION_LOCALITY_WINDOW) -> bool:
+    """Dimension terms count only near the entity mention (locality).
+
+    A long page can name the candidate once and discuss the dimension
+    pages away about something else (accept18: the marketplace lists
+    opencode-local-memory once and describes planning for lit-opencode
+    elsewhere). Support requires a dimension term within ``window``
+    chars of an entity mention — the same scale the assessor excerpts
+    at. Single-token entities use every token occurrence as anchor.
+    """
+    cleaned = re.sub(r"[^a-z0-9]+", " ", norm_text(text or "")).strip()
+    if not cleaned:
+        return False
+    phrase = re.sub(r"[^a-z0-9]+", " ", norm_text(label or "")).strip()
+    anchors: list[int] = []
+    if phrase:
+        anchors.extend(_mention_positions(cleaned, phrase))
+    if len(toks) == 1 and toks[0]:
+        anchors.extend(_mention_positions(cleaned, toks[0]))
+    if not anchors:
+        return False
+    hits: list[int] = []
+    for term in cterms or []:
+        if term:
+            hits.extend(_mention_positions(cleaned, term))
+    if not hits:
+        return False
+    hits.sort()
+    for a in anchors:
+        for h in hits:
+            if abs(h - a) <= window:
+                return True
+            if h - a > window:
+                break
+    return False
+
+
 def classify(state: dict) -> dict:
     plan = state.get("plan") or {}
     corpus = state.get("evidence") or {}
@@ -192,11 +283,13 @@ def classify(state: dict) -> dict:
         refs = [r.get("url") for r in ev.get("references") or []
                 if isinstance(r, dict) and r.get("url")]
         ent = ents.get(eid) or {}
-        etoks = entity_tokens(ent) if eid else []
         cterms = criterion_terms(crits.get(cid, {}).get("label", ""))
-        entity_docs = docs_mentioning(corpus, etoks) if etoks else list(corpus)
+        entity_docs = entity_docs_strict(corpus, ent) if eid else list(corpus)
+        label = str(ent.get("label") or "")
+        etoks = entity_tokens(ent) if eid else []
         support_docs = [u for u in entity_docs
-                        if any(t in norm_text(corpus.get(u, "")) for t in cterms)]
+                        if dimension_supports(corpus.get(u, ""), label,
+                                              etoks, cterms)]
         ref_support = [u for u in refs if u in support_docs]
         if st == "covered":
             bucket = "ok" if ref_support else "synthesis_unsupported"

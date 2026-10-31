@@ -871,25 +871,95 @@ def _examined_urls(state: dict) -> set[str]:
     return out
 
 
+def _identity_matches(entity: dict, text: str, *,
+                      single_ok: bool = True) -> bool:
+    """Strict entity aboutness for selection (identity as concept).
+
+    One shared word ("planning", "memory") is not aboutness, and neither
+    is a far-apart coincidence of common words in a long page. The text
+    must name the entity (label full form, separator-insensitive); only
+    single-token entities fall back to token presence (e.g. "planner" —
+    there is nothing else to anchor on). Same aboutness concept the
+    citation audit enforces, restricted for selection: a listing line
+    names the entity, prose coincidence does not promote a doc to
+    "about" it.
+    """
+    import re as _re2
+    import unicodedata as _ud2
+    label = str((entity or {}).get("label") or "")
+    body = str(text or "")
+    if not label or not body:
+        return False
+    def _norm(_s: str) -> str:
+        _n = "".join(c for c in _ud2.normalize(
+            "NFKD", str(_s or "").lower()) if not _ud2.combining(c))
+        return _re2.sub(r"[^a-z0-9]+", " ", _n).strip()
+    _phrase = _norm(label)
+    _doc = _norm(body)
+    if _phrase and _phrase in _doc:
+        return True
+    distinctive = [t for t in _entity_distinctive_tokens(entity or {})]
+    if single_ok and len(distinctive) == 1 and distinctive[0] in _doc:
+        return True
+    return False
+
+
+def _singleton_rare(entity: dict, texts: list[str]) -> bool:
+    """Single-token entities only identify when the token is rare here.
+
+    A lone common word ("planner" in 6/28 docs, "workspace" in 9/28,
+    "local" in 28/28) cannot name a candidate — corpus-relative rarity
+    (IDF intuition, stdlib only): the token must occur in at most
+    max(2, n/10) of the examined texts. Rare singletons ("plannotator")
+    keep the presence rule; common ones fall back to the full form.
+    """
+    import re as _re3
+    import unicodedata as _ud3
+    distinctive = [t for t in _entity_distinctive_tokens(entity or {})]
+    if len(distinctive) != 1:
+        return True
+    tok = distinctive[0]
+    n = 0
+    for _t in texts or []:
+        _d = "".join(c for c in _ud3.normalize(
+            "NFKD", str(_t or "").lower()) if not _ud3.combining(c))
+        _d = _re3.sub(r"[^a-z0-9]+", " ", _d)
+        if tok in _d:
+            n += 1
+    total = len(texts or [])
+    return n <= max(2, total // 10)
+
+
 def _entity_corpus_docs(entity: dict, evidence: dict,
                         qualification: dict) -> list[str]:
-    """Corpus URLs about the entity (distinctive-token mention, observed)."""
+    """Corpus URLs about the entity (strict identity, observed).
+
+    A single shared word ("planning", "memory") is not aboutness: the
+    doc must name the entity (label full form, separator-insensitive)
+    or share at least two longer content tokens with it — the same
+    rule the citation audit uses (see _identity_matches).
+    """
     if not isinstance(entity, dict):
         return []
-    distinctive = _entity_distinctive_tokens(entity)
-    label = str(entity.get("label") or "").lower()
-    out = []
+    bodies: dict[str, str] = {}
     for url, text in (evidence or {}).items():
         if not isinstance(url, str) or url.startswith("user://"):
             continue
         try:
             body = str((qualification.get(url) or {}).get("usable_text")
-                       or text or "").lower()
+                       or text or "")
         except Exception:
-            continue
-        if (label and label in body) or any(
-                t in body for t in distinctive):
-            out.append(url)
+            body = ""
+        if body:
+            bodies[url] = body
+    single_ok = _singleton_rare(entity, list(bodies.values()))
+    out = []
+    for url, body in bodies.items():
+        try:
+            if _identity_matches(entity, body, single_ok=single_ok):
+                out.append(url)
+        except Exception:
+            pass
     return out
 
 
@@ -1985,9 +2055,59 @@ def make_model_writer(model_client, max_chars: int = 12000):
                     _u = (_r or {}).get("url") if isinstance(_r, dict) else None
                     if isinstance(_u, str) and _u:
                         _ref_count[_u] = _ref_count.get(_u, 0) + 1
+            # Refs das avaliações por entidade (covered/partial): a
+            # cobertura por critério carrega só a referência do veredito
+            # global, e a fonte da entidade some do ordenamento (accept18:
+            # planning-with-files referenciado em 3 células, fora do
+            # prompt de 12k por ordem alfabética).
+            for _e in view.get("evaluations") or []:
+                if not isinstance(_e, dict):
+                    continue
+                if _e.get("state") not in ("covered", "partial"):
+                    continue
+                for _r in _e.get("references") or []:
+                    _u = (_r or {}).get("url") if isinstance(_r, dict) else None
+                    if isinstance(_u, str) and _u:
+                        _ref_count[_u] = _ref_count.get(_u, 0) + 1
         except Exception:
             _ref_count = {}
-        corpus_urls.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+        # Piso por entidade exigida: cada candidato tem ao menos seu
+        # melhor doc (identidade estrita + mais referenciado) no prompt,
+        # em ordem do plano, antes do preenchimento por orçamento.
+        # Evidência referenciada pela avaliação nunca cai do prompt por
+        # ordem alfabética; sem doc da entidade no corpus, sem piso
+        # (LACUNA honesta, nunca preenchida por vizinho alfabético).
+        try:
+            _req_ents = [e for e in (plan.get("entities") or [])
+                         if isinstance(e, dict) and e.get("required", True)]
+            _floor_texts = [str(evidence.get(_u) or "")
+                            for _u in corpus_urls]
+            _floor: list[str] = []
+            for _ent in _req_ents:
+                _single_ok = _singleton_rare(_ent, _floor_texts)
+                _best = None
+                _best_key = None
+                for _u in corpus_urls:
+                    if _u in _floor:
+                        continue
+                    try:
+                        if not _identity_matches(
+                                _ent, f"{_u}\n{evidence.get(_u) or ''}",
+                                single_ok=_single_ok):
+                            continue
+                    except Exception:
+                        continue
+                    _key = (_ref_count.get(_u, 0),
+                            _u == (_ent.get("source_url") or ""))
+                    if _best_key is None or _key > _best_key:
+                        _best, _best_key = _u, _key
+                if _best is not None:
+                    _floor.append(_best)
+            _rest = [u for u in corpus_urls if u not in _floor]
+            _rest.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+            corpus_urls[:] = _floor + _rest
+        except Exception:
+            corpus_urls.sort(key=lambda u: (-_ref_count.get(u, 0), u))
         # Relevance terms: plan labels + issued-query tokens fed via hook
         # (same language-mismatch rationale as the assessor: PT labels vs
         # EN corpus). Long documents are windowed around the criteria,
@@ -2086,6 +2206,27 @@ def make_model_writer(model_client, max_chars: int = 12000):
                           + "; ".join(_sub_labels) + "\n")
         except Exception:
             _sub_s = ""
+        # Alternativas descobertas mas não investigadas: o writer não
+        # afirma fatos sobre elas; registra-as como não investigadas
+        # (suficiência explícita: manter o candidato com LACUNA exige
+        # dizer o que se deixou de explorar).
+        _unexp_s = ""
+        try:
+            _unexp_labels = []
+            for _x in (view.get("unexplored_alternatives") or []):
+                if not isinstance(_x, dict):
+                    continue
+                _urls = ", ".join(_x.get("urls") or [])
+                _unexp_labels.append(
+                    f"{_x.get('entity')}: {_urls}" if _urls
+                    else str(_x.get("entity")))
+            if _unexp_labels:
+                _unexp_s = ("Alternativas descobertas mas NÃO investigadas "
+                            "(não afirmar fatos sobre elas; registrar como "
+                            "não investigadas): "
+                            + "; ".join(_unexp_labels) + "\n")
+        except Exception:
+            _unexp_s = ""
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
@@ -2101,7 +2242,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "documento que não menciona a entidade não sustenta); "
             "não invente fatos.\n"
             f"Pergunta: {question}\n"
-            f"{_cand_s}{_sub_s}"
+            f"{_cand_s}{_sub_s}{_unexp_s}"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
             f"Corpus selecionado:\n{corpus_s}\n{ctx_s}"
             "Retorne SOMENTE o relatório em markdown."
@@ -2708,87 +2849,20 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         state["notes"].append(f"discovery proposal rejected: {exc}")
 
 
-def _maybe_substitute(state: dict, ledger) -> bool:
-    """Justified candidate substitution (generic mechanism, strict rule).
+def _do_substitute(state: dict, ledger, old_id: str, new_id: str,
+                    reason: str) -> bool:
+    """Execute a recorded required-flag swap (extracted M8 tail).
 
-    Called in the gap phase: when a required+discovered entity has ALL
-    its per_candidate cells insufficient for lack of evidence after >=2
-    rounds (no evaluation with references for it) AND an explored entity
-    (required=False, discovered, source collected + mentioned) is still
-    unselected, the old one leaves the selection (required=False with a
-    "substituída por <nova>: <motivo>" note) and the new one joins it
-    (required=True + applies_to extends). Registered in plan_versions as
-    {type:'substitution', old, new, reason}. The old entity stays in the
-    report as explored-out-of-selection (list passed to the writer).
-
-    Strict rule: swap only toward MORE evidence (new has a collected +
-    mentioned source, old has no referenced evaluation). Without that,
-    never swap. One swap per call.
+    Old leaves the selection (required=False + note), new joins it
+    (required=True + applies_to extended); recorded in plan_versions as
+    {type:'substitution'} and in substitutions (writer-visible). Ledger
+    rebuilt on the new plan, prior evaluations re-applied (never trusted
+    blindly). Returns False (with note) instead of raising.
     """
     try:
-        if len(state.get("rounds", []) or []) < 2:
-            return False
-        plan = state.get("plan") or {}
-        entities = [e for e in plan.get("entities", [])
-                    if isinstance(e, dict)]
-        emap = {e.get("id"): e for e in entities}
-        per_crits = [c for c in plan.get("criteria", [])
-                     if isinstance(c, dict) and c.get("required", True)
-                     and c.get("per_candidate")]
-        if not per_crits:
-            return False
-        evals = [e for e in (state.get("evaluations", []) or [])
-                 if isinstance(e, dict)]
-        evidence = state.get("evidence", {}) or {}
-
-        def _supported(ent: dict) -> bool:
-            src = (ent.get("source_url") or "").strip()
-            if not src or src not in evidence:
-                return False
-            label = str(ent.get("label", ent.get("id")) or "")
-            toks = [t for t in label.lower().replace("(", " ").replace(
-                ")", " ").replace("/", " ").replace("-", " ").split()
-                if len(t) >= 4]
-            return any(t in str(evidence[src]).lower() for t in toks)
-
-        def _old_ok(eid: str) -> bool:
-            ent = emap.get(eid) or {}
-            if not (ent.get("discovered") and ent.get("required", True)):
-                return False
-            cells = [c for c in per_crits
-                     if eid in (c.get("applies_to") or [])]
-            if not cells:
-                return False
-            for c in cells:
-                st = (ledger._evals.get((c.get("id"), eid), {})
-                      .get("state", "uninvestigated"))
-                if st not in ("insufficient", "uninvestigated"):
-                    return False
-            for ev in evals:
-                if ev.get("entity_id") == eid and ev.get("references"):
-                    return False
-            return True
-
-        olds = [eid for eid in emap
-                if emap[eid].get("required", True) and _old_ok(eid)]
-        if not olds:
-            return False
-        news = [e for e in entities
-                if not e.get("required", True) and e.get("discovered")
-                and _supported(e)]
-        if not news:
-            return False
-        # Least evidenced first: no collected source beats a collected one.
-        olds.sort(key=lambda eid: (
-            1 if (emap[eid].get("source_url") or "") in evidence else 0,
-            str(eid)))
-        news.sort(key=lambda e: str(e.get("id")))
-        old_id = olds[0]
-        new_id = news[0].get("id")
-        reason = (f"{old_id} sem evidência referenciada após "
-                  f"{len(state.get('rounds', []))} rounds; {new_id} com "
-                  f"fonte própria coletada e mencionada")
         import copy as _copy
+        import copy as _copy2
+        plan = state.get("plan") or {}
         new_plan = _copy.deepcopy(plan)
         for e in new_plan.get("entities", []):
             if e.get("id") == old_id:
@@ -2806,7 +2880,6 @@ def _maybe_substitute(state: dict, ledger) -> bool:
         # Explicit recorded version (not _record_plan_version: the swap
         # deliberately moves a required flag, which the silent-drop guard
         # would reject — the substitution record is what makes it visible).
-        import copy as _copy2
         try:
             _prev_v = max(int(v.get("version", 0) or 0)
                           for v in (state.get("plan_versions") or []))
@@ -2864,6 +2937,241 @@ def _maybe_substitute(state: dict, ledger) -> bool:
         ledger._counts = fresh._counts
         ledger.version = fresh.version
         return True
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"substitution failed: {exc}")
+        except Exception:
+            pass
+        return False
+
+
+def _slug_label(url: str) -> str | None:
+    """Candidate label from a discovery URL (last path segment or host)."""
+    try:
+        from urllib.parse import urlsplit
+        p = urlsplit(str(url or ""))
+        seg = (p.path or "").strip("/").split("/")[-1] if p.path else ""
+        base = seg or (p.hostname or "")
+        base = re.sub(r"\.(git|html?)$", "", base, flags=re.IGNORECASE)
+        slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+        return slug or None
+    except Exception:
+        return None
+
+
+def _promote_discovery_news(state: dict, ledger, olds: list) -> bool:
+    """Promote a collected+mentioned discovery candidate to substitute an
+    unevidenced required entity (identity as concept, not word overlap).
+
+    The discovery pool holds URLs that never became plan entities; when
+    the plan itself offers no substitute, a pool URL already collected
+    whose text names its own slug-derived label is adopted via
+    _apply_discovery and swapped in. Returns True on the first swap.
+    """
+    try:
+        plan = state.get("plan") or {}
+        entities = [e for e in plan.get("entities", []) if isinstance(e, dict)]
+        plan_urls = {str(e.get("source_url") or "") for e in entities}
+        plan_urls.discard("")
+        evidence = state.get("evidence", {}) or {}
+        taken = {e.get("id") for e in entities}
+        taken |= {str(e.get("label", "")).strip().lower() for e in entities}
+        cands = sorted({c for c in
+                        (state.get("discovery", {}) or {}).get(
+                            "candidates", []) or []
+                        if isinstance(c, str)
+                        and c.startswith(("http://", "https://"))
+                        and c not in plan_urls and c in evidence})
+        for cand in cands:
+            slug = _slug_label(cand)
+            if not slug or slug in taken:
+                continue
+            body = evidence.get(cand) or ""
+            if not isinstance(body, str) or not body.strip():
+                continue
+            probe = {"id": slug, "label": slug}
+            try:
+                if not _identity_matches(probe, f"{cand}\n{body}"):
+                    continue
+            except Exception:
+                continue
+            eid = slug
+            _n = 1
+            while eid in taken:
+                _n += 1
+                eid = f"{slug}-{_n}"
+            _apply_discovery(
+                state, ledger,
+                {"entity": {"id": eid, "label": slug, "url": cand},
+                 "criteria": []}, {})
+            tracked = next(
+                (e for e in (state.get("plan") or {}).get("entities", [])
+                 if isinstance(e, dict) and (e.get("source_url") == cand
+                                             or e.get("id") == eid)),
+                None)
+            if tracked is None:
+                continue
+            new_id = tracked.get("id")
+            for old_id in olds:
+                reason = (
+                    f"{old_id} sem evidência referenciada após "
+                    f"{len(state.get('rounds', []))} rounds; {new_id} com "
+                    f"fonte própria coletada e mencionada "
+                    f"(pool de descoberta)")
+                if _do_substitute(state, ledger, old_id, new_id, reason):
+                    return True
+        return False
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"discovery promotion skipped: {exc}")
+        except Exception:
+            pass
+        return False
+
+
+def _record_unexplored(state: dict, olds: list) -> None:
+    """Sufficiency made explicit: required candidates kept without
+    investigation must say what was left unexplored.
+
+    Discovery leftovers (URLs never collected, or collected but not
+    promoted) whose slug mentions the kept candidate are recorded in
+    state["unexplored_alternatives"] (writer-visible) and notes — once
+    per discovery-pool size, so later rounds can add new leftovers.
+    """
+    try:
+        plan = state.get("plan") or {}
+        emap = {e.get("id"): e for e in (plan.get("entities", []) or [])
+                if isinstance(e, dict)}
+        plan_urls = {str(e.get("source_url") or "") for e in emap.values()}
+        pool = sorted({c for c in
+                       (state.get("discovery", {}) or {}).get(
+                           "candidates", []) or []
+                       if isinstance(c, str)
+                       and c.startswith(("http://", "https://"))
+                       and c not in plan_urls})
+        if state.get("_unexplored_pool_size") == len(pool):
+            return
+        recs = []
+        for old_id in olds:
+            ent = emap.get(old_id) or {}
+            toks = [t for t in _entity_distinctive_tokens(ent)
+                    if len(t) >= 4]
+            hits = [u for u in pool
+                    if toks and any(t in u.lower() for t in toks)][:5]
+            recs.append({"entity": str(ent.get("label") or old_id),
+                         "urls": hits})
+        state.setdefault("unexplored_alternatives", []).extend(recs)
+        state["notes"].append(
+            "sem substituto no plano; alternativas descobertas não "
+            "exploradas: " + "; ".join(
+                f"{r['entity']}: "
+                f"{', '.join(r['urls']) if r['urls'] else 'nenhuma URL do pool menciona o candidato'}"
+                for r in recs))
+        state["_unexplored_pool_size"] = len(pool)
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"unexplored record skipped: {exc}")
+        except Exception:
+            pass
+
+
+def _maybe_substitute(state: dict, ledger) -> bool:
+    """Justified candidate substitution (generic mechanism, strict rule).
+
+    Called in the gap phase: when a required+discovered entity has ALL
+    its per_candidate cells insufficient for lack of evidence after >=2
+    rounds (no evaluation with references for it) AND an explored entity
+    (required=False, discovered, source collected + mentioned) is still
+    unselected, the old one leaves the selection (required=False with a
+    "substituída por <nova>: <motivo>" note) and the new one joins it
+    (required=True + applies_to extends). Registered in plan_versions as
+    {type:'substitution', old, new, reason}. The old entity stays in the
+    report as explored-out-of-selection (list passed to the writer).
+
+    Strict rule: swap only toward MORE evidence (new has a collected +
+    mentioned source, old has no referenced evaluation). Without that,
+    never swap. One swap per call.
+    """
+    try:
+        if len(state.get("rounds", []) or []) < 2:
+            return False
+        plan = state.get("plan") or {}
+        entities = [e for e in plan.get("entities", [])
+                    if isinstance(e, dict)]
+        emap = {e.get("id"): e for e in entities}
+        per_crits = [c for c in plan.get("criteria", [])
+                     if isinstance(c, dict) and c.get("required", True)
+                     and c.get("per_candidate")]
+        if not per_crits:
+            return False
+        evals = [e for e in (state.get("evaluations", []) or [])
+                 if isinstance(e, dict)]
+        evidence = state.get("evidence", {}) or {}
+
+        def _supported(ent: dict) -> bool:
+            src = (ent.get("source_url") or "").strip()
+            if not src or src not in evidence:
+                return False
+            # Strict identity (same concept as selection): a collected
+            # source only counts when it names the candidate. The
+            # singleton gate is corpus-relative (rare here = identifies).
+            try:
+                _ok = _singleton_rare(
+                    ent, [str(v or "") for v in evidence.values()
+                          if isinstance(v, str)])
+                return _identity_matches(
+                    ent, f"{src}\n{evidence[src]}", single_ok=_ok)
+            except Exception:
+                return False
+
+        def _old_ok(eid: str) -> bool:
+            ent = emap.get(eid) or {}
+            if not (ent.get("discovered") and ent.get("required", True)):
+                return False
+            cells = [c for c in per_crits
+                     if eid in (c.get("applies_to") or [])]
+            if not cells:
+                return False
+            for c in cells:
+                st = (ledger._evals.get((c.get("id"), eid), {})
+                      .get("state", "uninvestigated"))
+                if st not in ("insufficient", "uninvestigated"):
+                    return False
+            for ev in evals:
+                if ev.get("entity_id") == eid and ev.get("references"):
+                    return False
+            return True
+
+        olds = [eid for eid in emap
+                if emap[eid].get("required", True) and _old_ok(eid)]
+        if not olds:
+            return False
+        news = [e for e in entities
+                if not e.get("required", True) and e.get("discovered")
+                and _supported(e)]
+        if not news:
+            # Pool de descoberta antes de desistir: candidatos coletados
+            # e mencionados que nunca viraram entidade do plano podem
+            # substituir (accept18: repos reais descobertos, plano
+            # travado). Sem ninguém, registra o que se deixou de explorar.
+            if _promote_discovery_news(state, ledger, olds):
+                return True
+            _record_unexplored(state, olds)
+            return False
+        # Least evidenced first: no collected source beats a collected one.
+        olds.sort(key=lambda eid: (
+            1 if (emap[eid].get("source_url") or "") in evidence else 0,
+            str(eid)))
+        news.sort(key=lambda e: str(e.get("id")))
+        old_id = olds[0]
+        new_id = news[0].get("id")
+        reason = (f"{old_id} sem evidência referenciada após "
+                  f"{len(state.get('rounds', []))} rounds; {new_id} com "
+                  f"fonte própria coletada e mencionada")
+        return _do_substitute(state, ledger, old_id, new_id, reason)
     except Exception as exc:
         try:
             state.setdefault("notes", []).append(
@@ -3738,6 +4046,10 @@ _GENERIC_IDENTITY_TOKENS = frozenset({
     "package", "packages", "agent", "agents", "test", "tests", "testing",
     "review", "reviews", "marketplace", "manager", "helper", "utils",
     "addon", "addons", "extensao", "extensoes", "ferramenta",
+    # Function words that split hyphenated labels but identify nothing
+    # ("planning-WITH-files"): same stopword class in both languages.
+    "with", "from", "that", "this", "these", "those",
+    "para", "como", "pelo", "pela",
 })
 
 
@@ -4542,6 +4854,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             "user_context": state.get("user_context") or {},
             "question_coverage": block, "stop": state["stop"],
             "rounds": state["rounds"],
+            "evaluations": list(state.get("evaluations") or []),
+            "unexplored_alternatives": list(
+                state.get("unexplored_alternatives") or []),
             "substitutions": list(state.get("substitutions") or [])}
     # -- write (1 model-boundary call when a real writer is used) ----
     if write is None:
