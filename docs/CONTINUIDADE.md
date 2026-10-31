@@ -2,7 +2,7 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (pós-accept21 + commit produto).
+> Última atualização: 2026-10-31 (pós-accept22, HEAD `776af89`).
 > Commits produto e docs separados (sem push).
 
 ## Objetivo e escopo
@@ -30,6 +30,34 @@ do usuário, e o diagnose concordou (sem divergência).
   (`adaptive_coordinator.py` +207), auditoria granular B2/B5
   (`verification_report.py` +232), 2 testes novos (10 passed).
   Hashes workdir == frozen do run: `9b3a577a…` / `dcff1404…`.
+- `a704463` — **produto**: quebra de monopólio single-host sem transcrição
+  + mistura por diversidade (`native_transport.py`) e gate de quote/versão
+  em LACUNA + ponderação no `verify_support` (`verification_report.py`),
+  2 testes novos (`test_web_monopoly_break`, `test_lacuna_quote_gate`).
+  Suíte combinada fresca pós-commit: **84 passed** (8 arquivos).
+- `776af89` — docs do accept21 + suíte (HEAD congelado do run accept22;
+  hashes reconferidos pré/pós-run, sem edição durante o run).
+
+## Resultado accept22 (evidência em `/home/thomaskyn/hermes-runs/accept22/`)
+
+- Config: pergunta do aceite, medium/max-rounds-3, contexto 2.1.4,
+  **vast DOWN + SearXNG DOWN** (curl 000 pré e pós-run), EXIT=0, 658s.
+- Cobertura **11/54 + 0 N/A (20,4%)** (ok 10, partial_legit 11, missing 16,
+  selection_context 16, synthesis_unsupported 1); síntese 65/9/59;
+  **verification overall `failed`**; **RA8 segue PENDENTE**.
+- Corpus saudável sem YouTube (31 descobertos/11 hosts, 28 usáveis,
+  22 analisados, 0 assessor_error): **5 nomes com identidade**
+  (lit-opencode, opencode-browser, plugin-testing/dzianisv,
+  opencode-plugins/jadmadi, Context7). Failed por 5 URLs nuas fora do
+  corpus + 3 inferências de combinação reprovadas [12,13,14] + 17 LACUNA
+  sem overlap — métodos de acordo, sem leniência em URL nua.
+- Fixes: cc0f3ff com sinal positivo fraco (classe accept20 ausente;
+  sentença compat declara LACUNA contida); quote-gate manteve `failed`
+  em URL nua (leniência accept21 estreitada ao caminho de índices `[N]`);
+  monopólio-break e b81e8f6 sem alvo (sem monopólio; M8 sem disparo).
+  Residual: selection_context 16; c11/c12 insufficient.
+- Contraste causal: vast DOWN 11/54 vs vast UP 0/15, mesma config
+  (ddgs+extração cobrem; funil YouTube sem transcrição colapsa).
 
 ## Resultado accept21 (evidência em `/home/thomaskyn/hermes-runs/accept21/`)
 
@@ -46,9 +74,9 @@ do usuário, e o diagnose concordou (sem divergência).
 
 ## Serviços (2026-10-31, pós-run)
 
-- `hermes-gateway` UP (9119/8081). **vast :8001 DOWN** (subiu on-demand no
-  run, desligado após — baseline restaurada). SearXNG DOWN (sem imagem
-  docker), embeddings :8082 DOWN — igual ao accept20.
+- `hermes-gateway` UP (9119/8081). **vast `:8001` DOWN** (accept21 subiu
+  on-demand e desligou; accept22 rodou com DOWN pré/pós confirmado).
+  SearxNG DOWN (sem imagem docker), embeddings DOWN — igual ao accept20.
 
 ## Ambiente e configuração efetiva
 
@@ -67,12 +95,16 @@ do usuário, e o diagnose concordou (sem divergência).
 
 | Commit | O que muda | Validado até agora |
 |--------|------------|--------------------|
-| `cc0f3ff` | contexto do usuário não é evidência (⇒ `LACUNA` no prompt); bucket `na_scoped` no diagnose | só unit test |
-| `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test |
-| `817a77b` | B3 pool-reserve (1 slot/round p/ pool amarrado); B4 janela da menção da entidade no excerto; B2 auditoria por bullet; B5 janela auditada registrada + sentence_support ponderado | 10 passed (2 arquivos novos) |
+| `cc0f3ff` | contexto do usuário não é evidência (⇒ `LACUNA` no prompt); bucket `na_scoped` no diagnose | unit test + **sinal fraco em run real (accept22: classe accept20 ausente, sentença compat contida)** |
+| `b81e8f6` | M8: entidade fraca sem troca registra pool não explorado | só unit test (M8 sem disparo em accept21 e accept22) |
+| `817a77b` | B3 pool-reserve; B4 mention-window; B2/B5 auditoria granular | 10 passed (2 arquivos novos); sem prova em run real |
+| `a704463` | quebra de monopólio single-host + diversidade; gate de quote em LACUNA | unit test + suíte 84 passed; accept22 sem alvo para monopólio, quote-gate manteve `failed` em URL nua |
 
 Unit tests pós-commit: `test_audit_granularity` + `test_pool_reserve_mention_window`
-10 passed. O próximo run precisa provar as quatro correções em run real.
+10 passed, mais `test_web_monopoly_break` + `test_lacuna_quote_gate`
+(suíte combinada fresca 84 passed). Accept22 deu primeiro sinal real
+parcial (ver seção accept22 acima); prova isolada das quatro correções
+segue pendente.
 
 ## Bloqueios, hipóteses e próxima ação
 
@@ -84,11 +116,10 @@ Unit tests pós-commit: `test_audit_granularity` + `test_pool_reserve_mention_wi
   no M8. Detalhes em `.planning/agent-reach-accept21/findings.md`.
 - **Lição do accept19 (não repetir):** run rodou sobre código antigo por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação:** run controlado com **vast DOWN** (isola o modo de falha
-  single-channel do accept21: força o roteador para outros canais) + fix da
-  **leniência LACUNA** (citação fora do corpus em frase LACUNA deve falhar
-  como no accept19, não só `partial`). Depois re-run accept22 cobrindo os
-  5 bloqueadores (Phase 4).
+- **Próxima ação:** investigar `selection_context` 16 e o caminho de
+  índices `[N]` fora da base de síntese (leniência residual do accept21),
+  sem flexibilizar critério; depois re-run cobrindo os 5 bloqueadores
+  (Phase 4). RA8 segue pendente até overall `passed` em run real.
 
 ## Referências
 

@@ -91,3 +91,43 @@
   (`test_web_monopoly_break`, `test_lacuna_quote_gate`). Separado de docs.
 - Próximo: run controlado accept22 (vast DOWN + SearXNG DOWN baseline)
   exercitando os 2 fixes; RA8 segue pendente até evidência do run.
+
+## 2026-10-31 — Sessão 5: run accept22 com vast DOWN (fixer, lane isolado)
+
+- Congelado HEAD `776af89` + `git diff --stat` (vazio; só untracked
+  `.planning/.active_plan` pré-existente) + sha256 de 5 arquivos produto
+  (`hashes.frozen`) em `/home/thomaskyn/hermes-runs/accept22/*.frozen`.
+  Hashes reconferidos após o run: idênticos (sem edição produto no run).
+  `adaptive_coordinator.py` igual ao frozen accept21 (`9b3a577a…`).
+- Entrada do experimento: `installed_opencode_version=2.1.4` (contexto);
+  instalada real `opencode v2.2.5` registrada à parte (sem presumir).
+- Infra medida (curl curto, pré E pós-run): vast :8001 DOWN (000, sem
+  processos, nada subido on-demand); SearXNG DOWN (localhost + bridge
+  `172.18.0.2`); embeddings :8082 DOWN; gateway 9119 UP (302).
+  Baseline restaurada por construção (nada foi ligado).
+- Run real (run.sh = template accept21 com dirs accept22; medium,
+  max-rounds 3, native+opencode `muse-spark-1.3-contributor`): parada
+  `rounds`, **658s**, EXIT=0, 31/28/28/22, 7 síntese / 10 citados,
+  55 avaliações (11 covered + 23 partial + 21 insufficient,
+  **0 assessor_error**). Consumo: queries 10, extractions 37,
+  **yt_live_fetches 0**, model_calls 8.
+- **Cobertura oficial 11/54 + 0 N/A (20,4%)**; diagnose: ok 10,
+  partial_legit 11, missing 16, selection_context 16,
+  synthesis_unsupported 1 (c7/e5); síntese 65/9/59;
+  **verification overall `failed`** (execution ok, resto partial/failed).
+  **RA8 segue PENDENTE.**
+- Causa do failed (3, métodos de acordo): 5 URLs nuas fora do corpus +
+  3 claims de combinação-inferência reprovadas [12,13,14] + 17 frases
+  LACUNA sem overlap suficiente. Renderer auto-declarou as URLs nuas.
+- Utilidade: **5 nomes pertinentes com fonte** (lit-opencode,
+  opencode-browser, plugin-testing/dzianisv, opencode-plugins/jadmadi,
+  Context7); comparação parcial honesta; combinações = inferências
+  declaradas (reprovadas pelo revisor); overlap = LACUNA.
+- Fixes: monopólio-break sem alvo (11 hosts, 1 YT — diversidade por canal
+  morto, disparo não isolável); quote-gate manteve `failed` em URL nua
+  (leniência accept21 estreitada ao caminho de índices `[N]`); cc0f3ff com
+  primeiro sinal positivo fraco (classe accept20 ausente; sentença compat
+  declara LACUNA contida); b81e8f6 sem alvo (M8 sem disparo).
+  Residual: selection_context 16 de volta; c11/c12 insufficient.
+- Outputs em `/home/thomaskyn/hermes-runs/accept22/` (fora do repo e do
+  /tmp); `.hermes` intocado; sem push.

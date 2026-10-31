@@ -69,3 +69,41 @@
   blinda citação não-resolvida no caminho de frases (claims 12/12 ok,
   frases 15 unsupported ⇒ só `partial`; accept19 falhava 1 caso assim).
   Investigar sem flexibilizar critério.
+
+## Resultado accept22 (evidência: `/home/thomaskyn/hermes-runs/accept22/`)
+
+- **11/54 + 0 N/A (20,4%)**; diagnose: `ok 10, partial_legit 11,
+  missing_dimension_evidence 16, selection_context 16,
+  synthesis_unsupported 1` (c7/e5: covered avaliado, sem suporte na
+  síntese). Síntese 65/9/59 (verification conta 57/17/30 — métodos
+  distintos, mesma conclusão). Verification overall **failed**
+  (execution ok; question/review partial; support failed). RA8 PENDENTE.
+- Corpus saudável com vast DOWN: 31 descobertos em 11 hosts (github 9,
+  opencode.ai 8, resto ≤3; 1 YouTube); 28/28 obtidos-usáveis, 22
+  analisados, 55 avaliações com **0 assessor_error**. 5 nomes com
+  identidade (lit-opencode, opencode-browser, plugin-testing/dzianisv,
+  opencode-plugins/jadmadi, Context7).
+- Failed por: (1) 5 URLs nuas fora do corpus (renderer auto-declarou e
+  removeu das fontes — honesto mas não resolve a citação);
+  (2) claims [12,13,14] = as 3 inferências de combinação do §11,
+  reprovadas pelo revisor (inferência composicional ≠ evidência direta);
+  (3) 17 frases LACUNA com citação in-corpus sem overlap (0,00–0,22).
+- Hipóteses 1–2 (cc0f3ff/b81e8f6): 1 com sinal positivo fraco — classe de
+  falha do accept20 (inferência de versão) não recorreu; sentença de
+  compat declara LACUNA com contexto marcado e fica contida
+  (sentence-unsupported, sem promoção). 2 sem alvo (M8 sem disparo).
+  Não são provas isoladas (corpus distinto do accept20).
+- Hipótese 3 (flake assessor): 0 erros em 55 avaliações — 2 runs seguidos
+  limpos (accept21 teve 0 em 16).
+- Hipótese 4 (variância): confirmada por contraste — vast DOWN 11/54 vs
+  vast UP 0/15, mesma config (fator causal: mistura de canais; ddgs+arXiv
+  cobrem, funil YouTube sem transcrição colapsa).
+- Leniência LACUNA (regressão suspeita do accept21): **estreitada** —
+  URL nua fora do corpus ⇒ `failed` (igual accept19); índices `[N]`
+  in-corpus sem overlap ⇒ unsupported em sentença; o caso accept21
+  (índices fora da base de síntese ⇒ só `partial`) segue como classe
+  aberta a investigar, sem flexibilizar critério.
+- Fix `a704463` monopólio-break: sem alvo neste run (diversidade veio do
+  canal morto, não necessariamente do código); disparo não isolável.
+  Residual novo/recorrente: `selection_context` 16 (accept20: 4);
+  c11/c12 seguem insufficient (corpus sem material comparativo).
