@@ -204,6 +204,37 @@ Conclusão: só o item 1 é pendência legítima (e mesmo ele é BLOQUEADO por
 ambiente, não falha de produto). RA8 continua sendo o único critério
 aberto do aceite; os demais itens não viram condição de fechamento.
 
+## Missão 3 — 3 contratos (2026-10-31, HEAD `cc1bf1c`)
+
+Estado (evidência: `git log` + `git status` + `ss`/`docker`, 2026-10-31):
+branch `feat/product-v1`, HEAD `cc1bf1c` (só docs do accept23; produto ==
+`49508fe`); árvore rastreada limpa (só untracked pré-existente
+`.planning/.active_plan`); `hermes-gateway` UP (9119/8081), :8001/:8888/:8082
+sem listener (vast/searxng/embeddings DOWN, baseline restaurada).
+
+Instruções superadas — varredura 2026-10-31: nenhuma restante como
+pendência ativa. Phase 2/3 seguem SUPERADAS, Phase 4 RECLASSIFICADA
+(Missão 2); único residual pendente era `selection_context` 16 (Phase 5),
+que zerou no accept23 — marcado feito nesta missão, sem re-investigar.
+`max-rounds 3` segue config de run, não requisito; run-vast-UP,
+5-itens-como-requisito e pausa-mid-model seguem removidos.
+
+Contratos (objetivo da Missão 3; implementação fora de escopo desta sessão):
+
+1. `[N]` resolve — corpo cita `([N])` (accept23: índices 1,7,8,9), extrator
+   só enxerga URLs nuas da tabela-fonte ⇒ `citations_evidence=0/resolved=0`
+   (18/18 utility) enquanto a sentença vale 48/50 ok. Contrato: camada de
+   contagem/extrator resolve citação in-text `[N]` → tabela-fonte.
+2. versão-premissa — versão vinda de premissa explícita (usuário/contexto,
+   `user://` fora do corpus, 2º run contido no accept23) não reprova como
+   inferência; gate separado tag exata vs família funcional, conclusões
+   separadas (semântica `49508fe`, Sessão 8).
+3. inferência-complementaridade — frase que nomeia ≥2 entidades exige
+   citação de interoperabilidade (doc com ≥2 entidades); sem ela, LACUNA
+   explícita — complementaridade plausível vs integração testada
+   (semântica `49508fe`, Sessão 8; accept23: combinação recusada,
+   c12 insufficient).
+
 ### 4 inconsistências corrigidas nesta missão
 
 1. **Run-com-vast-UP como instrução ativa** (`task_plan` Phase 2 + Next

@@ -250,3 +250,21 @@
   sem corrigir: contador de citações cego a `([N])` (evidence/resolved 0).
 - Outputs em `/home/thomaskyn/hermes-runs/accept23/` (fora do repo e do
   /tmp); `.hermes` intocado; accept22 intacto; sem push.
+
+## 2026-10-31 — Sessão 10: Missão 3 — registro dos 3 contratos (fixer)
+
+- HEAD `cc1bf1c` (só docs do accept23; produto == `49508fe`); árvore
+  rastreada limpa (só untracked pré-existente `.planning/.active_plan`);
+  `hermes-gateway` UP (9119/8081), :8001/:8888/:8082 sem listener
+  (vast/searxng/embeddings DOWN, baseline restaurada).
+- `task_plan.md`: Next Step reescrito (Missão 3, 3 contratos); Phase 5 sem
+  `selection_context` (zerou no accept23, sai dos resíduos); Phase 6
+  COMPLETE; Phase 7 (Missão 3) aberta IN PROGRESS; Current Phase = Phase 7.
+- `findings.md`: seção Missão 3 com estado HEAD/infra + varredura de
+  instruções superadas (nenhuma restante ativa) + 3 contratos definidos a
+  partir de resíduos accept23 e semântica `49508fe` (Sessão 8).
+- `docs/CONTINUIDADE.md`: header/HEADs/próxima ação sincronizados (Sessão 10,
+  HEAD `cc1bf1c`, Missão 3); sem lógica produto tocada.
+- Próximo: implementar os 3 contratos ([N] resolve; versão-premissa;
+  inferência-complementaridade) em lane próprio, TDD RED→GREEN; RA8 segue
+  pendente até overall `passed` em run real.

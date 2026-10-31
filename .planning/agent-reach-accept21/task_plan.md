@@ -10,15 +10,23 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-Investigate `assessor_error` 17 (proximidade-em-listagem, recorrente
-accept20/accept23) and citation counter blind to `([N])` in-text cites, sem
-flexibilizar; depois re-run cobrindo as correções pendentes de prova
+Missão 3 — 3 contratos, sem flexibilizar; depois re-run cobrindo prova
 isolada. RA8 segue pendente até overall `passed` em run real
-(accept23: 0/55 failed honesto sob `49508fe`; `selection_context` zerou).
+(accept23: 0/55 failed honesto sob `49508fe`; `selection_context` zerou —
+sai da lista de resíduos ativos).
+
+Contratos: (1) `[N]` resolve — contador/extrator enxerga citação in-text
+`([N])`, não só URL nua (resíduo accept23: evidence/resolved 0 vs sentença
+48/50); (2) versão-premissa — versão vinda de premissa explícita
+(usuário/contexto) não reprova como inferência; gate tag-exata vs família
+funcional com conclusões separadas; (3) inferência-complementaridade —
+frase que nomeia ≥2 entidades exige citação de interoperabilidade
+(doc com ≥2 entidades), senão LACUNA explícita (complementaridade plausível
+vs integração testada).
 
 ## Current Phase
 
-Phase 6 (Missão 2: coerência do plano)
+Phase 7 (Missão 3: 3 contratos)
 
 ## Phases
 
@@ -55,21 +63,34 @@ Phase 6 (Missão 2: coerência do plano)
 
 ### Phase 5: Fechar aceite
 
-- [ ] Investigar `selection_context` 16 + índices `[N]` fora da base
-  (leniência residual accept21), sem flexibilizar
+- [x] `selection_context` 16 (residual accept22) — zerou no accept23
+  (0 ocorrências); sai da lista de resíduos ativos, sem ação associada
 - [ ] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
 - [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com nova rodada
 - [ ] `check-complete.sh` verde
-- **Status:** pending
+- **Status:** pending (só re-run + docs; sem re-investigar `selection_context`)
 
-### Phase 6 (Missão 2): Coerência do plano — IN PROGRESS
+### Phase 6 (Missão 2): Coerência do plano — COMPLETE
 
 - [x] 4 inconsistências registradas em `findings.md` (instruções superadas
   removidas: run-vast-UP, rounds-fixo, 5-itens-como-requisito, pausa-mid-model)
 - [x] Estado HEAD `15443a5` + config efetiva registrados
 - [x] Obrigatoriedade dos 5 itens conferida (modelagem v1.1 + matriz)
 - [x] `docs/CONTINUIDADE.md` atualizado como ponto de entrada
-- **Status:** in-progress (falta commit local)
+- **Status:** complete (commitado em `bf5507b` + `cc1bf1c`; nada pendente)
+
+### Phase 7 (Missão 3): 3 contratos — IN PROGRESS
+
+- [x] Missão registrada (este plano + `findings.md` + `progress.md` Sessão 10
+  + `docs/CONTINUIDADE.md` como ponto de entrada); sem lógica produto
+- [ ] (1) `[N]` resolve — extrator/contador resolve citação in-text `([N])`
+  → tabela-fonte (accept23: evidence/resolved 0 vs sentença 48/50)
+- [ ] (2) versão-premissa — versão de premissa explícita não reprova como
+  inferência; gate tag-exata vs família funcional, conclusões separadas
+- [ ] (3) inferência-complementaridade — ≥2 entidades na frase exige doc de
+  interoperabilidade (≥2 entidades), senão LACUNA explícita
+- **Status:** in-progress (contratos registrados; implementação fora de escopo
+  desta sessão)
 
 ## Decisions Made
 

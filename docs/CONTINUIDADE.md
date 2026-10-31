@@ -2,13 +2,13 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 9: run accept23 real sob
-> `49508fe` — 0/55 failed honesto, 5 nomes, 4 correções exercitadas;
-> RA8 segue PENDENTE). Commits produto e docs separados (sem push).
+> Última atualização: 2026-10-31 (Sessão 10: Missão 3 registrada — 3 contratos
+> ([N] resolve; versão-premissa; inferência-complementaridade); RA8 segue PENDENTE).
+> Commits produto e docs separados (sem push).
 >
 > HEADs: produto `49508fe` (consultado/mencionado + inferência-por-premissas
 > + fato-usuário + janela; executado no run accept23, hashes frozen
-> reconferidos pré/pós-run); docs evoluem sem tocar produto.
+> reconferidos pré/pós-run); docs `cc1bf1c` (Missão 3 registrada no plano).
 > `git show --stat` do intervalo prova docs-only (plano + CONTINUIDADE).
 
 ## Objetivo e escopo
@@ -59,6 +59,9 @@ do usuário, e o diagnose concordou (sem divergência).
   `report_renderer.py`, `scripts/citation_audit.py`, `tools/diagnose_run.py`
   + `tests/test_consultado_inferencia_usuario_janela.py`, 13 testes;
   foco 137 passed). Executado no run accept23 (hashes 8/8 OK pré/pós-run).
+- `cc1bf1c` — **só docs** do accept23 (plano + findings + CONTINUIDADE;
+  `git show --stat` confirma zero arquivo produto). Produto segue ==
+  `49508fe`. Base da Missão 3 (Sessão 10: 3 contratos registrados).
 
 ## Resultado accept23 (evidência em `/home/thomaskyn/hermes-runs/accept23/`)
 
@@ -206,12 +209,16 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação:** investigar `assessor_error` 17 recorrente
-  (proximidade-em-listagem, accept20 e accept23) + contador de citações
-  cego a `([N])`, sem flexibilizar critério; depois re-run cobrindo as
-  correções pendentes de prova isolada (Phase 5). RA8 segue pendente até
-  overall `passed` em run real. (`selection_context` zerou no accept23 —
-  sai da lista de resíduos ativos.)
+- **Próxima ação (Missão 3):** implementar os 3 contratos, sem
+  flexibilizar critério; depois re-run cobrindo prova isolada (Phase 5/7).
+  RA8 segue pendente até overall `passed` em run real. (`selection_context`
+  zerou no accept23 — sai da lista de resíduos ativos.)
+  - (1) `[N]` resolve — extrator/contador resolve citação in-text `([N])`
+    → tabela-fonte (accept23: evidence/resolved 0 vs sentença 48/50);
+  - (2) versão-premissa — versão de premissa explícita não reprova como
+    inferência; gate tag-exata vs família funcional, conclusões separadas;
+  - (3) inferência-complementaridade — ≥2 entidades na frase exige doc de
+    interoperabilidade (≥2 entidades), senão LACUNA explícita.
 
 ## Referências
 
