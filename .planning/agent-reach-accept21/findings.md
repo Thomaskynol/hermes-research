@@ -373,3 +373,61 @@ Instruções conflitantes — varredura 2026-10-31, a remover / manter removidas
 8. Instruções superadas Missão 2 seguem removidas: run-vast-UP,
    rounds-fixo, 5-itens-como-requisito, pausa-mid-model (ver seção
    Missão 2 acima).
+
+## Missão 4 — 3 contratos v2 IMPLEMENTADOS (2026-10-31, TDD)
+
+Base: produto `a656535` (3 divergências unificadas); semântica Missão 3 +
+Sessão 13. Mesma entrada nos 3 auditores, genérico sem nomes
+(Widget Alpha/Beta). `tests/test_missao4_contratos.py` (17 testes, RED
+10→GREEN).
+
+1. **Inferência positiva** (`verification_report.py`, `tools/diagnose_run.py`):
+   POS doc-interop (menciona ambas, forma cheia) → `supported` + canal
+   `declared`/`declared_inference` com premissas (quais docs/entidades) +
+   limites (janela auditada, sem extrapolar); NEG docs separados →
+   `declared`/LACUNA explícita (complementaridade plausível, não integração
+   testada), nunca `unsupported` genérico; extrapolação ("integração
+   testada", "ausência de conflitos" sem doc-interop) → rejeitado.
+   `logo` não é marcador (`_has_inference_marker` só inferência/inferencia/
+   inference/inferido). Versão numérica vs funcional preservada (numérica
+   sustenta, funcional sem fonte reprova; gates antes/decisivos).
+   Mecanismo: `_entity_mentioned` com fronteira + eid derivado `e-*`
+   ignorado; `_sentence_supported` com identidade antes de overlap +
+   atribuição estrita na frase (token "widget" não nomeia Beta).
+2. **Consistência entrega** (`adaptive_coordinator.py`, `report_renderer.py`):
+   two-pass — re-render do delivery com a verificação final (support
+   re-auditado no markdown entregue) para o §8 apresentar a auditoria
+   efetivamente concluída, não snapshot pré-delivery; dedupe de notas
+   `tighten` no re-render (idempotente); gate vazio mantido (só vazio real
+   sem URL e sem [N] é `not_run`). Prova: accept24 §8 `not_run`/`sem
+   citações` era snapshot da 1ª verificação; após two-pass o §8 reflete o
+   `support ok/partial` final com numbers estável e cited coerente.
+3. **Identidade/atribuição** (`adaptive_coordinator.py`,
+   `verification_report.py`): match eid com fronteira/forma cheia (ignora
+   `e-*`/`eN`, exige `\b`); `_evaluation_refs_have_identity` novo
+   (genérico, `_identity_matches`+`_singleton_rare` no texto auditado) —
+   covered/partial com entity_id sem doc da entidade é demitido a
+   insufficiency com nota (nunca promove por proximidade-em-listagem);
+   bypass quando a entidade não tem parte distintiva (legado preservado).
+   `_rank_unfetched` com fronteira de token + desempate por identidade
+   (parte distintiva na URL) antes da ordem; `_entity_doc` com slug por
+   token (não substring). Caso DoozieSoftware/everything-opencode
+   (planner.md genérico) vs timrichardson/opencode-planner corrigido pelo
+   mecanismo geral (doc genérico não menciona "opencode-planner" na forma
+   cheia → não atribui a e-planner), sem hardcode de nomes.
+
+Prova isolada em CÓPIAS congeladas (originais intactos, md5 igual):
+accept23 (`/tmp/opencode/accept23-missao4/state.json`, md5
+`840ed3ed…` igual ao original): check `ok` 63/82 (declared 15 +
+declared_inf 35), diagnose 49/1/66 + declared 14, verify `failed`
+(resolvidos 4, sem unknown — failed honesto pelas 4 LACUNA semânticas,
+misses 0). accept24 (`/tmp/opencode/accept24-missao4/state.json`, md5
+`233a3ef6…` igual): check `partial` 55/83 (declared 11 + 27), diagnose
+39/12/66 + declared 5, verify `partial` (resolvidos 5, misses 8× literal
+`opencode-local-memory` — LACUNA de identidade declarada, sem promoção).
+Sem novo run real. **RA8 segue PENDENTE** (cobertura, não veracidade).
+
+Instruções conflitantes — varredura 2026-10-31: nenhuma restante ativa
+nos prompts (writer/assessor já estreitos: numérica sustenta, funcional =
+LACUNA; interop exigida; user:// fora do corpus). Mantidas removidas as 8
+da Missão 4 + 4 da Missão 2.

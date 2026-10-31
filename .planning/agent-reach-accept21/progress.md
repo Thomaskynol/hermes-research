@@ -374,3 +374,34 @@
 - Próximo: implementar os 3 contratos v2 em lane próprio, TDD
   RED→GREEN; próximo run só sob nova hipótese explícita. RA8 segue
   pendente até overall `passed` em run real.
+
+## 2026-10-31 — Sessão 15: Missão 4 — 3 contratos v2 implementados (fixer, TDD)
+
+- RED: `tests/test_missao4_contratos.py` novo (17 testes, genérico sem nomes)
+  falhou 10/17 no caminho real (check/verify/diagnose + renderer +
+  coordinator): POS interop sem declared; diagnose sem canal declared;
+  eid derivado sustentando identidade; prefixo sem fronteira; refs sem
+  identidade; rank por substring; misattribution com motivo genérico.
+- GREEN (escopo: `verification_report.py`, `tools/diagnose_run.py`,
+  `report_renderer.py`, `adaptive_coordinator.py` + testes focados):
+  (1) POS → supported+declared (premissas+limites), NEG → declared/LACUNA,
+  extrapolação rejeitada, `logo` não-marcador, versão-preservada,
+  identidade antes de overlap, atribuição estrita; (2) two-pass (§8 final)
+  + dedupe; (3) eid fronteira/derivado, `_evaluation_refs_have_identity`,
+  rank por identidade, two-pass, sem hardcode.
+- Foco fresco (`-p no:cacheprovider`): 17 passed novo; combinados
+  (missão4 + missão3 + divergências + consultado + diagnose + support +
+  lacuna + granularidade + accept19 + produto + pool + monopólio + refs +
+  calibração + síntese + gap + identity + assessor + monotonic + relevance)
+  207 passed, 6 skipped, EXIT=0. Ampla: 553 passed, 15 skipped, 1 falha
+  pré-existente ambiente (`test_yt_enrich_fix`, sem `gpt_researcher`,
+  igual na árvore limpa).
+- Efeito isolado em CÓPIAS congeladas (originais intactos, md5 igual):
+  accept23 (`/tmp/opencode/accept23-missao4`, md5 `840ed3ed…`): check ok
+  63/82, diagnose 49/1/66 + declared 14, verify failed (resolvidos 4,
+  failed honesto); accept24 (`/tmp/opencode/accept24-missao4`, md5
+  `233a3ef6…`): check partial 55/83, diagnose 39/12/66 + declared 5,
+  verify partial (resolvidos 5, 8 misses literais local-memory). Sem run.
+  RA8 segue PENDENTE.
+- Docs: matriz/CONTINUIDADE + plano sincronizados (Phase 9 complete).
+  Próximo: commit local sem push; próximo run só sob nova hipótese.

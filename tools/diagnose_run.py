@@ -448,6 +448,7 @@ def synthesis_audit(state: dict) -> dict:
     entities = _audit_entities(state)
     supported = unsupported = uncited = 0
     items: list[dict] = []
+    declared: list[dict] = []
     for raw_line, extra_cites in _attach_floating_cites(
             markdown.splitlines()):
         line = raw_line.strip()
@@ -513,6 +514,14 @@ def synthesis_audit(state: dict) -> dict:
         _missing_urls = list(_ev_missing)
         named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(line) for t in toks)]
+        try:
+            _strict_named = [(label, eid, toks)
+                             for label, eid, toks in entities
+                             if _entity_mentioned(label, eid, line)]
+            if _strict_named:
+                named = _strict_named
+        except Exception:
+            pass
         # URL evidência fora do corpus = failed imediato (mesmo unknown
         # do verify); nunca uncited nem sustentada por [N] válido ao lado.
         if _missing_urls:
@@ -653,6 +662,10 @@ def synthesis_audit(state: dict) -> dict:
                 _rel_reason = rr or _ar
             if _interop:
                 supported += 1
+                declared.append({"sentence": line[:300], "cites": cites,
+                                 "scope": "integração testada "
+                                          "(interoperabilidade citada); "
+                                          "limites: janela auditada"})
                 continue
             unsupported += 1
             items.append({"sentence": line[:300], "cites": cites,
@@ -660,6 +673,10 @@ def synthesis_audit(state: dict) -> dict:
                           "inferência sem citação de interoperabilidade "
                           "(complementaridade plausível, não integração "
                           "testada)"})
+            declared.append({"sentence": line[:300], "cites": cites,
+                             "scope": "LACUNA explícita (sem prova de "
+                                      "integração); complementaridade "
+                                      "plausível, não integração testada"})
             continue
         # Inference-marked claim: audit the factual anchor only (mirrors
         # verification_report._factual_anchor).
@@ -669,6 +686,16 @@ def synthesis_audit(state: dict) -> dict:
         named = [(label, eid, toks) for label, eid, toks in entities
                  if any(t in norm_text(anchor) for t in toks)] \
             if anchor != line else named
+        try:
+            _strict2 = [(label, eid, toks)
+                        for label, eid, toks in entities
+                        if _entity_mentioned(label, eid,
+                                             anchor if anchor != line
+                                             else line)]
+            if _strict2:
+                named = _strict2
+        except Exception:
+            pass
         # Cell entity must be named in full ("opencode agents" is not
         # "opencode-planner"); gate separado tag exata vs familia
         # funcional (conclusoes separadas). Ambos espelham o verificador.
@@ -751,6 +778,11 @@ def synthesis_audit(state: dict) -> dict:
             reason = version_reason
         elif _overlap_ok and (not _needs_interop or _has_interop_doc):
             supported += 1
+            if _needs_interop and _has_interop_doc:
+                declared.append({"sentence": line[:300], "cites": cites,
+                                 "scope": "integração testada "
+                                          "(interoperabilidade citada); "
+                                          "limites: janela auditada"})
             continue
         elif missing_entities:
             reason = "entidade ausente no doc citado: " + ", ".join(
@@ -761,8 +793,14 @@ def synthesis_audit(state: dict) -> dict:
         unsupported += 1
         items.append({"sentence": line[:300], "cites": cites,
                       "reason": reason})
+        if _anchors_separate:
+            declared.append({"sentence": line[:300], "cites": cites,
+                             "scope": "LACUNA explícita (sem prova de "
+                                      "integração); complementaridade "
+                                      "plausível, não integração testada"})
     return {"supported": supported, "unsupported": unsupported,
-            "uncited": uncited, "unsupported_items": items}
+            "uncited": uncited, "unsupported_items": items,
+            "declared": declared}
 
 
 def main(argv: list[str]) -> int:

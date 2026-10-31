@@ -310,26 +310,56 @@ def _norm_mention(text) -> str:
     return re.sub(r"[^a-z0-9]+", " ", norm).strip()
 
 
+def _is_derived_eid(eid) -> bool:
+    """IDs gerados pelo coordenador (e-*, e1, e_*) não são identidade.
+
+    São chaves de célula (e-planner, e-pwf, e0), não nomes citáveis: só a
+    forma cheia do label sustenta menção. Genérico, sem nomes.
+    """
+    try:
+        s = str(eid or "").strip().lower()
+    except Exception:
+        return True
+    if not s:
+        return True
+    import re as _re
+    return bool(_re.match(r"^e([-_].*)?$", s) or _re.match(r"^e\d+$", s))
+
+
 def _entity_mentioned(label, eid, doc_text: str) -> bool:
     """The cell entity is named in the cited doc (label or id, full form).
 
     Token overlap ("opencode" + "agents" via "sub-agents") is not a
-    mention: the normalized label/id itself must occur — or the doc
+    mention: the normalized label/id itself must occur with fronteira
+    (forma cheia, não prefixo de palavra maior) — or the doc
     must share at least two longer content tokens with the label (a doc
     about "OpenCode Plugin" is about the "OpenCode Eclipse Plugin"
-    cell; a doc sharing only "opencode" is not). Short ids ("e1") are
-    skipped, the label decides.
+    cell; a doc sharing only "opencode" is not). Short ids ("e1") e
+    derivados ("e-*") são ignorados, o label decide.
     """
     doc = _norm_mention(doc_text)
     if not doc:
         return False
-    compact_doc = doc.replace(" ", "")
-    for cand in (label, eid):
+    padded = f" {doc} "
+    cands: list[tuple[str, bool]] = [(label, False)]
+    try:
+        if not _is_derived_eid(eid):
+            cands.append((eid, True))
+    except Exception:
+        pass
+    for cand, _is_eid in cands:
         ent = _norm_mention(cand)
         if len(ent) < 4:
             continue
-        if ent in doc or ent.replace(" ", "") in compact_doc:
-            return True
+        # fronteira: forma cheia com separador, não prefixo ("widget alpha"
+        # não casa "widget alphabeta").
+        try:
+            import re as _re2
+            if _re2.search(r"(^| )" + _re2.escape(ent) + r"($| )", doc):
+                return True
+        except Exception:
+            if f" {ent} " in padded:
+                return True
     try:
         label_toks = {w for w in _content_tokens(label) if len(w) >= 4}
         doc_toks = {w for w in _content_tokens(doc_text) if len(w) >= 4}
@@ -482,17 +512,29 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
             title = set(_content_tokens(line[:160]))
             break
     rare = {w for w in common if len(w) >= 6 and w not in title}
+    # A entidade citada deve ocorrer na forma cheia: atribuição errada
+    # (doc sobre outra entidade) é "entidade não mencionada", nunca
+    # "sem sobreposição" genérico — identidade antes de overlap.
+    named = [(label, eid) for tokens, label, eid in named_entities
+             if sentence_tokens & tokens]
+    try:
+        if sentence_raw:
+            _strict_named = [(label, eid)
+                             for tokens, label, eid in named_entities
+                             if _entity_mentioned(label, eid, sentence_raw)]
+            if _strict_named:
+                named = _strict_named
+    except Exception:
+        pass
+    if named and not any(_entity_mentioned(label, eid, doc_text)
+                         for label, eid in named):
+        return False, "entidade não mencionada no doc"
     if ratio < 0.35 and len(rare) < 2:
         return False, "sem sobreposição"
     # The cell entity must be named in full ("opencode" + "agents" via
     # "sub-agents" is not a mention). A sentence can share a generic
     # token with several entities: at least one named entity in full
     # form sustains (per-cell audit: the cell's own entity).
-    named = [(label, eid) for tokens, label, eid in named_entities
-             if sentence_tokens & tokens]
-    if named and not any(_entity_mentioned(label, eid, doc_text)
-                         for label, eid in named):
-        return False, "entidade não mencionada no doc"
     return True, ""
 
 
@@ -788,6 +830,18 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         factual = _factual_anchor(sentence)
         sent_tokens = set(_content_tokens(factual))
         named = [entry for entry in entities if sent_tokens & entry[0]]
+        # Atribuição estrita (v2-3): token compartilhado ("widget") nomeia
+        # ambas no overlap frouxo; a entidade nomeada de fato é a de forma
+        # cheia na frase. Quando há menção estrita, ela decide quem a frase
+        # atribui (evita Beta espúrio via "widget" mascarando erro de
+        # atribuição para Alpha).
+        try:
+            _strict = [entry for entry in entities
+                       if _entity_mentioned(entry[1], entry[2], factual)]
+            if _strict:
+                named = _strict
+        except Exception:
+            pass
         # Fato do usuario como premissa explicita (sem numero de corpus,
         # nunca LACUNA automatica): isenta o gate de versao da versao
         # vinda do contexto e audita a premissa da entidade.
@@ -1052,6 +1106,30 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 reasons.append("entidade não mencionada no doc")
         if ok:
             supported += 1
+            # v2-1 positiva: integração testada vai para o canal declared
+            # com premissas+limites (não só contagem): qual doc sustenta
+            # quais entidades, na janela auditada.
+            if _needs_interop and _has_interop_doc:
+                try:
+                    _which = []
+                    for _, _doc in _cited:
+                        if not _doc:
+                            continue
+                        _hit = [str(_lb) for _toks, _lb, _eid in _interop_named
+                                if _entity_mentioned(_lb, _eid, _doc)]
+                        if len(_hit) >= 2:
+                            _which.append("; ".join(_hit[:4]))
+                            break
+                except Exception:
+                    _which = []
+                declared_inference.append(
+                    {"sentence": sentence, "citations": citations,
+                     "anchor_ok": True, "relation_ok": True,
+                     "scope": "integração testada (interoperabilidade "
+                              "citada)" + (f": {_which[0][:160]}" if _which
+                                            else "") +
+                              "; limites: janela auditada (usable_text "
+                              "integral), sem extrapolar além do doc citado"})
         else:
             # conclusoes separadas: preserva a razao do gate (exata vs
             # familia vs entidade vs corpus) em vez de colapsar em

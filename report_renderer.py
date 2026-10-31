@@ -574,8 +574,12 @@ def render_report(state: dict, *, synthesis_text: str,
         synthesis, _tight_notes = _verify._tighten_citations(
             synthesis, _n_to_url, dict(state.get("evidence") or {}),
             state.get("plan") or {})
+        _recorded_tight = set(n for n in (state.get("notes") or [])
+                              if isinstance(n, str))
         for _note in _tight_notes:
-            state.setdefault("notes", []).append(_note)
+            if _note not in _recorded_tight:
+                state.setdefault("notes", []).append(_note)
+                _recorded_tight.add(_note)
     except Exception as exc:
         state.setdefault("notes", []).append(
             f"tighten citations skipped: {exc}")

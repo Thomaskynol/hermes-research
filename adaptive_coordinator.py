@@ -1005,6 +1005,66 @@ def _entity_corpus_docs(entity: dict, evidence: dict,
     return out
 
 
+def _evaluation_refs_have_identity(state: dict, entity: dict,
+                                     refs) -> bool:
+    """Refs de evaluation sustentam só doc sobre a entidade (genérico).
+
+    Aplica ``_identity_matches`` + ``_singleton_rare`` ao texto auditado
+    (usable_text quando houver): ao menos uma referência precisa nomear a
+    entidade na forma cheia; doc sobre outra entidade (mesmo com palavra
+    compartilhada) não atribui. Sem hardcode de nomes.
+    """
+    try:
+        if not isinstance(entity, dict):
+            return False
+        refs = list(refs or [])
+        if not refs:
+            return False
+        # Sem identidade distintiva (sem label ou só genérico): sem o que
+        # exigir — mantém o legado (não estrito) para não quebrar células
+        # sem nome próprio. Só entidades com parte distintiva exigem doc
+        # sobre a entidade.
+        try:
+            if not _entity_distinctive_tokens(entity):
+                return True
+        except Exception:
+            return True
+        evidence = (state or {}).get("evidence") or {}
+        qualification = (state or {}).get("qualification") or {}
+        bodies: list[str] = []
+        for _u, _t in evidence.items():
+            if isinstance(_u, str) and not _u.startswith("user://"):
+                try:
+                    bodies.append(str((qualification.get(_u) or {})
+                                      .get("usable_text") or _t or ""))
+                except Exception:
+                    bodies.append(str(_t or ""))
+        try:
+            single_ok = _singleton_rare(entity, bodies)
+        except Exception:
+            single_ok = True
+        for _r in refs:
+            _u = (_r or {}).get("url", (_r or {}).get("doc_id", ""))
+            if not isinstance(_u, str) or not _u:
+                continue
+            try:
+                _body = str((qualification.get(_u) or {}).get("usable_text")
+                            or evidence.get(_u) or "")
+            except Exception:
+                _body = ""
+            if not _body:
+                continue
+            try:
+                if _identity_matches(entity, f"{_u}\n{_body}",
+                                     single_ok=single_ok):
+                    return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
 def _criterion_scope(state: dict, crit: dict) -> str:
     """Examined scope of one criterion: doc/trecho vs corpus (observed).
 
@@ -1308,19 +1368,44 @@ def _gap_overlap_terms(state: dict, gap: dict) -> list[str]:
     return [w for w in out if not (w in seen or seen.add(w))]
 
 
+def _url_tokens(url: str) -> set[str]:
+    """Tokens da URL com fronteira (slug/host fragmentado, genérico)."""
+    import re as _re4
+    import unicodedata as _ud4
+    try:
+        _n = "".join(c for c in _ud4.normalize(
+            "NFKD", str(url or "").lower()) if not _ud4.combining(c))
+    except Exception:
+        _n = str(url or "").lower()
+    return set(_re4.split(r"[^a-z0-9]+", _n)) - {""}
+
+
 def _rank_unfetched(state: dict, unfetched: list[str], gap: dict) -> list[str]:
     """Ordena candidatos por sobreposição de termos do gap (estável).
 
-    Mais termos do gap presentes na URL primeiro; empate mantém a ordem
-    original (determinístico).
+    Termo conta com fronteira de token na URL (``alpha`` não casa
+    ``alphabet``); desempate por identidade (parte distintiva da entidade
+    do gap na URL) antes da ordem original. Genérico, determinístico.
     """
     terms = _gap_overlap_terms(state, gap)
+    gap_eid = (gap or {}).get("entity_id") if isinstance(gap, dict) else None
+    distinctive: set[str] = set()
+    try:
+        if gap_eid:
+            for _e in (state.get("plan") or {}).get("entities", []) or []:
+                if isinstance(_e, dict) and _e.get("id") == gap_eid:
+                    distinctive = set(_entity_distinctive_tokens(_e))
+                    break
+    except Exception:
+        distinctive = set()
     scored = []
     for i, cand in enumerate(unfetched):
-        low = cand.lower()
-        scored.append(( -sum(1 for t in terms if t in low), i, cand))
+        toks = _url_tokens(cand)
+        overlap = sum(1 for t in terms if t in toks)
+        ident = 1 if (distinctive and (distinctive & toks)) else 0
+        scored.append((-overlap, -ident, i, cand))
     scored.sort()
-    return [c for _, _, c in scored]
+    return [c for _, _, _, c in scored]
 
 
 def _pick_pool_reserve(state: dict, rank_gaps: list[dict],
@@ -1743,7 +1828,7 @@ def _entity_doc(entity: dict, evidence: dict, qualification: dict,
             low = text.lower()
         except Exception:
             continue
-        slug_hit = any(t in url.lower() for t in toks)
+        slug_hit = bool(set(toks) & _url_tokens(url))
         head_hit = any(t in low[:1500] for t in toks)
         count = sum(low.count(t) for t in toks)
         score = (3 if slug_hit else 0) + (2 if head_hit else 0) \
@@ -2773,6 +2858,26 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         # desta chamada (doc/trecho), nunca sobre o corpus integral.
         if isinstance(ev, dict) and _examined:
             ev.setdefault("examined", dict(_examined))
+        # Identidade da atribuição (v2-3, genérico): covered/partial com
+        # entity_id exige ao menos uma referência sobre a entidade
+        # (_identity_matches + _singleton_rare no texto auditado). Doc
+        # sobre outra entidade não atribui — rebaixa a insufficient com
+        # nota, nunca promove por proximidade-em-listagem.
+        if st in ("covered", "partial") and ev.get("entity_id"):
+            try:
+                _ent = next(
+                    (e for e in (state.get("plan") or {}).get("entities", [])
+                     if isinstance(e, dict)
+                     and e.get("id") == ev.get("entity_id")), None)
+                if isinstance(_ent, dict) and not _evaluation_refs_have_identity(
+                        state, _ent, ev.get("references") or []):
+                    state["notes"].append(
+                        f"identity mismatch: {ev.get('criterion_id')}×"
+                        f"{ev.get('entity_id')} sem doc da entidade "
+                        f"(atribuição rejeitada, kept as insufficiency)")
+                    continue
+            except Exception:
+                pass
         applied.append(ev)
     # Teto do contexto do usuário: critério sustentado SÓ por contexto
     # capa em partial, nunca covered (origin user-provided não cobre).
@@ -5316,6 +5421,23 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         verification["overall"] = _verify.aggregate(
             verification["dimensions"])
         state["verification"] = verification
+        # v2-2 two-pass: o §8 foi renderizado com a verificação prévia
+        # (support ainda não re-auditado no markdown entregue) — re-render
+        # com a verificação final para o delivery apresentar a auditoria
+        # efetivamente concluída (mesma síntese/números, sem snapshot
+        # pré-delivery). Idempotente: tighten/outside dedupados no renderer.
+        try:
+            _final_markdown = _renderer.render_report(
+                state, synthesis_text=report_text or "",
+                verifications=verification,
+                quantitative=quantitative_results or None)
+            report_markdown = _final_markdown
+            cited_urls = list(getattr(_renderer.render_report,
+                                      "last_cited_urls", []) or [])
+            _counters.record_cited_urls(state, cited_urls)
+            state["verification"] = verification
+        except Exception as exc:
+            state["notes"].append(f"report re-render failed: {exc}")
     except Exception as exc:
         state["notes"].append(f"report render failed: {exc}")
         state["verification"] = verification or {}

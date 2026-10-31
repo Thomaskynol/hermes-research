@@ -2,10 +2,9 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (Sessão 14: Missão 4 REGISTRADA — 3
-> contratos v2 (inferência positiva, consistência entrega,
-> identidade/atribuição); versão-premissa preservada (regra estreita);
-> 8 instruções conflitantes listadas para remover; sem lógica produto).
+> Última atualização: 2026-10-31 (Sessão 15: Missão 4 IMPLEMENTADA — 3
+> contratos v2, TDD 17 passed (RED 10→GREEN); cópias accept23/24 sem novo
+> run, originais intactos; versão-premissa preservada; sem push).
 > Commit local sem push.
 >
 > HEADs: produto `a70d837` (Missão 3 — 3 contratos; executado no run accept24,
@@ -251,17 +250,13 @@ segue pendente.
   pausa-mid-model como ação. Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código desatualizado por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
-- **Próxima ação (Missão 4 REGISTRADA, HEAD `a656535` — RA8 segue
-  pendente):** 3 contratos v2 a implementar em lane próprio, TDD
-  RED→GREEN (sem lógica produto neste passo): (v2-1) inferência positiva
-  (condições estreitas para `supported`; fora disso, declarada/LACUNA);
-  (v2-2) consistência entrega (relatório §8 × verification.json ×
-  diagnose convergem; denominador nunca reduzido; divergência
-  excerto-vs-full sempre explícita); (v2-3) identidade/atribuição
-  (entidade resolvida + origem; sem identidade literal = LACUNA
-  declarada). versão-premissa PRESERVADA (regra estreita Missão 3 +
-  Sessão 13); 8 instruções conflitantes listadas para remover
-  (`findings.md` Missão 4). Próximo run só sob nova hipótese explícita.
+- **Próxima ação (Missão 4 IMPLEMENTADA, TDD 17 passed — RA8 segue
+  pendente):** 3 contratos v2 em código + testes (Sessão 15): (v2-1) POS
+  interop → supported+declared, NEG → LACUNA explícita, extrapolação
+  rejeitada; (v2-2) two-pass §8 final + dedupe; (v2-3) eid fronteira +
+  refs com identidade + rank por identidade. versão-premissa PRESERVADA;
+  cópias accept23/24 sem novo run (originais intactos, md5 igual).
+  Próximo run só sob nova hipótese explícita.
   Missão 3 + divergências preservadas: 3 contratos seguraram em run real
   (support failed→ok, evidence 0→51, resolved 0→5; versão numérica
   sustentada + funcional=LACUNA; combinação recusada). Overall `partial`

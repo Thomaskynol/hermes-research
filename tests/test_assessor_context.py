@@ -101,10 +101,10 @@ class AssessRoundStatsTest(unittest.TestCase):
 
         state = state_api.new_state("stats question")
         state["plan"] = plan
-        state["evidence"] = {url: "substantive text about the feature"}
+        state["evidence"] = {url: "Alpha substantive text about the feature"}
         state["qualification"] = {url: {
             "status": "usable", "excluded": False,
-            "usable_text": "substantive text about the feature"}}
+            "usable_text": "Alpha substantive text about the feature"}}
         assess = ac.make_model_assessor(client)
         ledger = cl.Ledger(plan)
         resolved = ac.resolve_adaptive("light")
