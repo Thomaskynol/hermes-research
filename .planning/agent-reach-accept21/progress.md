@@ -149,3 +149,21 @@
   (header/HEADs + seção Riscos amarelos, sem refatorar).
 - Commit local docs+teste (sem push); próxima ação inalterada
   (selection_context 16, índices fora da base; depois 5 bloqueadores).
+
+## 2026-10-31 — Sessão 7: Missão 2 — coerência do plano (fixer)
+
+- HEAD `15443a5` (só docs+teste desde o run; produto == `a704463`);
+  árvore rastreada limpa; gateway 9119/8081 UP, :8001/:8888/:8082 DOWN;
+  `opencode v2.2.5`; config efetiva reconfirmada no código
+  (`vast_local_retriever.py:11-14`).
+- `task_plan.md`: Goal/Next Step reescritos; Phases 2–3 marcadas
+  SUPERADAS (runs já executados; rounds-3 era config, não fixo);
+  Phase 4 RECLASSIFICADA (5 itens = limites, não requisitos);
+  Phase 6 (Missão 2) aberta.
+- `findings.md`: seção Missão 2 com estado, config e conferência dos 5
+  itens (só item 1 = PENDENTE legítimo/BLOQUEADO; itens 2/3/5 fora de
+  escopo, item 4 limite documentado) + 4 inconsistências corrigidas.
+- `docs/CONTINUIDADE.md`: header/HEADs/objetivo/próxima ação sincronizados.
+- Nenhuma lógica de produto tocada (escopo: só plano + CONTINUIDADE).
+- Próximo: commit local (sem push); depois investigar `selection_context`
+  16 + índices `[N]` fora da base, sem flexibilizar.

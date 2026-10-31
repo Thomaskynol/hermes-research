@@ -2,24 +2,30 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (revisão: teste estrito pool-reserve +
-> matriz sincronizada; HEAD `534c946` — só docs desde o run).
+> Última atualização: 2026-10-31 (Missão 2: coerência — 4 inconsistências
+> corrigidas, 5 itens conferidos; HEAD `15443a5` — só docs desde o run).
 > Commits produto e docs separados (sem push).
 >
 > HEADs: produto congelado no `a704463` (executado sob `776af89`, hashes
-> frozen reconferidos pré/pós-run); docs evoluem em `534c946` sem tocar
-> produto. `git show --stat` do intervalo prova docs-only.
+> frozen reconferidos pré/pós-run); docs evoluem em `15443a5` sem tocar
+> produto. `git show --stat` do intervalo prova docs-only
+> (plano + CONTINUIDADE + matriz + 1 teste estrito).
 
 ## Objetivo e escopo
 
-Fechar o aceite v1 destravando os **5 bloqueadores "Sem validação"**
-(`docs/ACEITE_V1.md`, seção Limites):
+Fechar o aceite v1: **RA8 `passed` em run real, sem flexibilizar**.
+Os 5 itens "Sem validação" (`docs/ACEITE_V1.md`, seção Limites) são
+**limites declarados (skips), não critérios de aceite** — item não
+validado não vira requisito adicional automaticamente. Conferência
+contra modelagem v1.1 + matriz (`findings.md`, Missão 2):
 
-1. Gateway vast local fora do ar (`127.0.0.1:8001`).
-2. Perfil deep 10h.
-3. `conduct_research` ponta a ponta da biblioteca.
-4. Pausa no meio de chamada ao modelo (limite conhecido: pausa só vale entre rounds).
-5. Multiusuário.
+- **PENDENTE legítimo:** (1) gateway vast local no ar em run real
+  (R3.1 = BLOQUEADO por ambiente).
+- **Fora de escopo / limite documentado:** (2) deep 10h (referência, não
+  cota — modelagem §6); (3) `conduct_research` (segunda interface, sem R
+  distinto; ponta a ponta já REAL via CLI); (4) pausa mid-model (limite
+  conhecido do roteiro; R14.3 REAL entre rounds); (5) multiusuário
+  (sem requisito na modelagem/matriz).
 
 Condição inegociável: **RA8 segue PENDENTE, sem flexibilizar** — o `verification`
 do accept20 falhou corretamente por 1 inferência com versão vinda do contexto
@@ -43,8 +49,11 @@ do usuário, e o diagnose concordou (sem divergência).
 - `776af89` — docs do accept21 + suíte (HEAD congelado do run accept22;
   hashes reconferidos pré/pós-run, sem edição durante o run).
 - `534c946` — **só docs** do accept22 (findings/progress/CONTINUIDADE;
-  `git show --stat` confirma zero arquivo produto). Produto segue == 
+  `git show --stat` confirma zero arquivo produto). Produto segue ==
   `a704463`; hashes workdir conferem com `hashes.frozen` do accept22.
+- `15443a5` — **docs + 1 teste estrito** (Missão 2: coerência do plano;
+  tautologia `or True` vira asserção RED→GREEN, 20 passed; matriz sync
+  accept22 + escopo REAL-vs-PENDENTE; sem lógica produto alterada).
 
 ## Riscos amarelos (limitações registradas — sem refatorar)
 
@@ -158,12 +167,15 @@ segue pendente.
 - **Hipóteses:** `cc0f3ff` elimina a classe de falha do `verification` do
   accept20 sem derrubar `ok` legítimos; `b81e8f6` reduz `missing` silencioso
   no M8. Detalhes em `.planning/agent-reach-accept21/findings.md`.
+- **Instruções superadas (removidas na Missão 2):** run-com-vast-UP,
+  rounds-3-como-fixo, 5-itens-como-requisito, pausa-mid-model como ação.
+  Não re-executar sem nova hipótese explícita.
 - **Lição do accept19 (não repetir):** run rodou sobre código antigo por race
   com o commit — **conferir `git rev-parse HEAD` antes de cada run**.
 - **Próxima ação:** investigar `selection_context` 16 e o caminho de
   índices `[N]` fora da base de síntese (leniência residual do accept21),
-  sem flexibilizar critério; depois re-run cobrindo os 5 bloqueadores
-  (Phase 4). RA8 segue pendente até overall `passed` em run real.
+  sem flexibilizar critério; depois re-run cobrindo as correções pendentes
+  de prova real (Phase 5). RA8 segue pendente até overall `passed` em run real.
 
 ## Referências
 

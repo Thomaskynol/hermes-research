@@ -2,17 +2,21 @@
 
 ## Goal
 
-Validar em run real (accept21) os 5 itens "Sem validação" do ACEITE_V1.md
-mais as 2 correções pós-accept20 (cc0f3ff, b81e8f6), sem flexibilizar o RA8.
+Fechar o aceite v1 com RA8 `passed` em run real, sem flexibilizar critério.
+Os 5 itens "Sem validação" do ACEITE_V1.md são **limites declarados
+(skips), não critérios de aceite**: item não validado não vira requisito
+adicional automaticamente — ver conferência em `findings.md`
+(Missão 2, HEAD `15443a5`).
 
 ## Next Step
 
-Subir serviços on-demand (vast :8001, searxng :8888) e rodar accept21 com
-as correções cc0f3ff + b81e8f6 já no código.
+Investigar `selection_context` 16 e o caminho de índices `[N]` fora da
+base de síntese (leniência residual do accept21), sem flexibilizar
+critério; depois re-run. RA8 segue pendente até overall `passed` em run real.
 
 ## Current Phase
 
-Phase 1
+Phase 6 (Missão 2: coerência do plano)
 
 ## Phases
 
@@ -23,32 +27,47 @@ Phase 1
 - [x] Estado de branch/ambiente registrado a partir de evidência (git + ss/docker)
 - **Status:** complete
 
-### Phase 2: Subir dependências on-demand
+### Phase 2: Subir dependências on-demand — SUPERADA (runs accept21/22 já executados)
 
-- [ ] Subir vast_local_retriever (:8001) e SearXNG (:8888); conferir `/healthz`
-- [ ] Registrar SEARXNG_URL efetiva (IP de bridge pode mudar)
-- **Status:** pending
+- [x] accept21 rodou com vast UP on-demand (colapsou 0/15); desligado pós-run
+- [x] accept22 rodou com vast DOWN + SearXNG DOWN confirmados pré/pós-run
+- **Status:** superseded — não repetir "subir vast + rodar accept21";
+  baseline atual é DOWN confirmado; subir serviço só sob nova hipótese explícita
 
-### Phase 3: Run accept21 (correções cc0f3ff + b81e8f6 sob teste)
+### Phase 3: Runs accept21/accept22 — SUPERADA (evidência registrada)
 
-- [ ] Rodar pergunta de aceite com código HEAD (inclui cc0f3ff + b81e8f6)
-- [ ] Checar: RA8 sem flexibilizar; contexto-usuário ⇒ LACUNA; M8 pool declarado
-- **Status:** pending
+- [x] accept21 (HEAD `b1cf76c`): 0/15 + 0 N/A, verification `partial`, 343s
+- [x] accept22 (HEAD `776af89`, produto `a704463`): 11/54 + 0 N/A,
+  verification `failed` honesto, 658s
+- [x] RA8 segue PENDENTE em ambos, sem flexibilizar
+- **Status:** superseded — `max-rounds 3` era config desses runs, não
+  requisito fixo (rodadas são controle independente, R6.4 / modelagem §6)
 
-### Phase 4: Cobrir os 5 bloqueadores "Sem validação"
+### Phase 4: Os 5 itens "Sem validação" — RECLASSIFICADOS (Missão 2)
 
-- [ ] (1) gateway vast local no ar durante run real
-- [ ] (2) perfil deep 10h
-- [ ] (3) `conduct_research` ponta a ponta da biblioteca
-- [ ] (4) pausa no meio de chamada ao modelo (limite conhecido: só entre rounds)
-- [ ] (5) multiusuário
-- **Status:** pending
+- Itens do ACEITE_V1.md § Limites são skips/limites, não critérios de aceite
+- Conferência de obrigatoriedade contra modelagem v1.1 + matriz em
+  `findings.md` (Missão 2): separa REAL vs PENDENTE legítimo vs fora de escopo
+- **Status:** in-progress (só o item 1 é pendência legítima; demais são
+  limite documentado ou fora de escopo — não bloqueiam o aceite)
 
 ### Phase 5: Fechar aceite
 
-- [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com rodada accept21
+- [ ] Investigar `selection_context` 16 + índices `[N]` fora da base
+  (leniência residual accept21), sem flexibilizar
+- [ ] Re-run da pergunta de aceite cobrindo correções pendentes de prova real
+- [ ] Atualizar `docs/ACEITE_V1_RESULTADO.md` com nova rodada
 - [ ] `check-complete.sh` verde
 - **Status:** pending
+
+### Phase 6 (Missão 2): Coerência do plano — IN PROGRESS
+
+- [x] 4 inconsistências registradas em `findings.md` (instruções superadas
+  removidas: run-vast-UP, rounds-fixo, 5-itens-como-requisito, pausa-mid-model)
+- [x] Estado HEAD `15443a5` + config efetiva registrados
+- [x] Obrigatoriedade dos 5 itens conferida (modelagem v1.1 + matriz)
+- [x] `docs/CONTINUIDADE.md` atualizado como ponto de entrada
+- **Status:** in-progress (falta commit local)
 
 ## Decisions Made
 
@@ -63,3 +82,4 @@ Phase 1
 | Error | Resolution |
 |-------|------------|
 | `init-session.sh` criou `2026-10-31-agent-reach-accept21` em vez do slug exato | `mv` para `agent-reach-accept21` + `.active_plan` reescrito; re-attest após editar `task_plan.md` |
+| Instruções superadas permaneciam como pendentes (run vast-UP, rounds fixo, 5 itens como requisito) | Missão 2: Phases 2–4 marcadas superadas/reclassificadas; Next Step = residual real (selection_context), não re-run cego |

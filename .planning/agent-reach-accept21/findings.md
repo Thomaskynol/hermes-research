@@ -125,3 +125,62 @@
   canal morto, não necessariamente do código); disparo não isolável.
   Residual novo/recorrente: `selection_context` 16 (accept20: 4);
   c11/c12 seguem insufficient (corpus sem material comparativo).
+
+## Revisão de coerência — Missão 2 (2026-10-31, HEAD `15443a5`)
+
+### Estado atual (evidência: `git log` + `git status` + `ss`, 2026-10-31)
+
+- Branch `feat/product-v1`, HEAD `15443a5`
+  ("docs+test(revisao): tautologia or True vira assercao estrita …").
+- `git status`: só untracked pré-existente `.planning/.active_plan`
+  (conteúdo `agent-reach-accept21`); árvore rastreada limpa.
+- Serviços: `hermes-gateway` UP (9119/8081); **:8001 (vast), :8888
+  (searxng), :8082 (embeddings) sem listener** — baseline DOWN restaurada.
+- CLI: `opencode v2.2.5`.
+
+### Configuração efetiva (evidência: código, sem presumir)
+
+- `vast_local_retriever.py:11-14`: `RETRIEVER=custom,searx,duckduckgo,arxiv`,
+  `RETRIEVER_ENDPOINT=http://127.0.0.1:8001/`,
+  `SEARX_URL=http://127.0.0.1:8888/`.
+- `SEARXNG_URL` do ACEITE_V1.md usa IP de bridge (`http://172.18.0.2:8888`) —
+  **frágil, pode mudar**; revalidar com `/healthz` → 200 antes de cada run.
+- Runs accept21/22 usaram medium/max-rounds-3, contexto
+  `installed_opencode_version=2.1.4`, modelo
+  `opencode-go/muse-spark-1.3-contributor`. `max-rounds 3` era **config
+  desses runs, não requisito fixo** (rodadas: controle independente,
+  R6.4 / modelagem §6).
+
+### Conferência de obrigatoriedade dos "cinco bloqueadores"
+
+Fonte: `docs/ACEITE_V1.md` § Limites ("Sem validação: …") ×
+`docs/MODELAGEM_PRODUTO_PESQUISA_HERMES_v1.1.md` ×
+`docs/REQUIREMENTS_MATRIX.md`. Regra: **item listado como não validado
+não vira requisito adicional automaticamente**.
+
+| # | Item "Sem validação" | Base normativa | Classe |
+|---|---|---|---|
+| 1 | Gateway vast local no ar em run real | Modelagem §3.1 (busca por infra própria); matriz R3.1 = BLOQUEADO | **PENDENTE legítimo** (obrigatório, sem validação; accept21 subiu on-demand e desligou) |
+| 2 | Perfil deep 10h | Modelagem §6: tempos são "referências iniciais, não cotas obrigatórias"; matriz sem R exigindo run deep | **Fora de escopo como quota** (só medium exercitado; deep-10h não é critério de aceite) |
+| 3 | `conduct_research` ponta a ponta da biblioteca | Modelagem §15: sem função nominal obrigatória; matriz R15.2 (biblioteca encapsulada) = IMPL; ponta a ponta já coberta via CLI (RA5 = REAL) | **Fora de escopo como requisito adicional** (segunda interface, sem R distinto) |
+| 4 | Pausa no meio de chamada ao modelo | ACEITE_V1.md declara "Limite conhecido: pausa só entre rounds"; modelagem §14 exige pausa/retomada da pesquisa (R14.3 = REAL via hermdemo6, entre rounds) | **Limite documentado, não ação** (contradiz o próprio roteiro pedir mid-call) |
+| 5 | Multiusuário | Sem requisito na modelagem (§14: run_id por pesquisa) nem R na matriz | **Fora de escopo** (nunca foi critério; não bloqueia o aceite) |
+
+Conclusão: só o item 1 é pendência legítima (e mesmo ele é BLOQUEADO por
+ambiente, não falha de produto). RA8 continua sendo o único critério
+aberto do aceite; os demais itens não viram condição de fechamento.
+
+### 4 inconsistências corrigidas nesta missão
+
+1. **Run-com-vast-UP como instrução ativa** (`task_plan` Phase 2 + Next
+   Step): superada — accept21 já rodou vast UP (colapsou 0/15) e accept22
+   vast DOWN (11/54); baseline atual é DOWN. Subir serviço só sob nova
+   hipótese explícita.
+2. **"3 rounds" como fixo** (Phase 3): 3 era config accept21/22, não
+   requisito — removido o caráter fixo (R6.4 / modelagem §6).
+3. **5 itens "Sem validação" tratados como requisitos de fechamento**
+   (Phase 4): reclassificados — são skips/limites do próprio ACEITE_V1.md;
+   tabela acima separa PENDENTE legítimo (só item 1) vs fora de escopo.
+4. **Pausa mid-model como pendência acionável** (Phase 4 item 4):
+   contradiz o limite conhecido do roteiro + R14.3 REAL — registrada como
+   limite documentado, sem ação associada.
