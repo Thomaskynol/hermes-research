@@ -375,7 +375,8 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             for eid, est in entity_states.items():
                 lines.append(f"| {eid} | {_state_label(labels, est)} |")
         if crit.get("examined_scope"):
-            lines.append(f"Alcance examinado: {crit['examined_scope']}")
+            _scope = str(crit["examined_scope"])
+            lines.append(_scope[:1].upper() + _scope[1:] if _scope else _scope)
         for nc in crit.get("na_cells", []) or []:
             lines.append(
                 f"- **N/A** {nc.get('entity_id')}: "

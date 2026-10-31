@@ -91,6 +91,24 @@ class ScopeWordingTest(unittest.TestCase):
         self.assertIn("orçamento", scope)
         self.assertIn("legítimo", scope)
 
+    def test_scope_survives_s1_rebuild(self):
+        import copy
+        st = scope_state()
+        block = {"criteria": [{"id": "c0", "label": "custo de licenca",
+                               "state": "insufficient",
+                               "justification": "j", "origin": "stub",
+                               "references": []}]}
+        ac._annotate_examined_scope(st, block)
+        self.assertIn("alcance examinado", block["criteria"][0][
+            "examined_scope"])
+        # S1 rebuilds entries from evaluations (scope lost) -> re-annotate.
+        rebuilt = {"criteria": [dict(c) for c in block["criteria"]]}
+        for c in rebuilt["criteria"]:
+            del c["examined_scope"]
+        ac._annotate_examined_scope(st, rebuilt)
+        self.assertIn("orçamento",
+                      rebuilt["criteria"][0]["examined_scope"])
+
     def test_examined_cell_reports_doc_scope(self):
         scope = ac._criterion_scope(scope_state(),
                                     scope_state()["plan"]["criteria"][0])

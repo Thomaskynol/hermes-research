@@ -920,7 +920,8 @@ def _criterion_scope(state: dict, crit: dict) -> str:
         ex_chars = int(reading.get("excerpted_chars") or 0)
         col_chars = int(reading.get("collected_chars") or 0)
         parts = []
-        tot_e, tot_n = 0, 0
+        all_docs: set[str] = set()
+        all_examined: set[str] = set()
         for eid in eids:
             ent = emap.get(eid) or {}
             label = str(ent.get("label") or ent.get("id") or eid
@@ -930,8 +931,8 @@ def _criterion_scope(state: dict, crit: dict) -> str:
                 u for u in evidence if not str(u).startswith("user://"))
             n = len(docs)
             e = sum(1 for u in docs if u in examined)
-            tot_e += e
-            tot_n += n
+            all_docs.update(docs)
+            all_examined.update(u for u in docs if u in examined)
             if not eid or not ent:
                 parts.append(f"global: excertos examinados ({e}/{n} docs)")
             elif n == 0:
@@ -942,11 +943,32 @@ def _criterion_scope(state: dict, crit: dict) -> str:
                              f"({n} doc(s) no corpus fora da seleção)")
             else:
                 parts.append(f"{label}: excerto examinado ({e}/{n} docs)")
-        return (f"alcance examinado: excertos de {tot_e}/{tot_n} docs das "
-                f"entidades ({ex_chars} chars de {col_chars} coletados); "
+        return (f"alcance examinado: excertos de {len(all_examined)}/"
+                f"{len(all_docs)} docs únicos das entidades "
+                f"({ex_chars} chars de {col_chars} coletados); "
                 + "; ".join(parts))
     except Exception as exc:
         return f"alcance examinado: indisponível ({exc})"
+
+
+def _annotate_examined_scope(state: dict, block: dict) -> None:
+    """Attach per-criterion examined scope (doc/trecho vs corpus).
+
+    Idempotent (skips entries already annotated). Called after every
+    block (re)build — including the S1 synthesis-criteria rebuild, which
+    reconstructs entries from evaluations and would otherwise drop it.
+    """
+    try:
+        for _entry in (block or {}).get("criteria") or []:
+            if isinstance(_entry, dict) and "examined_scope" not in _entry:
+                _crit = next(
+                    (c for c in (state.get("plan") or {}).get("criteria", [])
+                     if isinstance(c, dict)
+                     and c.get("id") == _entry.get("id")), {})
+                _entry["examined_scope"] = _criterion_scope(state, _crit)
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"scope annotation failed: {exc}")
 
 
 def _update_ledger_counts(state: dict, ledger) -> None:
@@ -4513,17 +4535,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     # Alcance examinado por critério (doc/trecho vs corpus): vereditos
     # de ausência falam do material examinado, nunca do corpus integral;
     # "não investigado por orçamento" não é "desconhecido-legítimo".
-    try:
-        for _entry in (block or {}).get("criteria") or []:
-            if isinstance(_entry, dict) and "examined_scope" not in _entry:
-                _crit = next(
-                    (c for c in (state.get("plan") or {}).get("criteria", [])
-                     if isinstance(c, dict)
-                     and c.get("id") == _entry.get("id")), {})
-                _entry["examined_scope"] = _criterion_scope(state, _crit)
-    except Exception as exc:
-        state.setdefault("notes", []).append(
-            f"scope annotation failed: {exc}")
+    _annotate_examined_scope(state, block)
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
@@ -4720,6 +4732,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             if isinstance(_sblock, dict):
                 block = _sblock
                 state["question_coverage"] = block
+                # S1 reconstrói o bloco a partir das avaliações: reaplicar
+                # o alcance examinado (doc/trecho vs corpus) para o render.
+                _annotate_examined_scope(state, block)
         except Exception as exc:
             state["notes"].append(f"synthesis criteria check failed: {exc}")
         verification = _verify.verify_all(state, ledger=None, audit=semantic,
