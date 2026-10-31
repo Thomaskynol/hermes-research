@@ -60,3 +60,34 @@
   serviços, próxima ação). Nenhuma lógica produto alterada além do commit.
 - Próximo: run controlado com vast DOWN + fix leniência LACUNA, depois
   accept22 nos 5 bloqueadores.
+
+## 2026-10-31 — Sessão 4: suíte combinada fresca + commit produto (fixer)
+
+- Suíte combinada FRESCA (`-p no:cacheprovider`, sem cache), 8 arquivos —
+  4 focos (`test_audit_granularity`, `test_pool_reserve_mention_window`,
+  `test_web_monopoly_break`, `test_lacuna_quote_gate`) + regressão
+  (`test_accept19_corrections`, `test_product_core`, `test_support_check`,
+  `test_s2_premises`):
+  `84 passed in 1.41s`, EXIT=0.
+- Comando FULL:
+  `/home/thomaskyn/miniconda3/bin/python -m pytest
+  tests/test_audit_granularity.py tests/test_pool_reserve_mention_window.py
+  tests/test_web_monopoly_break.py tests/test_lacuna_quote_gate.py
+  tests/test_accept19_corrections.py tests/test_product_core.py
+  tests/test_support_check.py tests/test_s2_premises.py -p no:cacheprovider -q`
+  (84 coletados; `python3` do brew não tem pytest — usado o do conda).
+- Log persistente fora do /tmp:
+  `/home/thomaskyn/hermes-runs/accept21-combined/pytest_combined_fresh.log`;
+  exit code verdadeiro capturado via `$?` imediato (sem pipe).
+- A falha isolada de `test_web_monopoly_break` quando combinado
+  (reportada) NÃO reproduziu: verde de primeira, nenhuma edição no produto
+  (regra: verde ⇒ não mexer).
+- Higiene: produto sem nomes de origens/plugins (só a palavra genérica
+  "plugin" num docstring "generic, no plugin names").
+- Commit produto `a704463` (local, sem push):
+  `native_transport.py` (quebra de monopólio single-host sem transcrição +
+  mistura por diversidade) + `verification_report.py` (gate de quote/versão
+  em LACUNA + ponderação no `verify_support`) + 2 testes novos
+  (`test_web_monopoly_break`, `test_lacuna_quote_gate`). Separado de docs.
+- Próximo: run controlado accept22 (vast DOWN + SearXNG DOWN baseline)
+  exercitando os 2 fixes; RA8 segue pendente até evidência do run.
