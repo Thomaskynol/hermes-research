@@ -559,6 +559,20 @@ def render_report(state: dict, *, synthesis_text: str,
     cited: set = set()
     synthesis = synthesis_text or ""
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
+    # Citação x entidade: remove citação conjuntiva frouxa (só um dos docs
+    # trata da entidade) quando resta citação que sustenta; sem máscara
+    # (frase só com citação frouxa segue para a auditoria sinalizar).
+    try:
+        import verification_report as _verify
+        _n_to_url = {n: url for url, n in numbers.items()}
+        synthesis, _tight_notes = _verify._tighten_citations(
+            synthesis, _n_to_url, dict(state.get("evidence") or {}),
+            state.get("plan") or {})
+        for _note in _tight_notes:
+            state.setdefault("notes", []).append(_note)
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"tighten citations skipped: {exc}")
     render_report.last_synthesis = synthesis  # type: ignore[attr-defined]
     if outside:
         recorded = set(n for n in (state.get("notes") or [])

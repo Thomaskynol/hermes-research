@@ -164,6 +164,93 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
     return False
 
 
+_TIGHTEN_CITE_RE = re.compile(r"\[(\d+)\]")
+
+
+def _plan_entity_forms(plan) -> list[tuple[object, object, set[str]]]:
+    """(label, entity_id, content tokens) per plan entity (generic)."""
+    out = []
+    for ent in (plan or {}).get("entities", []) or []:
+        if not isinstance(ent, dict):
+            continue
+        toks = {t for t in _content_tokens(ent.get("label") or ent.get("id"))
+                if len(t) >= 4}
+        if toks:
+            out.append((ent.get("label"), ent.get("id"), toks))
+    return out
+
+
+def _tighten_citations(markdown, n_to_url, evidence, plan
+                       ) -> tuple[str, list[str]]:
+    """Drop loose conjunctive citations, never masking real gaps.
+
+    In a sentence naming plan entities, every cited number must resolve
+    to a document mentioning at least one named entity. Numbers whose
+    document lacks all named entities are removed — but only when at
+    least one sustaining citation remains; otherwise the sentence is
+    left untouched so the support audit still flags it (a removed
+    citation would turn a flaggable claim into an invisible one).
+    Sentences naming no entity, and unresolvable numbers, are untouched.
+    Returns (tightened_markdown, notes).
+    """
+    try:
+        from scripts import citation_audit as ca
+    except ImportError:  # pragma: no cover
+        import citation_audit as ca  # type: ignore
+    norm_docs: dict[str, str] = {}
+    if isinstance(evidence, dict):
+        for url, value in evidence.items():
+            if not isinstance(url, str):
+                continue
+            norm = ca.normalize_url(url)
+            if norm:
+                norm_docs[norm] = _doc_text(value)
+    forms = _plan_entity_forms(plan)
+    if not forms:
+        return str(markdown or ""), []
+    notes: list[str] = []
+    out_lines = []
+    for line in str(markdown or "").splitlines():
+        cites = _TIGHTEN_CITE_RE.findall(line)
+        if len(set(cites)) < 2:
+            out_lines.append(line)
+            continue
+        sent_tokens = set(_content_tokens(line))
+        named = [(label, eid) for label, eid, toks in forms
+                 if sent_tokens & toks]
+        if not named:
+            out_lines.append(line)
+            continue
+        keep, drop, unknown = [], [], []
+        for n in cites:
+            url = (n_to_url or {}).get(int(n)) if str(n).isdigit() else None
+            doc = ""
+            if url is not None:
+                try:
+                    from scripts import citation_audit as _ca
+                except ImportError:  # pragma: no cover
+                    import citation_audit as _ca  # type: ignore
+                doc = norm_docs.get(_ca.normalize_url(url) or "", "")
+            if not url or not doc:
+                unknown.append(n)
+            elif any(_entity_mentioned(label, eid, doc)
+                     for label, eid in named):
+                keep.append(n)
+            else:
+                drop.append(n)
+        if drop and (keep or unknown):
+            for n in set(drop):
+                line = re.sub(rf"\[{n}\]", "", line)
+            line = re.sub(r"\s+([.,;:!?])", r"\1", line)
+            line = re.sub(r" {2,}", " ", line).strip()
+            notes.append("citação ajustada por entidade: "
+                         f"removido(s) {sorted(set(drop))} "
+                         f"mantido(s) {sorted(set(keep + unknown))} "
+                         f"em: {line[:120]}")
+        out_lines.append(line)
+    return "\n".join(out_lines), notes
+
+
 def _n_to_url(numbers) -> dict[int, str]:
     """Accept {url: n} (renderer) or {n: url} and return n -> url."""
     out: dict[int, str] = {}
