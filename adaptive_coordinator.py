@@ -518,15 +518,13 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
             last = None
         started = bool(state.get("rounds"))
         if started:
-            # Pós-início: nunca após parada/finalização decidida; sem
-            # base de cálculo (resume legado) preserva; plano estável
-            # não re-adota.
-            if (state.get("stop") is not None
-                    or state.get("report") is not None):
-                return False
-            if last is None:
-                return False
-            if cells <= last:
+            # Pós-início: nunca após parada/finalização decidida (stop
+            # com reason ou report preenchido — new_state inicializa
+            # stop={"reason": None, ...} e report={}, que NÃO são
+            # decisão). Sem base de cálculo (resume legado) preserva;
+            # plano estável não re-adota.
+            if (bool((state.get("stop") or {}).get("reason"))
+                    or bool(state.get("report"))):
                 return False
         lims = dict((resolved or {}).get("budget") or {})
         try:
@@ -536,15 +534,46 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         suggestion = proportional_max_rounds(lims, {"cells": cells})
         proposed = int(suggestion.get("max_rounds") or 0)
         current = int((resolved or {}).get("max_rounds") or 0)
+        if last is not None and cells == last:
+            return False  # já rastreado: silencioso
         try:
             state["_proportional_cells"] = cells
         except Exception:
             pass
+        if started and last is None:
+            # Resume legado: sem adotar (comportamento mantido), mas
+            # registra o trace (bound: uma note por valor distinto).
+            _desfecho = "mantido — resume sem base de cálculo anterior"
+            try:
+                _trace = (f"proporcional: células {cells} (base {last}) "
+                          f"→ proposto {proposed} vs vigente {current}: "
+                          f"{_desfecho}")
+                state.setdefault("notes", []).append(_trace)
+            except Exception:
+                pass
+            return False
         if current < 1:
             # 0 desliga o loop (só varredura inicial); proporcional
             # dimensiona um loop, nunca religa um desligamento explícito.
+            _desfecho = f"mantido — loop desligado (vigente {current}<1)"
+            try:
+                _trace = (f"proporcional: células {cells} (base {last}) "
+                          f"→ proposto {proposed} vs vigente {current}: "
+                          f"{_desfecho}")
+                state.setdefault("notes", []).append(_trace)
+            except Exception:
+                pass
             return False
         if proposed <= current:
+            _desfecho = (f"mantido — proporcional {proposed} sem elevação "
+                         f"sobre vigente {current}")
+            try:
+                _trace = (f"proporcional: células {cells} (base {last}) "
+                          f"→ proposto {proposed} vs vigente {current}: "
+                          f"{_desfecho}")
+                state.setdefault("notes", []).append(_trace)
+            except Exception:
+                pass
             return False
         # Folga: tetos não-célula sustentam o proposto (by_cells vincula
         # ou empata, nunca estoura outro teto).
@@ -554,8 +583,22 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
             by_m = max(1, (int(lims.get("model_calls", 16) or 0) - 2) // 2)
             by_t = max(1, int(lims.get("time_s", 1800) or 0) // 150)
         except Exception:
+            try:
+                state.setdefault("notes", []).append(
+                    f"proporcional: células {cells} (base {last}) → "
+                    f"proposto {proposed} vs vigente {current}: mantido — "
+                    f"conta de folga indisponível")
+            except Exception:
+                pass
             return False
         if min(by_q, by_e, by_m, by_t) < proposed:
+            try:
+                state.setdefault("notes", []).append(
+                    f"proporcional: células {cells} (base {last}) → "
+                    f"proposto {proposed} vs vigente {current}: mantido — "
+                    f"tetos sem folga para {proposed}")
+            except Exception:
+                pass
             return False
         src = (resolved or {}).get("max_rounds_source")
         if src not in ("harness", "user", "default"):
@@ -568,12 +611,10 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         except Exception:
             pass
         try:
-            _fase = ("recálculo proporcional na expansão do plano"
-                     if started else "dimensionamento proporcional inicial")
             state.setdefault("notes", []).append(
-                f"{_fase}: plano com {cells} células "
-                f"(cálculo anterior {last}) → max_rounds "
-                f"{current}->{proposed} "
+                f"proporcional: células {cells} (base {last}) → "
+                f"proposto {proposed} vs vigente {current}: "
+                f"ADOTADO {current}->{proposed} "
                 f"({suggestion.get('conta')}); fonte={src} (preservada; "
                 f"default nunca justificável por comparabilidade); "
                 f"by_cells vincula/empata, demais tetos com folga")
