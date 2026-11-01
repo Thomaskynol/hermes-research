@@ -2,13 +2,14 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-10-31 (accept25: run real sob `4b40bbe`, 0/35
-> partial, support ok 2ª vez, 3 contratos v2 provados, RA8 pendente;
-> sem push). Commit local sem push.
+> Última atualização: 2026-11-01 (accept28: pergunta ORIGINAL do aceite sob
+> `95b0ec7`, 6/55 partial 0.109, support ok 3ª vez, 8082 com efeito
+> reconciliado, 3 contratos v2 observados, RA8 pendente; sem push).
+> Commit local sem push.
 >
-> HEADs: produto `4b40bbe` (Missão 3 + 3 divergências + Missão 4 v2 +
-> identidade estrita, executado no run accept25, hashes frozen reconferidos
-> pré/pós-run); docs + matriz sync Missão 4/accept25 (este passo).
+> HEADs: produto `95b0ec7` (= `5080a84` + commit docs accept27; executado no
+> run accept28, hashes frozen de 11 arquivos reconferidos pré/pós-run);
+> docs + matriz sync accept28 (este passo).
 
 ## Objetivo e escopo
 
@@ -372,6 +373,33 @@ segue pendente.
   0 down. Sem causalidade vs accept26 (perfis distintos). Relatório:
   `hermes-runs/accept27/RELATORIO_ACCEPT27.md`. RA8 segue pendente
   (teto de rounds/cobertura, não veracidade).
+
+## Accept28 (2026-11-01) — pergunta ORIGINAL do aceite (pesquisa, sem produto)
+
+- Congelamento: HEAD `95b0ec7`, diffstat vazio, sha256 de 11 arquivos
+  produto idênticos pré/pós-run (`hashes.frozen == hashes_post.frozen`);
+  `opencode v2.2.5` à parte; pergunta usa `installed_opencode_version=2.1.4`
+  como ENTRADA via `--context` (sem presumir versão). Infra medida pré/pós:
+  vast `:8001` DOWN (controle), SearXNG DOWN (sem imagem, sem fallback),
+  embeddings 8082 UP (`harrier-oss-v1-0.6b`).
+- Run real `hermes-runs/accept28` (medium max-rounds 3, native+opencode
+  `muse-spark-1.3-contributor`, `--auto-plan`,
+  `HERMES_NATIVE_EMBEDDINGS=1`): EXIT=0, stop `rounds`, 603.7s, cobertura
+  **6/55 + 0 N/A = 0.109 `partial`**, verification overall `partial`
+  (execution ok, question/review partial, **support ok 3ª vez**),
+  model_calls 7, contadores 43/22/22/22/9/6, ops 12 (9 ok/3 falha),
+  fetches 30, queries 9. **8082 com efeito**: 4 calls, 23 vetores, 10168
+  tokens, cache 47; servidor 17460→27577 (+10117) + cached +51 = 10168
+  reconciliado. Contratos v2-1/v2-2/v2-3 observados (2.1.4 premissa [U],
+  sem promoção selection_context, `[N]` intacto).
+- Diagnose: ok 6, partial_legit 15, missing_dimension_evidence 18,
+  selection_context 8, assessor_error 8 (este último = comportamento
+  correto sobre listagens, bucket overstates — observação, não defeito);
+  síntese 54 supported / 10 unsupported (LACUNA/INFERÊNCIA honesta) /
+  71 uncited. Utilidade: 4 plugins com âncora + oh-my-opencode-slim
+  LACUNA declarada (+ contradição do plano flagrada); nenhum plugin
+  demonstra melhorar implementação/testes/revisão no corpus. Relatório:
+  `hermes-runs/accept28/RELATORIO_ACCEPT28.md`. RA8 segue pendente.
 
 ## Referências
 

@@ -522,3 +522,21 @@
   /tmp); `docs/CONTINUIDADE.md` + plano sincronizados (Phase 11 complete).
   1 literal editado na janela de lançamento, vigente desde round 0
   (`hashes.frozen` == árvore). Sem push.
+
+## 2026-11-01 — Sessão 20: accept28 — pergunta original (pesquisa/orquestração, sem produto)
+
+- Congelamento (HEAD `95b0ec7`, diffstat vazio, sha256 11 arquivos produto
+  em `hashes.frozen`; `opencode v2.2.5`; infra medida em `infra.frozen`:
+  vast DOWN controle, SearXNG DOWN sem imagem, 8082 UP).
+- Run real pergunta original (medium max-rounds 3, native+opencode
+  `muse-spark-1.3-contributor`, 2.1.4 via --context,
+  `HERMES_NATIVE_EMBEDDINGS=1`): EXIT=0, stop `rounds`, 603.7s, cobertura
+  6/55 partial 0.109, verification overall `partial` (support ok 3ª vez),
+  model_calls 7, contadores 43/22/22/22/9/6. RA8 segue PENDENTE.
+- 8082 com efeito: 4 calls, 23 vetores, 10168 tokens, cache 47;
+  reconciliação servidor↔state exata. Hashes pós-run idênticos.
+- Diagnose EXIT=0 (ok 6, partial_legit 15, missing 18, sel_ctx 8,
+  assessor_error 8 — este último comportamento correto, bucket overstates).
+- Outputs em `/home/thomaskyn/hermes-runs/accept28/` (+ RELATORIO_ACCEPT28.md,
+  suite_full.log Ran 563 OK skipped=10 EXIT=0); plano + CONTINUIDADE
+  sincronizados (Phase 12 complete). Commit docs local, sem push.

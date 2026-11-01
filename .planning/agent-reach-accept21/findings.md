@@ -506,3 +506,29 @@ lane, condições registradas no RELATORIO_ACCEPT25.md). 437s, EXIT=0.
 - Arquivos: `adaptive_coordinator.py` (+~300), `run_manifest.py` (+18),
   `tests/test_native_embeddings*.py` (18); intocados
   `verification_report.py`, diagnose, `adaptive_state.py`, `sync_config.py`.
+
+## Accept28 — pergunta original do aceite, 2.1.4 como entrada (evidência: `/home/thomaskyn/hermes-runs/accept28/`, 2026-11-01)
+
+- Run sob `95b0ec7` congelado (hashes 11 arquivos produto idênticos
+  pré/pós; diffstat vazio). Pergunta original + `--context
+  installed_opencode_version=2.1.4`; `opencode v2.2.5` real registrado
+  à parte. Infra: vast DOWN (controle), SearXNG DOWN (sem imagem),
+  8082 UP com efeito (4 calls, 23 vetores, 10168 tokens; servidor
+  17460→27577 + cached 265→316 = 10168 reconciliado).
+- Resultado: EXIT=0, stop `rounds`, 603.7s, cobertura **6/55 partial
+  0.109**, verification overall `partial` (execution ok, question/review
+  partial, **support ok 3ª vez**). RA8 pendente — gargalo cobertura/teto.
+- Contratos v2-1/v2-2/v2-3 observados no run: 2.1.4 como premissa [U]
+  (comparação numérica sustentada, funcional = LACUNA); sem promoção de
+  `selection_context` (8); `[N]` intacto.
+- Diagnose: ok 6, partial_legit 15, missing_dimension_evidence 18,
+  selection_context 8, assessor_error 8; síntese 54/10/71 — os 10
+  unsupported são LACUNA/INFERÊNCIA auto-marcadas, não afirmação falsa.
+- `assessor_error` 8 = comportamento correto (6× e6 sobre listagens +
+  2× e3 com dados genuinamente ausentes); nome do bucket overstates —
+  observação de taxonomia, não defeito produto.
+- Relatório flagra **contradição do plano** `opencode-plugins-compare`:
+  `oh-my-opencode-slim` exigido como entidade e listado 2× como "NÃO
+  investigada" (observação p/ lane de plano; produto intocado).
+- Utilidade: 4 plugins com âncora + C9 defensável; achado crítico —
+  nenhum plugin demonstra no corpus melhorar implementação/testes/revisão.

@@ -10,16 +10,16 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-accept27 EXECUTADO sob `5080a84` (boost semântico funcional no path native:
-4 calls 8082 ok, 36 vetores, 14475 tokens, cache 51; seleção/writer
-influenciados com gates intactos; coverage 0.333 partial, overall partial;
-RA8 segue pendente — gargalo cobertura/teto, não veracidade). Fechar Phase 5
-(ACEITE_V1_RESULTADO + check-complete). Próximo run só sob nova hipótese
-explícita.
+accept28 EXECUTADO sob `95b0ec7` (pergunta ORIGINAL do aceite, 2.1.4 como
+entrada via --context; 8082 com efeito: 4 calls, 23 vetores, 10168 tokens
+reconciliados; coverage 6/55 partial 0.109, overall partial, support ok 3ª
+vez; RA8 segue pendente — gargalo cobertura/teto, não veracidade). Fechar
+Phase 5 (ACEITE_V1_RESULTADO + check-complete). Próximo run só sob nova
+hipótese explícita.
 
 ## Current Phase
 
-Phase 11 (accept27: boost semântico funcional no path native — PROVA OBTIDA)
+Phase 12 (accept28: pergunta original, 2.1.4 como entrada — EXECUTADO)
 
 ## Phases
 
@@ -199,6 +199,42 @@ Phase 11 (accept27: boost semântico funcional no path native — PROVA OBTIDA)
   atribuição causal vs accept26 (perfis/corpora distintos)
 - **Status:** complete (evidência em `/home/thomaskyn/hermes-runs/accept27/`
   + `RELATORIO_ACCEPT27.md`; RA8 segue PENDENTE; sem push)
+
+### Phase 12 (accept28): pergunta original do aceite, 2.1.4 como entrada — EXECUTADO
+
+- [x] Congelamento pré-run (HEAD `95b0ec7`, `HEAD.frozen`/`diffstat` vazio/
+  `hashes.frozen` 11 arquivos produto em `/home/thomaskyn/hermes-runs/accept28/`;
+  pós-run idênticos: mesmo HEAD, diffstat vazio, `hashes_post == hashes`).
+  Sem edição de produto neste lane.
+- [x] Infra medida pré/pós (`infra.frozen`, `metrics_*.log`): vast :8001
+  DOWN (controle); SearXNG DOWN (localhost+bridge, sem imagem, sem
+  fallback); embeddings 8082 UP o run todo (`harrier-oss-v1-0.6b`).
+  `opencode v2.2.5` em `opencode_version.frozen`; config efetiva em
+  `config_efetiva.md` (medium max-rounds 3, comparabilidade accept24/25/27).
+- [x] Run real pergunta ORIGINAL (5 plugins, `--context
+  installed_opencode_version=2.1.4`, `HERMES_NATIVE_EMBEDDINGS=1`):
+  EXIT=0, stop `rounds`, 603.7s, coverage **6/55 + 0 N/A = 0.109 partial**,
+  verification overall `partial` (execution ok, question/review partial,
+  **support ok 3ª vez**), model_calls 7, contadores 43/22/22/22/9/6,
+  ops 12 (9 ok / 3 falha), fetches 30, queries 9, yt_live_fetches 0.
+- [x] 8082 com efeito: 4 calls (1/round), 23 vetores, 10168 tokens,
+  cache 47 (0→12→16→19); servidor 17460→27577 (+10117) + cached 265→316
+  (+51) = 10168 reconciliado; manifest separa embeddings do gerador.
+- [x] Diagnose EXIT=0 (`diagnose_accept28.json`): ok 6, partial_legit 15,
+  missing_dimension_evidence 18, selection_context 8, assessor_error 8;
+  síntese 54 supported / 10 unsupported (todos LACUNA/INFERÊNCIA honesta)
+  / 71 uncited. Contratos v2-1/v2-2/v2-3 observados (2.1.4 como premissa
+  [U], sem promoção de selection_context, [N] intacto).
+- [x] Utilidade: 4 plugins com âncora + oh-my-opencode-slim LACUNA
+  declarada (+ contradição do plano flagrada: exigido e "não investigado");
+  C9 defensável (planejador+instalador complementares); achado crítico —
+  nenhum plugin demonstra melhorar implementação/testes/revisão no corpus.
+- [x] Skills: planning-with-files (este plano + CONTINUIDADE sync);
+  sp-verification-before-completion (suíte FULL fresca Ran 563 OK
+  skipped=10 EXIT=0 em `suite_full.log` antes de afirmar; run lido de
+  arquivos+exits). Sem TDD/debugging (sem falha/surpresa, sem produto).
+- **Status:** complete (evidência em `/home/thomaskyn/hermes-runs/accept28/`
+  + `RELATORIO_ACCEPT28.md`; RA8 segue PENDENTE; sem push)
 
 ## Decisions Made
 
