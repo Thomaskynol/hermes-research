@@ -892,7 +892,8 @@ def _mention_positions(haystack: str, needle: str) -> list[int]:
 def _relevant_excerpt(text: str, limit: int,
                       terms: "list[str] | tuple[str, ...] | None" = None,
                       groups: "dict[str, list[str]] | None" = None,
-                      entity_terms: "list[str] | tuple[str, ...] | None" = None
+                      entity_terms: "list[str] | tuple[str, ...] | None" = None,
+                      resend_focus: "tuple[list[str], list[str]] | None" = None
                       ) -> tuple[str, int, str]:
     """Excerpt centered on relevance windows, not on the document head.
 
@@ -918,6 +919,14 @@ def _relevant_excerpt(text: str, limit: int,
     mention before the group round-robin, within the same ``limit`` (no
     budget increase): full text sustains the cell but the head-only fact
     windows hide the name. ``None``/empty keeps the old output exactly.
+
+    ``resend_focus`` (optional) is (dimension_terms, entity_anchors) of
+    the open cell that motivated this URL's resend: one window of up to
+    600 chars covering the closest (term, anchor) pair within 1500 chars
+    comes first, within the same ``limit``. The resend qualifies on
+    full-text locality but 150-char slices split the two signals apart;
+    the joint window keeps them together for the assessor. ``None``
+    keeps the old output exactly.
     """
     body, stripped = _substantive_body(text)
     if not body.strip():
@@ -994,6 +1003,58 @@ def _relevant_excerpt(text: str, limit: int,
         total += len(chunk) + sep_cost
         winlog.append(f"@{start}")
         return True
+
+    # accept32: janela da célula do reenvio primeiro, mesmo limite. O
+    # reenvio qualifica por localidade no texto integral (termo da
+    # dimensão a ≤1500 chars da menção), mas as fatias de 150 chars
+    # separavam os dois sinais; a janela conjunta (até 600 chars)
+    # mantém menção + termo juntos para o assessor. Resto e teto
+    # inalterados; sem foco o comportamento é o anterior.
+    if resend_focus and total < limit:
+        try:
+            _f_dim = sorted({str(t).strip().lower()
+                             for t in (resend_focus[0] or [])
+                             if str(t).strip() and len(str(t).strip()) >= 4})
+            _f_anc = sorted({str(t).strip().lower()
+                             for t in (resend_focus[1] or [])
+                             if str(t).strip() and len(str(t).strip()) >= 2})
+            _f_hits: list[tuple[int, int]] = []
+            for _t in _f_dim:
+                _p = 0
+                while True:
+                    _j = low.find(_t, _p)
+                    if _j < 0:
+                        break
+                    _f_hits.append((_j, len(_t)))
+                    _p = _j + max(1, len(_t))
+            _f_pos: list[tuple[int, int]] = []
+            for _t in _f_anc:
+                _p = 0
+                while True:
+                    _j = low.find(_t, _p)
+                    if _j < 0:
+                        break
+                    _f_pos.append((_j, len(_t)))
+                    _p = _j + max(1, len(_t))
+            _best = None
+            for _h, _hl in _f_hits:
+                for _a, _al in _f_pos:
+                    if abs(_h - _a) <= 1500:
+                        _key = (abs(_h - _a), _h, _a)
+                        if _best is None or _key < _best[0]:
+                            _best = (_key, _h, _hl, _a, _al)
+            if _best is not None:
+                _, _h, _hl, _a, _al = _best
+                _lo = min(_h, _a)
+                _hi = max(_h + _hl, _a + _al)
+                if _hi - _lo <= 600:
+                    _fstart = max(0, _lo - (600 - (_hi - _lo)) // 2)
+                else:
+                    _fstart = max(0, (_h - 500) if _a < _h else (_h - 50))
+                if take(_fstart, 600):
+                    winlog[-1] += " (resend-foco)"
+        except Exception:
+            pass
 
     # B4: janela da menção da entidade primeiro, mesmo limite. O ranking
     # global perde para os grupos quando o budget esgota (8 janelas de 150
@@ -3127,12 +3188,71 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 return _out
             except Exception:
                 return []
+        # accept32: foco do reenvio por URL (célula que motivou o envio):
+        # (termos da dimensão, âncoras da entidade) a partir do plano —
+        # sem literais, mesma localidade ≤1500 do _resend_for_open_cells.
+        # URL fora do reenvio recebe None (comportamento idêntico).
+        _resend_focus: dict[str, tuple[list[str], list[str]]] = {}
+        try:
+            _f_emap = {e.get("id"): e for e in (plan or {}).get("entities", [])
+                       if isinstance(e, dict)}
+            _f_cmap = {c.get("id"): c for c in (plan or {}).get("criteria", [])
+                       if isinstance(c, dict)}
+            try:
+                _f_generic = _plan_shared_tokens(
+                    plan, (plan or {}).get("question"))
+            except Exception:
+                _f_generic = frozenset()
+            for _u, _c, _e in _resend_open:
+                try:
+                    _dt = _norm_tokens(
+                        str((_f_cmap.get(_c) or {}).get("label") or ""),
+                        min_len=4)
+                    _dt.extend(t for t in _expand_terms_en(_dt)
+                               if len(t) >= 4)
+                    _seen: set[str] = set()
+                    _dt = [t for t in _dt
+                           if len(t) >= 4 and not (t in _seen
+                                                   or _seen.add(t))]
+                    _ent = _f_emap.get(_e) or {}
+                    _anc: list[str] = []
+                    _lbl = str(_ent.get("label") or "").lower()
+                    if _lbl.strip():
+                        _anc.append(_lbl)
+                    try:
+                        _dd = _entity_distinctive_tokens(_ent, _f_generic)
+                        if (len(_dd) == 1 and _dd[0]
+                                and _dd[0] not in _lbl):
+                            _anc.append(_dd[0])
+                    except Exception:
+                        pass
+                    _prev = _resend_focus.get(_u)
+                    if _prev is None:
+                        _resend_focus[_u] = (_dt, _anc)
+                    else:
+                        _resend_focus[_u] = (
+                            sorted(set(_prev[0]) | set(_dt)),
+                            sorted(set(_prev[1]) | set(_anc)))
+                except Exception:
+                    continue
+        except Exception:
+            _resend_focus = {}
         for url in ordered[:max_docs]:
             text = evidence.get(url) or ""
             qual = qualification.get(url, {}) or {}
-            excerpt, _stripped, _windows = _relevant_excerpt(
-                text, excerpt_chars, list(_terms) + list(_extra_terms),
-                groups=_groups, entity_terms=_doc_entity_terms(url, text))
+            _foc = _resend_focus.get(url)
+            # Sem foco o caminho é o anterior byte a byte (spies e
+            # regressões existentes não veem o kwarg novo).
+            if _foc is None:
+                excerpt, _stripped, _windows = _relevant_excerpt(
+                    text, excerpt_chars, list(_terms) + list(_extra_terms),
+                    groups=_groups,
+                    entity_terms=_doc_entity_terms(url, text))
+            else:
+                excerpt, _stripped, _windows = _relevant_excerpt(
+                    text, excerpt_chars, list(_terms) + list(_extra_terms),
+                    groups=_groups, entity_terms=_doc_entity_terms(url, text),
+                    resend_focus=_foc)
             if _stripped:
                 cuts.append(f"boilerplate ignorado {url}: {_stripped} chars")
             if len(text or "") > len(excerpt) + _stripped:
