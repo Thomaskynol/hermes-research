@@ -856,6 +856,12 @@ _ANCHOR_GROUPS: dict[str, tuple[str, ...]] = {
                       "compatib", "v1", "v2", "stars"),
     "ancora:instalacao": ("install", "instala", "npm", "bun", "node",
                           "requires", "requer"),
+    # Seções de dependência vivem no rodapé do README ("Requirements",
+    # "dependencies") e o rótulo PT do critério ("Dependências") nunca
+    # casa o corpo EN (accept34 c9×e6: runtimes/TypeScript perdidos); sem
+    # este grupo nenhuma janela retém a seção dentro do mesmo limite.
+    "ancora:dependencias": ("dependen", "dependencies", "dependency",
+                            "requirement", "requirements", "prerequisit"),
     "ancora:manutencao": ("maintainer", "mantenedor", "contributors",
                           "contribuidores"),
 }
@@ -2769,6 +2775,159 @@ def _open_priority(plan, prior_states) -> tuple[list[str], list[str]]:
                        if not (t in seen or seen.add(t))]
 
 
+def _cell_locality_hit(text: str, ent: dict, terms: list,
+                         generic=frozenset(), rare_ok: bool = True) -> bool:
+    """Full-text identity + dimension term near an entity mention.
+
+    Shared gate for the resend and the diversity order (accept34): the
+    doc is about the entity (same aboutness the gates enforce) and a
+    dimension term occurs within 1500 chars of a mention (same locality
+    the diagnose uses). Deterministic, stdlib.
+    """
+    try:
+        if not _identity_matches(ent, text, single_ok=rare_ok,
+                                 generic=generic):
+            return False
+    except Exception:
+        return False
+    low = str(text or "").lower()
+    anchors: list[int] = []
+    try:
+        lbl = str((ent or {}).get("label") or "").lower()
+        if lbl.strip():
+            p = 0
+            while True:
+                i = low.find(lbl, p)
+                if i < 0:
+                    break
+                anchors.append(i)
+                p = i + max(1, len(lbl))
+        dist = _entity_distinctive_tokens(ent or {}, generic)
+        if len(dist) == 1 and dist[0]:
+            p = 0
+            while True:
+                i = low.find(dist[0], p)
+                if i < 0:
+                    break
+                anchors.append(i)
+                p = i + max(1, len(dist[0]))
+    except Exception:
+        pass
+    if not anchors:
+        return False
+    for t in terms or []:
+        p = 0
+        while True:
+            j = low.find(t, p)
+            if j < 0:
+                break
+            if any(abs(j - a) <= 1500 for a in anchors):
+                return True
+            p = j + max(1, len(t))
+    return False
+
+
+def _open_cell_coverage(urls, plan, evidence, qualification,
+                        prior_states, prior_cell_refs, shown
+                        ) -> dict[str, list[tuple[str, str]]]:
+    """Required open cells without refs each candidate url sustains.
+
+    Same gates as the resend (identity + dimension locality); pairs
+    (url, célula) already shown together never count again. Drives the
+    diversity order of the lot within the same ceilings (accept34 M-A);
+    never includes/excludes evidence, never raises limits. Deterministic.
+    """
+    cov: dict[str, list[tuple[str, str]]] = {}
+    try:
+        entities = {e.get("id"): e for e in (plan or {}).get("entities", [])
+                    if isinstance(e, dict)}
+        criteria = [c for c in (plan or {}).get("criteria", [])
+                    if isinstance(c, dict) and c.get("required", True)
+                    and c.get("id")]
+        if not entities or not criteria:
+            return cov
+        try:
+            generic = _plan_shared_tokens(plan, (plan or {}).get("question"))
+        except Exception:
+            generic = frozenset()
+        open_cells: list[tuple[str, str]] = []
+        for c in criteria:
+            for eid in (c.get("applies_to") or [None]):
+                if not isinstance(eid, str) or eid not in entities:
+                    continue
+                if ((entities.get(eid) or {}).get("required", True)
+                        is False):
+                    continue
+                if (prior_states or {}).get((c["id"], eid)) in ("covered",
+                                                               "partial"):
+                    continue
+                if (prior_cell_refs or {}).get((c["id"], eid)):
+                    continue
+                if (c["id"], eid) not in open_cells:
+                    open_cells.append((c["id"], eid))
+        if not open_cells:
+            return cov
+        crit_terms: dict[str, list[str]] = {}
+        for c in criteria:
+            try:
+                toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
+                toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
+                seen_terms: set[str] = set()
+                crit_terms[c["id"]] = [
+                    t for t in toks if not (t in seen_terms
+                                            or seen_terms.add(t))]
+            except Exception:
+                crit_terms[c["id"]] = []
+        try:
+            bodies = [str((qualification.get(u) or {}).get("usable_text")
+                          or (evidence or {}).get(u) or "")
+                      for u in (evidence or {})]
+        except Exception:
+            bodies = []
+        rare: dict[str, bool] = {}
+        for _, eid in open_cells:
+            try:
+                rare[eid] = _singleton_rare(entities[eid], bodies, generic)
+            except Exception:
+                rare[eid] = True
+        texts: dict[str, str] = {}
+        for url in urls or []:
+            if not isinstance(url, str) or url.startswith("user://"):
+                continue
+            try:
+                q = (qualification or {}).get(url) or {}
+                if q.get("excluded"):
+                    continue
+                text = str(q.get("usable_text")
+                           or (evidence or {}).get(url) or "")
+            except Exception:
+                continue
+            if text.strip():
+                texts[url] = text
+        for url, text in texts.items():
+            cells: list[tuple[str, str]] = []
+            for cid, eid in open_cells:
+                if (cid, eid) in (shown or {}).get(url, set()):
+                    continue
+                terms = [t for t in (crit_terms.get(cid) or [])
+                         if len(t) >= 4]
+                if not terms:
+                    continue
+                try:
+                    if _cell_locality_hit(
+                            text, entities.get(eid) or {}, terms,
+                            generic=generic,
+                            rare_ok=rare.get(eid, True)):
+                        cells.append((cid, eid))
+                except Exception:
+                    continue
+            if cells:
+                cov[url] = cells
+    except Exception:
+        return cov
+    return cov
+
+
 def _resend_for_open_cells(plan, evidence, qualification, sent,
                            prior_states, prior_cell_refs, shown
                            ) -> list[tuple[str, str, str]]:
@@ -2814,6 +2973,12 @@ def _resend_for_open_cells(plan, evidence, qualification, sent,
         for c in criteria:
             for eid in (c.get("applies_to") or [None]):
                 if not isinstance(eid, str) or eid not in entities:
+                    continue
+                # accept34: reenvio serve células required abertas; entidade
+                # fora do teto (required=False) nunca consome o reenvio
+                # quando há contenção (accept33: e7 à frente de e3-e6).
+                if ((entities.get(eid) or {}).get("required", True)
+                        is False):
                     continue
                 if (prior_states or {}).get((c["id"], eid)) in ("covered",
                                                                "partial"):
@@ -2870,50 +3035,11 @@ def _resend_for_open_cells(plan, evidence, qualification, sent,
                 if not text.strip():
                     continue
                 try:
-                    if not _identity_matches(
-                            ent, text, single_ok=rare.get(eid, True),
-                            generic=generic):
-                        continue
+                    hit = _cell_locality_hit(
+                        text, ent, terms, generic=generic,
+                        rare_ok=rare.get(eid, True))
                 except Exception:
                     continue
-                low = text.lower()
-                anchors: list[int] = []
-                try:
-                    lbl = str(ent.get("label") or "").lower()
-                    if lbl.strip():
-                        p = 0
-                        while True:
-                            i = low.find(lbl, p)
-                            if i < 0:
-                                break
-                            anchors.append(i)
-                            p = i + max(1, len(lbl))
-                    dist = _entity_distinctive_tokens(ent, generic)
-                    if len(dist) == 1 and dist[0]:
-                        p = 0
-                        while True:
-                            i = low.find(dist[0], p)
-                            if i < 0:
-                                break
-                            anchors.append(i)
-                            p = i + max(1, len(dist[0]))
-                except Exception:
-                    pass
-                if not anchors:
-                    continue
-                hit = False
-                for t in terms:
-                    p = 0
-                    while True:
-                        j = low.find(t, p)
-                        if j < 0:
-                            break
-                        if any(abs(j - a) <= 1500 for a in anchors):
-                            hit = True
-                            break
-                        p = j + max(1, len(t))
-                    if hit:
-                        break
                 if hit:
                     out.append((url, cid, eid))
                     break  # Fase B M1: 1 reenvio por célula
@@ -3140,6 +3266,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 _resend_urls.append(_u)
         for _u in _resend_urls:
             _push(_u, allow_resend=True)
+        # accept34 M-A: fim do prefixo fixo (reservas de entidade, refs
+        # prévias, reenvio) — preservado; a diversidade atua após ele.
+        _pinned_len = len(ordered)
+        _div_note = ""
 
         def _about_open(url) -> bool:
             if not _open_terms:
@@ -3162,6 +3292,42 @@ def make_model_assessor(model_client, max_docs: int = 24,
         for _u in evidence:
             if _u in _sent:
                 _push(_u, allow_resend=True)
+        # accept34 M-A: lote por diversidade de células. O teto JSON corta
+        # o prefixo (accept33: ~8 blobs embora ordered=24); sem reordenar,
+        # docs sobre a mesma célula lotam o orçamento e as demais células
+        # required abertas ficam sem cobertura. Reordena só o sufixo após
+        # o prefixo fixo: urls que sustentam células ainda não servidas
+        # primeiro (guloso, estável), mesmos tetos, mesmos candidatos.
+        try:
+            _head, _tail = ordered[:_pinned_len], ordered[_pinned_len:]
+            if len(_tail) > 1:
+                _cov = _open_cell_coverage(
+                    _tail, plan, evidence, qualification, _prior_states,
+                    _prior_cell_refs, _shown)
+                if any(_cov.values()):
+                    _pos = {u: i for i, u in enumerate(_tail)}
+                    _served: set = set()
+                    _newtail: list = []
+                    _rest = list(_tail)
+                    while _rest:
+                        _best = None
+                        _best_key = None
+                        for _u in _rest:
+                            _new = [c for c in (_cov.get(_u) or [])
+                                    if c not in _served]
+                            _key = (-len(_new), _pos.get(_u, 0))
+                            if _best_key is None or _key < _best_key:
+                                _best_key, _best = _key, _u
+                        _newtail.append(_best)
+                        _rest.remove(_best)
+                        for _c in (_cov.get(_best) or []):
+                            _served.add(_c)
+                    ordered[:] = _head + _newtail
+                    _div_note = (
+                        f"lote por diversidade: {len(_served)} célula(s) "
+                        f"required aberta(s) priorizada(s); limites intactos")
+        except Exception:
+            pass
         # Relevance terms from the plan (criterion/entity labels): long
         # documents are windowed around what the criteria ask, never
         # head-only (a 131K-char paper hides §5/§6 from a head cut).
@@ -3190,6 +3356,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
         _groups = _criterion_groups(plan)
         # Real selection: complete units within the JSON budget.
         items, cuts = [], []
+        if _div_note:
+            cuts.append(_div_note)
         used_budget = 0
         # B4: raridade singleton por entidade (uma vez por lote): palavra
         # comum so identifica quando rara aqui; sem isso a ancora da
@@ -3515,6 +3683,29 @@ def make_model_assessor(model_client, max_docs: int = 24,
     return assess
 
 
+def _writer_gate_guidance() -> str:
+    """Writer template rule for version/quote gates (accept34 M-B).
+
+    Gates stay strict (verification_report rejects exact versions and
+    literals the cited doc does not contain; bare LACUNA never exempts):
+    the writer must therefore emit the exemption explicitly instead of
+    dressing the gap as quoted content. Generic wording only — no
+    product/version literals.
+    """
+    return (
+        "quando a versão exata não constar do documento citado, declare "
+        "a isenção de forma explícita (\"desconhecida\" / \"sem menção "
+        "no documento\") e marque a premissa do usuário quando for o "
+        "caso (ex.: versão instalada informada no pedido); nunca "
+        "apresente como conteúdo citado literais entre aspas/backticks "
+        "ou números de versão que o documento citado não contém — "
+        "remova a citação injusta ou reescreva sem os literais; nota "
+        "metodológica sobre URLs do pedido que ficaram fora do corpus "
+        "deve referi-las como \"fora do corpus\", nunca como fonte "
+        "lida; rótulo LACUNA sozinho não isenta versão/literal do gate "
+        "de citação.")
+
+
 def make_model_writer(model_client, max_chars: int = 12000):
     """Model-backed synthesis in Portuguese from the real corpus.
 
@@ -3783,6 +3974,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "integração afirmada com essa versão sem fonte que a "
             "mencione é LACUNA, nunca afirmação sustentada; "
             "não invente fatos.\n"
+            f"{_writer_gate_guidance()}\n"
             f"Pergunta: {question}\n"
             f"{_cand_s}{_sub_s}{_unexp_s}"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
