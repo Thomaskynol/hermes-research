@@ -514,6 +514,12 @@ segue pendente.
 - Gate Fase B: APROVAR COM RISCOS (0🔴 3🟡 remediados). Suite 629 OK skipped=10 EXIT 0; diagnose accept30 antes==depois (congelado).
 - Commit Fase B abaixo; re-run accept31 com a hipótese nova (seleção), sem repetição sem causa.
 
+## Fase B accept30/31 (2026-11-01) — causa seleção + hook proporcional
+
+- accept30 real (HEAD 3a2984b, EXIT 0): 0/55+0N/A, support failed (1 claim corretamente reprovado), overall failed; 8082 reconciliado. Causa nova: quarentena `_sent` + teto JSON 12k (docs da r0 nunca recitados) + janela 1200 chars; by_cells usou estimativa 46 em vez de 55 reais.
+- Fix M1–M4 + remediação 3🟡 (suite 629 OK). accept31 real (HEAD 06a5239, EXIT 0): 1/53+2N/A partial, overall partial; hook não adotou (plano v1 15 células). Fix M5: re-adoção em expansão (`_proportional_cells`), suite 633 OK skipped=10 EXIT 0, diagnose congelado idêntico, gate M5 sem issues.
+- Commit Fase B abaixo. RA8 segue pendente (nenhum run com cobertura plena).
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

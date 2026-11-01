@@ -496,17 +496,38 @@ def proportional_max_rounds(budget_limits: dict, scope: dict) -> dict:
 
 def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
                                      plan: dict) -> bool:
-    """Dimensionamento proporcional inicial (accept30 M3).
+    """Dimensionamento proporcional inicial + recálculo na expansão
+    (accept30 M3, accept31 M5).
 
-    Recalcula com as células reais do plano adotado (``len(_plan_cells)``)
-    e, se o proporcional superar o max_rounds vigente com folga nos
-    demais tetos, adota ANTES do loop. Nunca reduz nem aumenta após o
-    loop iniciar (rounds não-vazio = já iniciado, ex.: resume).
+    Recalcula com as células reais do plano versionado
+    (``len(_plan_cells)``) e, se o proporcional superar o max_rounds
+    vigente com folga nos demais tetos, adota. Antes do loop adota
+    direto; com o loop iniciado só re-adota em expansão genuína
+    (células vigentes > células do cálculo anterior), nunca após
+    decisão de parada/finalização. Nunca reduz; fonte segue
+    harness/user/default (default nunca justificável por
+    comparabilidade). Toda conta fica em notes + resolved +
+    config_applied.
     """
     try:
-        if state.get("rounds"):
-            return False
         cells = len(_plan_cells(plan))
+        try:
+            _last = state.get("_proportional_cells")
+            last = int(_last) if _last is not None else None
+        except (TypeError, ValueError):
+            last = None
+        started = bool(state.get("rounds"))
+        if started:
+            # Pós-início: nunca após parada/finalização decidida; sem
+            # base de cálculo (resume legado) preserva; plano estável
+            # não re-adota.
+            if (state.get("stop") is not None
+                    or state.get("report") is not None):
+                return False
+            if last is None:
+                return False
+            if cells <= last:
+                return False
         lims = dict((resolved or {}).get("budget") or {})
         try:
             lims["model_calls"] = (resolved or {}).get("max_model_calls")
@@ -515,6 +536,10 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         suggestion = proportional_max_rounds(lims, {"cells": cells})
         proposed = int(suggestion.get("max_rounds") or 0)
         current = int((resolved or {}).get("max_rounds") or 0)
+        try:
+            state["_proportional_cells"] = cells
+        except Exception:
+            pass
         if current < 1:
             # 0 desliga o loop (só varredura inicial); proporcional
             # dimensiona um loop, nunca religa um desligamento explícito.
@@ -532,20 +557,26 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
             return False
         if min(by_q, by_e, by_m, by_t) < proposed:
             return False
+        src = (resolved or {}).get("max_rounds_source")
+        if src not in ("harness", "user", "default"):
+            src = "default"
         resolved["max_rounds"] = proposed
-        resolved["max_rounds_source"] = "proportional"
+        resolved["max_rounds_source"] = src
         try:
             state.setdefault("config_applied", {})["max_rounds"] = proposed
-            state["config_applied"]["max_rounds_source"] = "proportional"
+            state["config_applied"]["max_rounds_source"] = src
         except Exception:
             pass
         try:
+            _fase = ("recálculo proporcional na expansão do plano"
+                     if started else "dimensionamento proporcional inicial")
             state.setdefault("notes", []).append(
-                f"dimensionamento proporcional inicial: plano com {cells} "
-                f"células → max_rounds {current}->{proposed} "
-                f"({suggestion.get('conta')}); fonte=proporcional "
-                f"(by_cells vincula/empata); antes do loop, demais tetos "
-                f"com folga")
+                f"{_fase}: plano com {cells} células "
+                f"(cálculo anterior {last}) → max_rounds "
+                f"{current}->{proposed} "
+                f"({suggestion.get('conta')}); fonte={src} (preservada; "
+                f"default nunca justificável por comparabilidade); "
+                f"by_cells vincula/empata, demais tetos com folga")
         except Exception:
             pass
         return True
@@ -5444,6 +5475,14 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
     stop = None
     prev_segments = len(state.get("segments", []) or [])
     while len(state["rounds"]) - 1 < resolved["max_rounds"]:
+        # M5: plano versionado pode ter expandido (descoberta/promoção/
+        # substituição) — recalcula o proporcional antes dos gates de
+        # parada para não congelar no teto da adoção inicial.
+        try:
+            _maybe_adopt_proportional_rounds(
+                state, resolved, state.get("plan") or {})
+        except Exception:
+            pass
         elapsed = now() - t_start
         try:
             state["elapsed_s"] = round(elapsed, 3)
@@ -5571,6 +5610,14 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
             return _finalize(state, resolved, budget, block, write, audit,
                              t_start, now, run_dir)
         # state["evaluations"] já acumulado em _assess_round; não sobrescrever.
+        # M5: a avaliação pode ter versionado o plano (descoberta aberta)
+        # inclusive no último round permitido — recalcula antes do
+        # retorno ao guard do loop para não congelar no teto inicial.
+        try:
+            _maybe_adopt_proportional_rounds(
+                state, resolved, state.get("plan") or {})
+        except Exception:
+            pass
         new_prop = block.get("proportion")
         delta = (_prop_delta(prev_proportion, new_prop))
         prev_proportion = new_prop
