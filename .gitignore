@@ -11,3 +11,4 @@ current_run_id.txt
 *.backup
 *_backup.py
 semantic_review*.V2*
+.slim/deepwork/

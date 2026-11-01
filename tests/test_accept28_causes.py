@@ -724,6 +724,221 @@ class BudgetRoundsTest(unittest.TestCase):
             self.assertIn(token, detail, detail)
 
 
+class InferencePremisesPairTest(unittest.TestCase):
+    """Ponto 1 (positivo declarado) vs ponto 2 (negativo sem premissas).
+
+    Positivo: 2 docs de entidades distintas sustentam cada premissa;
+    o auditor declara INFERÊNCIA de complementaridade plausível COM
+    limites e SEM rótulo integração testada (nunca supported por
+    âncora). Negativo: sem doc-interop e sem âncora -> rejeição
+    (LACUNA/rejeitado, nunca supported). Lado a lado provam que nem
+    toda combinação vira o mesmo LACUNA genérico.
+    """
+
+    PLAN_2 = {"plan_id": "p", "version": 1,
+              "entities": [{"id": "e0", "label": "Widget Alpha",
+                            "required": True},
+                           {"id": "e1", "label": "Widget Beta",
+                            "required": True}],
+              "criteria": [{"id": "c0", "label": "compatibilidade",
+                            "required": True,
+                            "applies_to": ["e0", "e1"]}]}
+
+    def test_positive_two_docs_each_sustain_premise_declares_plausible(self):
+        sent = ("Widget Alpha gerencia planos [1] \u2014 INFER\u00caNCIA: "
+                "uso complementar com Widget Beta para fluxo combinado [2].")
+        res = verify.check_support(
+            sent, {1: URL_A, 2: URL_B},
+            {URL_A: DOC_A, URL_B: DOC_B}, self.PLAN_2)
+        # Nunca supported só por âncora: exige doc-interop para supported.
+        self.assertEqual(res["supported"], 0, res)
+        self.assertTrue(res["unsupported"], res)
+        reason = str(res["unsupported"][0].get("reason", "").lower())
+        self.assertIn("complementaridade plaus", reason, res)
+        self.assertIn("ntegra", reason, res)  # "não integração testada"
+        decl = res.get("declared_inference") or []
+        self.assertTrue(decl, res)
+        self.assertTrue(any(d.get("anchor_ok") for d in decl), decl)
+        self.assertFalse(any(d.get("relation_ok") for d in decl), decl)
+        scopes = " | ".join(str((d or {}).get("scope", "")) for d in decl)
+        low = scopes.lower()
+        # Declarada com limites, sem rótulo positivo de integração testada.
+        self.assertIn("complementaridade plaus", low, scopes)
+        self.assertTrue("limite" in low or "janela" in low, scopes)
+        self.assertNotIn("integração testada (interoperabilidade citada)",
+                         scopes, scopes)
+
+    def test_negative_without_anchor_nor_interop_rejected_never_supported(self):
+        sent = ("Os dois planejadores testados, por inferência, "
+                "funcionam de forma combinada [1].")
+        doc = ("Os dois planejadores testados funcionam de forma "
+               "combinada no fluxo documentado e estável.")
+        url = "https://example.com/combined-flow"
+        res = verify.check_support(sent, {1: url}, {url: doc}, self.PLAN_2)
+        self.assertEqual(res["supported"], 0, res)
+        self.assertTrue(res["unsupported"], res)
+        reason = str(res["unsupported"][0].get("reason", "").lower())
+        self.assertIn("ncora", reason, reason)
+        decl = res.get("declared_inference") or []
+        self.assertTrue(decl, res)
+        self.assertFalse(any((d or {}).get("anchor_ok") for d in decl),
+                         decl)
+        self.assertFalse(any((d or {}).get("relation_ok") for d in decl),
+                         decl)
+        scopes = " | ".join(str((d or {}).get("scope", "")) for d in decl)
+        self.assertNotIn("integração testada (interoperabilidade citada)",
+                         scopes, scopes)
+
+
+class DeliveryPathTest(unittest.TestCase):
+    """Ponto 3: atribuicao/contradicao no caminho da entrega.
+
+    Caminho real assess->ledger->_reconcile_unexplored->writer/selecao.
+    Ref frouxa tipo [17] (doc que nao menciona a entidade) e
+    descartada com nota e nao chega a entrega como premissa; celula
+    sem cobertura (C9 sintese vs c12/c13 ledger) vira LACUNA declarada
+    no texto entregue - nao so no diagnose. Verifica saida do
+    writer/selecao, nao so estado interno.
+    """
+
+    def test_loose_ref_discarded_before_delivery(self):
+        plan = ledger_mod.validate_plan({
+            "plan_id": "deliv", "version": 1, "question": "q",
+            "entities": [{"id": "w1", "label": "Widget Alpha",
+                          "required": True, "discovered": True}],
+            "criteria": [{"id": "c1", "label": "axis", "required": True,
+                          "per_candidate": True,
+                          "applies_to": ["w1"]}],
+        })
+        st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
+        led = ledger_mod.Ledger(plan, run_id="t")
+        led.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+
+        def assess(plan, evidence, qualification):
+            return [{"criterion_id": "c1", "entity_id": "w1",
+                     "state": "covered",
+                     "justification": "Widget Alpha documentado; Beta citado",
+                     "origin": "selected_material",
+                     "references": [{"url": URL_A}, {"url": URL_B}]}]
+
+        ac._assess_round(st, assess, led, None)
+        got = {(e.get("criterion_id"), e.get("entity_id")): e
+               for e in st["evaluations"]}
+        self.assertEqual(got[("c1", "w1")]["state"], "covered", got)
+        urls = [r.get("url")
+                for r in got[("c1", "w1")].get("references", [])]
+        self.assertEqual(urls, [URL_A], f"frouxa nao descartada: {urls}")
+        self.assertTrue(any("identity mismatch" in str(n)
+                            and "descarta" in str(n)
+                            for n in st["notes"]), st["notes"])
+        ac._reconcile_unexplored(st)
+        block = led.compute()
+        crit = next(c for c in block["criteria"] if c["id"] == "c1")
+        self.assertEqual([r.get("url")
+                          for r in crit.get("references", [])],
+                         [URL_A], block)
+        self.assertNotIn(URL_B, [r.get("url")
+                                 for r in block.get("references", [])],
+                         block)
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            return "# Relatorio"
+
+        write = ac.make_model_writer(fake_client, max_chars=2400)
+        view = {"question": st["question"], "plan": st["plan"],
+                "evidence": dict(st["evidence"]), "user_context": {},
+                "question_coverage": block, "stop": {},
+                "rounds": st["rounds"],
+                "evaluations": list(st["evaluations"]),
+                "unexplored_alternatives": list(
+                    st.get("unexplored_alternatives") or []),
+                "substitutions": [], "semantic_rank": []}
+        text, selection = write(view)
+        self.assertTrue(seen.get("prompt"), "writer nunca chamado?")
+        self.assertIn("cite APENAS", seen["prompt"], seen["prompt"][:2000])
+        included = selection.get("included_urls") or []
+        self.assertTrue(included, selection)
+        self.assertEqual(included[0], URL_A,
+                         f"piso nao pinou o doc da entidade: {included}")
+        self.assertTrue(text.strip(), "texto entregue vazio?")
+
+    def test_ledger_gap_becomes_declared_lacuna_in_delivered_text(self):
+        # C9 (sintese: combinacao sem doc-interop) vs c12/c13 (ledger
+        # sem cobertura): a entrega declara LACUNA, nunca afirma
+        # integracao testada.
+        plan = ledger_mod.validate_plan({
+            "plan_id": "gap", "version": 1, "question": "q",
+            "entities": [{"id": "w1", "label": "Widget Alpha",
+                          "required": True, "discovered": True},
+                         {"id": "w2", "label": "Widget Beta",
+                          "required": True, "discovered": True}],
+            "criteria": [{"id": "c12", "label": "planejamento",
+                          "required": True, "per_candidate": True,
+                          "applies_to": ["w1", "w2"]},
+                         {"id": "c13", "label": "distribuicao",
+                          "required": True, "per_candidate": True,
+                          "applies_to": ["w1", "w2"]}],
+        })
+        st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
+        led = ledger_mod.Ledger(plan, run_id="t")
+
+        def assess_empty(plan, evidence, qualification):
+            return []
+
+        ac._assess_round(st, assess_empty, led, None)
+        ac._reconcile_unexplored(st)
+        block = led.compute()
+        gap_ids = {g.get("criterion_id") for g in block.get("gaps", [])}
+        self.assertTrue({"c12", "c13"} <= gap_ids, block)
+        c9 = ("Widget Alpha gerencia planos e integra com Widget Beta "
+              "para uso combinado [1][2].")
+        res = verify.check_support(
+            c9, {1: URL_A, 2: URL_B},
+            {URL_A: DOC_A, URL_B: DOC_B},
+            {"plan_id": "p", "version": 1,
+             "entities": plan["entities"],
+             "criteria": [{"id": "c0", "label": "compatibilidade",
+                           "required": True,
+                           "applies_to": ["w1", "w2"]}]})
+        self.assertEqual(res["supported"], 0, res)
+        seen = {}
+
+        def fake_client(prompt):
+            seen["prompt"] = prompt
+            self.assertIn("c12", prompt, prompt[:4000])
+            self.assertIn("c13", prompt, prompt[:4000])
+            return ("# Relatorio\n\n"
+                    "LACUNA: c12 sem evidencia suficiente nos excertos.\n"
+                    "LACUNA: c13 sem evidencia suficiente nos excertos.\n")
+
+        write = ac.make_model_writer(fake_client, max_chars=2400)
+        view = {"question": st["question"], "plan": st["plan"],
+                "evidence": dict(st["evidence"]), "user_context": {},
+                "question_coverage": block, "stop": {},
+                "rounds": st["rounds"],
+                "evaluations": list(st["evaluations"]),
+                "unexplored_alternatives": list(
+                    st.get("unexplored_alternatives") or []),
+                "substitutions": [], "semantic_rank": []}
+        text, selection = write(view)
+        self.assertIn("LACUNA", text, text)
+        self.assertIn("c12", text, text)
+        self.assertIn("c13", text, text)
+        self.assertNotIn("integração testada", text.lower(), text)
+        self.assertTrue((selection.get("included_urls") or []), selection)
+
+
+# diagnose_audit e so pos-hoc, fora do produto: verify_support le
+# state["diagnose_audit"] apenas como oraculo externo (misses viram
+# failed SOMENTE com pergunta parcial; sem pendencia viram nota).
+# O que foi corrigido NO produto: gates universais de identidade
+# (refs covered/partial exigem identidade propria), N/A direcional
+# (N/A->insufficient exige evidencia nova), G5/G6 (teto conta todas
+# as required; mencao exige forma cheia no corpo auditado), reserva
+# de descoberta sem nome, rounds com detalhe+fonte, oraculo
+# condicional. Nunca popular oraculo in-product.
 class VerifyOracleTest(unittest.TestCase):
     def test_support_not_ok_with_question_partial_and_oracle_misses(self):
         """Sem support ok com question partial + misses do oráculo."""

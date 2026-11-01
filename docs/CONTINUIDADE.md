@@ -1,14 +1,87 @@
-# CONTINUIDADE — aceite v1, branch `feat/product-v1`
+# CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> Ponto de entrada para retomar o trabalho. Plano ativo:
-> `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-11-01 (pós-accept28: 5 causas corrigidas + 9 achados
-> revisão, sem hardcode, 595 testes OK, diagnose 53/11 C9 LACUNA; sem push).
-> Commit local sem push.
+> **Estado atual (2026-11-01):** HEAD `a2f9d49`, branch `feat/product-v1`,
+> sem push. Entregue pós-accept28: 5 causas corrigidas + 9 achados de
+> revisão aplicados, sem hardcode (contratos A1–A6 em
+> `tests/test_accept28_causes.py`, 36 testes TDD; ajustes
+> `test_discovery_cells`/`identity_gate`/`na_swap` ao novo contrato;
+> `adaptive_coordinator.py` +562, `verification_report.py` +36; revisão
+> cavecrew 1🔴+8🟡 aplicada, resíduo URL+corpo eliminado).
+> Suíte **599 OK** (595+4 novos, RED→GREEN do positivo; 10 skips
+> pré-existentes). Diagnose congelado do
+> accept28: **53/11** (só C9 combinação vira LACUNA sem-âncora).
+> Plano ativo: `.planning/agent-reach-accept21/` (`task_plan.md`,
+> `findings.md`, `progress.md`).
 >
-> HEADs: produto `95b0ec7` (= `5080a84` + commit docs accept27; executado no
-> run accept28, hashes frozen de 11 arquivos reconferidos pré/pós-run);
-> docs + matriz sync accept28 (este passo).
+> Atenção: o run accept28 executou o produto `95b0ec7`; o HEAD atual
+> `a2f9d49` contém produto novo ainda sem run real (ver Pendências).
+
+## Pendências reais
+
+1. **Execução real integrada + relatório final da pesquisa** — nenhum run
+   real após `a2f9d49`; RA8 segue PENDENTE, sem flexibilizar.
+2. **Revalidação de runs antigos além do accept28** — só o accept28 foi
+   reconferido contra os novos contratos; runs anteriores não revalidados.
+3. **Oráculo pós-hoc não populado in-product** — `diagnose_audit` roda
+   pós-hoc; o produto não popula o oráculo durante a execução.
+4. **HEAD `a2f9d49` ≠ produto do run `95b0ec7`** — hashes do run
+   (`hashes.frozen`) não conferem com o HEAD atual; o próximo run real
+   precisa congelar HEAD e reconferir hashes pré/pós-run.
+
+## Próxima ação (fase 2)
+
+Pesquisa real congelada (HEAD fixo, hashes pré/pós-run, infra medida) +
+**2 Markdowns**: relatório do run + atualização do resultado acumulado
+(`docs/ACEITE_V1_RESULTADO.md`). Sem produto neste lane até nova
+hipótese explícita.
+
+## Correções de leitura — contratos vigentes (A1–A6, `test_accept28_causes.py`)
+
+Fatos observados preservados; o que muda é a leitura. As seções
+históricas abaixo mantêm o texto original.
+
+- **"support ok 3ª vez" (accept28)** — fato: o auditor marcou `support
+  ok`. Correção (A6): support ok só sustenta veredito com question/review
+  sem partial e sem misses do oráculo; accept28 teve question `partial`
+  → overall `partial`, RA8 pendente. Contar "3ª vez" não é aceite.
+- **Teto G5 contava só `discovered`** — fato: G5 subcontava o teto.
+  Correção (A1): teto conta **todas** as required; `unexplored`
+  reconciliado; writer nunca chama required de alternativa.
+- **G6 token solto** — fato: token de reserva sem vínculo auditável.
+  Correção (A1/A2): reserva com vínculo + trilha de avaliações por round
+  para auditoria.
+- **`N/A→insufficient` livre** — fato: a conversão ocorria sem evidência.
+  Correção (A2): N/A delimitado respeitado; conversão exige evidência nova.
+- **"integração testada" sem doc-interop** — fato: C9 combinação sem
+  âncora rotulada. Correção (A4): inferência prudente declarada nunca é
+  integração testada sem doc-interop com ≥2 formas cheias (vale nos dois
+  espelhos); sem isso é LACUNA — foi o que moveu o diagnose 54/10→53/11.
+
+## Instruções superadas
+
+- **SUPERADA — run-com-vast-UP** (Missão 2): accept21 rodou vast UP e o
+  corpus colapsou em funil YouTube sem transcrição (0/15); controle
+  passou a vast DOWN.
+- **SUPERADA — max-rounds-3 como cota fixa**: era default por
+  comparabilidade entre runs, não cota da modelagem (§6); vigente A5
+  (stop `rounds` com registro proporcional + fonte user/default).
+- **SUPERADA — 5-itens-como-requisito**: são limites declarados (skips),
+  não critérios de aceite.
+- **SUPERADA — pausa-mid-model como ação**: limite conhecido do roteiro;
+  R14.3 REAL entre rounds.
+- **SUPERADA — isenção ampla de premissa / promoção de combinação
+  plausível / LACUNA sem gates / bare utility ponderando /
+  fora-do-corpus como `uncited`/ok / divergência excerto-vs-full
+  silenciosa / redução de denominador** (Missão 4): vigentes contratos
+  v2 + A3 (identidade universal em refs covered/partial) + A4
+  (complementaridade declarada, nunca integração testada) + A6 (sem
+  support ok com question partial + misses do oráculo). Motivos
+  registrados: URL nua não conta (vale `[N]`/citação com identidade);
+  afirmação existencial sem âncora vira LACUNA.
+
+---
+
+## Histórico preservado (texto original — ler com as Correções acima)
 
 ## Objetivo e escopo
 
@@ -408,13 +481,16 @@ segue pendente.
   C9 sem âncora rotulada integração testada), ORÇAMENTO (stop rounds sem
   proporção, max-rounds default por comparabilidade, support ok com
   question partial + misses).
-- Fix único writer via TDD: tests/test_accept28_causes.py (32 testes:
+- Fix único writer via TDD: tests/test_accept28_causes.py (36 testes:
   G5/G6/reserva/N-A direcional/hash conteúdo/identidade universal/
   sem-âncora/LACUNA/rounds proporcional+source/oráculo condicional/
   slug-URL/floor auditado); ajustes test_discovery_cells/identity_gate/
   na_swap para novo contrato. Sem literais de produto (shared tokens do
   plano+pergunta, kind-words genéricas).
-- Evidência: causes 32/32 OK, suite 595 OK (skipped=10 pré-existentes),
+- Evidência: causes 36/36 OK, suite 599 OK (595+4 novos, RED→GREEN do
+  positivo; skipped=10 pré-existentes), ajuste de escopo em
+  `verification_report.py:1045-1051` (`declared_inference` com scope
+  explícito: LACUNA/complementaridade, não integração testada),
   diagnose congelado 54/10→53/11 (só C9 combinação vira LACUNA sem-âncora),
   repro R1/R2/R3 EXIT=0, hashes coordinator c6e90899 verification 64a30d45.
   Revisão cavecrew 1🔴+8🟡 aplicada; resíduo URL+corpo eliminado (2646/2923).

@@ -1046,7 +1046,9 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 {"sentence": sentence, "citations": citations,
                  "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
                  "scope": "LACUNA explícita exigida (sem prova de "
-                          "integração)"})
+                          "integração); complementaridade plausível, "
+                          "não integração testada; limites: janela "
+                          "auditada"})
             continue
         # Trava de interoperabilidade (Missão 3): claim com >=2
         # entidades exige um doc que mencione >=2 delas (integração
