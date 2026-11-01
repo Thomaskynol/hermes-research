@@ -507,6 +507,13 @@ segue pendente.
 - Evidência: suite 617 OK skipped=10 EXIT 0; diagnose accept29 antes==depois (46/44/14/76, sem regressão — run congelado não exercita os 4 caminhos).
 - Commit Fase A abaixo (só produto+testes+CONTINUIDADE; AGENTS.md alterado no workdir, untracked).
 
+## Fase B accept30/31 (2026-11-01) — seleção diagnosticada e corrigida, re-run justificado
+
+- accept30 real (HEAD 3a2984b, EXIT 0): 0/55+0N/A, support failed (1 claim corretamente reprovado), overall failed; 8082 reconciliado; causa nova: selection_context 32 (quarentena `_sent` + teto JSON 12k; janela 1200 chars) + by_cells estimado 46 vs plano real 55.
+- Fix fix-4 (TDD 8+4 testes): M1 reenvio p/ células abertas (cap 1/célula, trilha, par url×célula servida), M2 pin dimensão×menção (conta como turno do grupo), M3 rounds do plano real pré-loop, M4 rodízio gap_query; c4 vazia preservada insufficient.
+- Gate Fase B: APROVAR COM RISCOS (0🔴 3🟡 remediados). Suite 629 OK skipped=10 EXIT 0; diagnose accept30 antes==depois (congelado).
+- Commit Fase B abaixo; re-run accept31 com a hipótese nova (seleção), sem repetição sem causa.
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

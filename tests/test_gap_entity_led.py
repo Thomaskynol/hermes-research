@@ -109,7 +109,12 @@ class GapPerCandidateExpansionTest(unittest.TestCase):
         leads = [o["target"].split()[0].lower() for o in ops]
         self.assertEqual(leads, ["django", "flask"],
                          f"e2 coberta nao emite sub-gap: {leads}")
-        ops1 = ac.select_ops(st, [crit_gap()], 1)
+        # Estado fresco (sem histórico de rodízio): ordem legada, cap 1.
+        # (accept30 M4: com histórico cross-round o lead alterna por
+        # entidade; o fallback sem histórico preserva a ordem atual.)
+        ops1 = ac.select_ops(pc_state(
+            [{"criterion_id": "c1", "entity_id": "e2",
+              "state": "covered"}]), [crit_gap()], 1)
         self.assertEqual(len(ops1), 1, f"cap 1 -> 1 op: {ops1}")
         self.assertEqual(ops1[0]["target"].split()[0].lower(), "django")
 

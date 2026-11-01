@@ -494,6 +494,65 @@ def proportional_max_rounds(budget_limits: dict, scope: dict) -> dict:
         return {"max_rounds": 3, "conta": f"conta indisponível: {exc}"}
 
 
+def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
+                                     plan: dict) -> bool:
+    """Dimensionamento proporcional inicial (accept30 M3).
+
+    Recalcula com as células reais do plano adotado (``len(_plan_cells)``)
+    e, se o proporcional superar o max_rounds vigente com folga nos
+    demais tetos, adota ANTES do loop. Nunca reduz nem aumenta após o
+    loop iniciar (rounds não-vazio = já iniciado, ex.: resume).
+    """
+    try:
+        if state.get("rounds"):
+            return False
+        cells = len(_plan_cells(plan))
+        lims = dict((resolved or {}).get("budget") or {})
+        try:
+            lims["model_calls"] = (resolved or {}).get("max_model_calls")
+        except Exception:
+            pass
+        suggestion = proportional_max_rounds(lims, {"cells": cells})
+        proposed = int(suggestion.get("max_rounds") or 0)
+        current = int((resolved or {}).get("max_rounds") or 0)
+        if current < 1:
+            # 0 desliga o loop (só varredura inicial); proporcional
+            # dimensiona um loop, nunca religa um desligamento explícito.
+            return False
+        if proposed <= current:
+            return False
+        # Folga: tetos não-célula sustentam o proposto (by_cells vincula
+        # ou empata, nunca estoura outro teto).
+        try:
+            by_q = max(1, int(lims.get("queries", 30) or 0) // 3)
+            by_e = max(1, int(lims.get("extractions", 120) or 0) // 12)
+            by_m = max(1, (int(lims.get("model_calls", 16) or 0) - 2) // 2)
+            by_t = max(1, int(lims.get("time_s", 1800) or 0) // 150)
+        except Exception:
+            return False
+        if min(by_q, by_e, by_m, by_t) < proposed:
+            return False
+        resolved["max_rounds"] = proposed
+        resolved["max_rounds_source"] = "proportional"
+        try:
+            state.setdefault("config_applied", {})["max_rounds"] = proposed
+            state["config_applied"]["max_rounds_source"] = "proportional"
+        except Exception:
+            pass
+        try:
+            state.setdefault("notes", []).append(
+                f"dimensionamento proporcional inicial: plano com {cells} "
+                f"células → max_rounds {current}->{proposed} "
+                f"({suggestion.get('conta')}); fonte=proporcional "
+                f"(by_cells vincula/empata); antes do loop, demais tetos "
+                f"com folga")
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 def _evidence_content_hashes(state: dict) -> dict:
     """Content hash per evidence URL (audited text).
 
@@ -920,6 +979,64 @@ def _relevant_excerpt(text: str, limit: int,
         except Exception:
             pass
 
+    # Âncora dimensão×menção (accept30 M2): passagem rara (termo da
+    # dimensão poucas vezes em doc longo) perde para janelas dominantes
+    # no round-robin. Garante ≥1 janela com termo de dimensão a ≤1500
+    # chars de uma menção da entidade — espelha dimension_supports do
+    # diagnose (presença próxima, não demonstração). Grupos de critério
+    # primeiro, depois ancora; mesmo limite, resto inalterado.
+    # Fase B: o take ancorado conta como o 1º turno do próprio grupo
+    # (pula sua primeira passada no round-robin) — nunca expulsa a vez
+    # de terceiros com uma janela extra do mesmo grupo.
+    _pinned_group: str | None = None
+    if norm_entity and norm_groups and total < limit:
+        try:
+            _anch: list[int] = []
+            for _et in norm_entity:
+                _p = 0
+                while True:
+                    _i = low.find(_et, _p)
+                    if _i < 0:
+                        break
+                    _anch.append(_i)
+                    _p = _i + max(1, len(_et))
+            _anch.sort()
+            if _anch:
+                try:
+                    _used_text = " ".join(body[s:e] for s, e in used).lower()
+                except Exception:
+                    _used_text = ""
+                _gorder = sorted(
+                    norm_groups,
+                    key=lambda n: (0 if not str(n).startswith("ancora:")
+                                   else 1, str(n)))
+                for _gn in _gorder:
+                    _gterms = [t for t in (norm_groups.get(_gn) or []) if t]
+                    if not _gterms:
+                        continue
+                    if any(t in _used_text for t in _gterms):
+                        continue  # dimensão já visível no excerto
+                    _hit_at = None
+                    for _gt in _gterms:
+                        _p2 = 0
+                        while True:
+                            _j = low.find(_gt, _p2)
+                            if _j < 0:
+                                break
+                            if any(abs(_j - _a) <= 1500 for _a in _anch):
+                                _hit_at = _j
+                                break
+                            _p2 = _j + max(1, len(_gt))
+                        if _hit_at is not None:
+                            break
+                    if _hit_at is not None:
+                        if take(max(0, _hit_at - cap // 4), cap):
+                            winlog[-1] += " (dimensao-ancorada)"
+                            _pinned_group = _gn
+                            break
+        except Exception:
+            pass
+
     if norm_groups:
         # Round-robin entre dimensões: uma janela por grupo por passada,
         # fatos primeiro (licença/custo/versão/instalação/manutenção) para
@@ -928,9 +1045,16 @@ def _relevant_excerpt(text: str, limit: int,
                        key=lambda n: (0 if n.startswith("ancora:") else 1, n))
         cursors = {name: 0 for name in norm_groups}
         pending = [name for name in order if group_scored.get(name)]
+        _pin_consumed = False
         while pending and total < limit:
             progressed = False
             for name in list(pending):
+                if name == _pinned_group and not _pin_consumed:
+                    # Pin contou como o 1º turno deste grupo: pula a
+                    # primeira passada (a vez é do próprio grupo, nunca
+                    # de terceiros).
+                    _pin_consumed = True
+                    continue
                 ranked = group_scored.get(name) or []
                 while cursors[name] < len(ranked):
                     start = ranked[cursors[name]][2]
@@ -2111,6 +2235,48 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                 f"pool reserve skipped: {_exc}")
         except Exception:
             pass
+    # Rodízio gap_query (accept30 M4): sem rodízio o 1º gap do lote vira
+    # sempre a query da mesma entidade (e2 monopoliza o slot). Com ≥2
+    # entidades com gaps, o ALVO do slot alterna por entidade
+    # (round-robin, pulando quem não tem gaps): só o lead muda, a ordem
+    # relativa do restante é bit-idêntica (genus7/8 intactos). 1 entidade
+    # = comportamento atual (fallback). Cross-round via
+    # state["_gap_query_last_entity"]; nota auditável. Leituras de célula
+    # (source_url) mantêm prioridade absoluta à frente.
+    try:
+        _rr_cells = [g for g in (_gaps or [])
+                     if isinstance(g, dict)
+                     and str(g.get("source_url") or "").strip()]
+        _rr_q = [g for g in (_gaps or [])
+                 if isinstance(g, dict)
+                 and not str(g.get("source_url") or "").strip()]
+        _rr_ents: list = []
+        for _g in _rr_q:
+            _e = _g.get("entity_id")
+            if _e not in _rr_ents:
+                _rr_ents.append(_e)
+        if len(_rr_ents) >= 2 and _rr_q:
+            _last = state.get("_gap_query_last_entity", None)
+            try:
+                _next = _rr_ents[(_rr_ents.index(_last) + 1) % len(_rr_ents)
+                                 ] if _last in _rr_ents else _rr_ents[0]
+            except Exception:
+                _next = _rr_ents[0]
+            if _rr_q[0].get("entity_id") != _next:
+                for _gi, _g in enumerate(_rr_q):
+                    if _g.get("entity_id") == _next:
+                        _rr_q = [_g] + _rr_q[:_gi] + _rr_q[_gi + 1:]
+                        break
+                _gaps = list(_rr_cells) + _rr_q
+                try:
+                    state.setdefault("notes", []).append(
+                        f"rodízio gap_query: alvo {_next or '-'} "
+                        f"após {_last or '-'} (entidades com gaps: "
+                        f"{','.join(str(e) for e in _rr_ents[:6])})")
+                except Exception:
+                    pass
+    except Exception:
+        pass
     for gap in _gaps[:max(0, cap)]:
         cid = gap.get("criterion_id", "")
         # Célula nova com fonte própria (G1): entidade versionada por
@@ -2191,6 +2357,16 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                     "entity_id": gap.get("entity_id"),
                     "entity_label": gap.get("entity_label"),
                     "status": "in-progress"})
+    # Cursor do rodízio (accept30 M4): a próxima chamada alterna a partir
+    # da entidade da 1ª query emitida neste lote (gap_query/alt_channel).
+    try:
+        for _o in ops:
+            if isinstance(_o, dict) and _o.get("kind") in ("gap_query",
+                                                           "alt_channel"):
+                state["_gap_query_last_entity"] = _o.get("entity_id")
+                break
+    except Exception:
+        pass
     # Reserva de descoberta (DESC a): enquanto algum eixo exigido segue
     # zerado (sem covered/partial) e a descoberta está aberta, ≥1 slot do
     # lote é uma query SEM nome de entidade, derivada de
@@ -2445,6 +2621,159 @@ def _open_priority(plan, prior_states) -> tuple[list[str], list[str]]:
                        if not (t in seen or seen.add(t))]
 
 
+def _resend_for_open_cells(plan, evidence, qualification, sent,
+                           prior_states, prior_cell_refs, shown
+                           ) -> list[tuple[str, str, str]]:
+    """Docs já exibidos que sustentam células abertas sem refs (accept30 M1).
+
+    Doc exibido nunca volta pelo pool de não-enviados; com a célula
+    aberta, estes docs voltam primeiro: identidade da entidade (mesma
+    aboutness dos gates) + termo da dimensão a ≤1500 chars da menção
+    (mesma localidade do diagnose). Só pares (url, célula) nunca
+    exibidos juntos são recitados (Fase B marca: fecha o buraco
+    inter-critérios sem repetir o que o modelo já viu com a célula
+    pedida). Retorna (url, criterion_id, entity_id), no máximo 1 por
+    célula (primeiro em ordem de evidência), com trilha auditável
+    embutida — presença fraca nunca vira pressão por parcial (Fase B
+    M1). Ordem: entidades abertas do plano, depois ordem de evidência.
+    Determinístico, stdlib.
+    """
+    out: list[tuple[str, str, str]] = []
+    try:
+        entities = {e.get("id"): e for e in (plan or {}).get("entities", [])
+                    if isinstance(e, dict)}
+        criteria = [c for c in (plan or {}).get("criteria", [])
+                    if isinstance(c, dict) and c.get("required", True)
+                    and c.get("id")]
+        if not entities or not criteria or not sent:
+            return []
+        try:
+            generic = _plan_shared_tokens(plan, (plan or {}).get("question"))
+        except Exception:
+            generic = frozenset()
+        try:
+            bodies = [str((qualification.get(u) or {}).get("usable_text")
+                          or (evidence or {}).get(u) or "")
+                      for u in (evidence or {})]
+        except Exception:
+            bodies = []
+        try:
+            ent_order = [e.get("id") for e in (plan or {}).get("entities", [])
+                         if isinstance(e, dict)]
+        except Exception:
+            ent_order = []
+        open_cells: list[tuple[str, str]] = []
+        for c in criteria:
+            for eid in (c.get("applies_to") or [None]):
+                if not isinstance(eid, str) or eid not in entities:
+                    continue
+                if (prior_states or {}).get((c["id"], eid)) in ("covered",
+                                                               "partial"):
+                    continue
+                if (prior_cell_refs or {}).get((c["id"], eid)):
+                    continue
+                if (c["id"], eid) not in open_cells:
+                    open_cells.append((c["id"], eid))
+        if not open_cells:
+            return []
+        try:
+            open_cells.sort(key=lambda ce: (
+                ent_order.index(ce[1]) if ce[1] in ent_order else 10**9,
+                str(ce[0])))
+        except Exception:
+            pass
+        crit_terms: dict[str, list[str]] = {}
+        for c in criteria:
+            try:
+                toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
+                toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
+                seen_terms: set[str] = set()
+                crit_terms[c["id"]] = [
+                    t for t in toks if not (t in seen_terms
+                                            or seen_terms.add(t))]
+            except Exception:
+                crit_terms[c["id"]] = []
+        rare: dict[str, bool] = {}
+        for _, eid in open_cells:
+            try:
+                rare[eid] = _singleton_rare(entities[eid], bodies, generic)
+            except Exception:
+                rare[eid] = True
+        for cid, eid in open_cells:
+            ent = entities.get(eid) or {}
+            terms = [t for t in (crit_terms.get(cid) or []) if len(t) >= 4]
+            if not terms:
+                continue
+            for url in (evidence or {}):
+                if url not in (sent or set()):
+                    continue
+                if (cid, eid) in (shown or {}).get(url, set()):
+                    continue  # par (url, célula) já exibido junto: sem repetir
+                if not isinstance(url, str) or url.startswith("user://"):
+                    continue
+                try:
+                    q = (qualification or {}).get(url) or {}
+                    if q.get("excluded"):
+                        continue
+                    text = str(q.get("usable_text")
+                               or (evidence or {}).get(url) or "")
+                except Exception:
+                    continue
+                if not text.strip():
+                    continue
+                try:
+                    if not _identity_matches(
+                            ent, text, single_ok=rare.get(eid, True),
+                            generic=generic):
+                        continue
+                except Exception:
+                    continue
+                low = text.lower()
+                anchors: list[int] = []
+                try:
+                    lbl = str(ent.get("label") or "").lower()
+                    if lbl.strip():
+                        p = 0
+                        while True:
+                            i = low.find(lbl, p)
+                            if i < 0:
+                                break
+                            anchors.append(i)
+                            p = i + max(1, len(lbl))
+                    dist = _entity_distinctive_tokens(ent, generic)
+                    if len(dist) == 1 and dist[0]:
+                        p = 0
+                        while True:
+                            i = low.find(dist[0], p)
+                            if i < 0:
+                                break
+                            anchors.append(i)
+                            p = i + max(1, len(dist[0]))
+                except Exception:
+                    pass
+                if not anchors:
+                    continue
+                hit = False
+                for t in terms:
+                    p = 0
+                    while True:
+                        j = low.find(t, p)
+                        if j < 0:
+                            break
+                        if any(abs(j - a) <= 1500 for a in anchors):
+                            hit = True
+                            break
+                        p = j + max(1, len(t))
+                    if hit:
+                        break
+                if hit:
+                    out.append((url, cid, eid))
+                    break  # Fase B M1: 1 reenvio por célula
+    except Exception:
+        return out
+    return out
+
+
 def make_model_assessor(model_client, max_docs: int = 24,
                         excerpt_chars: int = 1200,
                         json_budget: int = 12000):
@@ -2478,11 +2807,13 @@ def make_model_assessor(model_client, max_docs: int = 24,
     import json as _json
 
     _sent: set[str] = set()
+    _shown: dict[str, set] = {}
     _extra_terms: list[str] = []
     _semantic_rank: list[str] = []
     _prior_refs: list[str] = []
     _prior_ref_closed: list[str] = []
     _prior_states: dict[tuple[str, str], str] = {}
+    _prior_cell_refs: dict[tuple[str, str], set] = {}
 
     def set_semantic_rank(urls) -> None:
         """Ordem semântica (8082) p/ os lotes não-enviados; só reordena.
@@ -2540,6 +2871,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
             # they ride the last tier with already-sent material instead
             # of crowding out open cells under a tight JSON ceiling.
             _url_open: dict[str, bool] = {}
+            _cell_refs: dict[tuple[str, str], set] = {}
             for ev in evals or []:
                 if not isinstance(ev, dict):
                     continue
@@ -2548,10 +2880,25 @@ def make_model_assessor(model_client, max_docs: int = 24,
                     _u = ref.get("url") if isinstance(ref, dict) else None
                     if isinstance(_u, str) and _u:
                         _url_open[_u] = _url_open.get(_u, False) or _st != "covered"
+                try:
+                    _cc = ev.get("criterion_id")
+                    _ce = ev.get("entity_id")
+                    if isinstance(_cc, str) and isinstance(_ce, str):
+                        _urls = {r.get("url") for r in (ev.get("references")
+                                                        or [])
+                                 if isinstance(r, dict)
+                                 and isinstance(r.get("url"), str)}
+                        if _urls:
+                            _cell_refs.setdefault((_cc, _ce),
+                                                  set()).update(_urls)
+                except Exception:
+                    pass
             _prior_refs[:] = [u for u in refs if _url_open.get(u, True)]
             _prior_ref_closed[:] = [u for u in refs if not _url_open.get(u, True)]
             _prior_states.clear()
             _prior_states.update(states)
+            _prior_cell_refs.clear()
+            _prior_cell_refs.update(_cell_refs)
         except Exception:
             pass
 
@@ -2575,6 +2922,12 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # open material remains). max_docs/json_budget/model calls intact.
         _open_eids, _open_terms = _open_priority(plan, _prior_states)
         _open_set = set(_open_eids)
+        # Células pedidas NESTA chamada (Fase B marca): snapshot para o
+        # registro (url, célula) servida no envio.
+        try:
+            _req_now = set(_plan_cells(plan))
+        except Exception:
+            _req_now = set()
         ordered: list[str] = []
         _picked: set[str] = set()
 
@@ -2620,6 +2973,25 @@ def make_model_assessor(model_client, max_docs: int = 24,
             _reserved_taken.update(_picked)
         for _u in _prior_refs:
             _push(_u)
+        # Quarentena _sent (accept30 M1): docs exibidos antes das células
+        # existirem nunca voltam (pool de não-enviados nunca esvazia com
+        # corpus crescente). Com células abertas, reenvia primeiro docs
+        # em _sent que sustentam células abertas sem refs, antes de
+        # não-enviados irrelevantes. Só reordena prioridade; teto JSON
+        # intacto.
+        _resend_open: list[tuple[str, str, str]] = []
+        try:
+            _resend_open = _resend_for_open_cells(
+                plan, evidence, qualification, _sent, _prior_states,
+                _prior_cell_refs, _shown)
+        except Exception:
+            _resend_open = []
+        _resend_urls: list[str] = []
+        for _u, _c, _e in _resend_open:
+            if _u not in _resend_urls:
+                _resend_urls.append(_u)
+        for _u in _resend_urls:
+            _push(_u, allow_resend=True)
 
         def _about_open(url) -> bool:
             if not _open_terms:
@@ -2752,6 +3124,15 @@ def make_model_assessor(model_client, max_docs: int = 24,
             items.append(entry)
             used_budget += len(blob)
             _sent.add(url)
+            # (url, célula) servida (Fase B marca): registra as células
+            # pedidas nesta chamada junto ao url enviado — o reenvio
+            # futuro só recita pares (url, célula) nunca exibidos juntos
+            # (fecha o buraco inter-critérios sem repetir o que o modelo
+            # já viu com a célula pedida).
+            try:
+                _shown.setdefault(url, set()).update(_req_now)
+            except Exception:
+                pass
         if len(ordered) > len(items):
             cuts.append(f"lote {len(items)}/{len(ordered)} fontes nesta "
                         f"chamada; restante em lotes posteriores")
@@ -2760,6 +3141,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
                         f"({len(_open_eids)} entidade(s): "
                         f"{','.join(_open_eids[:6])}); limites intactos "
                         "(max_docs/teto JSON/chamadas)")
+        if _resend_open:
+            try:
+                _rr_cells = {(_c, _e) for _, _c, _e in _resend_open}
+            except Exception:
+                _rr_cells = set()
+            cuts.append(f"reenvio de quarentena (_sent) p/ células abertas: "
+                        f"{len(_resend_urls)} doc(s) em {len(_rr_cells)} "
+                        f"célula(s)")
         selection = {"urls": [i["url"] for i in items],
                      "hashes": {i["url"]: i["sha"] for i in items},
                      "raw_chars": {i["url"]: i["raw_chars"] for i in items},
@@ -2768,6 +3157,15 @@ def make_model_assessor(model_client, max_docs: int = 24,
                                        for i in items},
                      "batch": f"{len(items)}/{len(ordered)}"}
         assess.last_selection = selection
+        try:
+            assess.resend_note = (  # type: ignore[attr-defined]
+                f"reenvio de quarentena (_sent): {len(_resend_urls)} doc(s) "
+                f"em {len({(_c, _e) for _, _c, _e in _resend_open})} "
+                f"célula(s) sustentam células abertas sem refs "
+                f"({'; '.join(f'{_u[:60]}→{_c}×{_e}' for _u, _c, _e in _resend_open[:4])})"
+                if _resend_open else "")
+        except Exception:
+            pass
         # Células obrigatórias explícitas (G2): sem a lista, o assessor
         # avalia só o blob/entidade genérica e as entidades versionadas por
         # descoberta nunca viram avaliação por célula. Uma avaliação por
@@ -2903,6 +3301,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
 
     assess.last_selection = None  # type: ignore[attr-defined]
     assess.last_stats = None  # type: ignore[attr-defined]
+    assess.resend_note = None  # type: ignore[attr-defined]
     assess.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
     assess.set_previous_evaluations = set_previous_evaluations  # type: ignore[attr-defined]
     assess.set_semantic_rank = set_semantic_rank  # type: ignore[attr-defined]
@@ -3421,6 +3820,15 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                 f"(budget counted): {str(_assess_exc)[:160]}")
             continue
         raise _assess_exc
+    # Quarentena _sent (accept30 M1): decisão de reenvio registrada em
+    # notes (o assessor só a expõe via atributo, como last_selection;
+    # assessors custom sem o atributo são ignorados pelo guard).
+    try:
+        _rn = getattr(assess_fn, "resend_note", None)
+        if isinstance(_rn, str) and _rn.strip():
+            state["notes"].append(_rn)
+    except Exception:
+        pass
     # Instrumentação da chamada (M3): seleção e células pedidas/devolvidas.
     # Célula omitida nunca sobrescreve estado (o merge abaixo preserva as
     # avaliações anteriores); aqui só registramos a omissão.
@@ -4869,6 +5277,10 @@ def run_adaptive(question: str, *, profile: str = "light",
     _bind_per_candidate(plan, state)
     _record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
                          if plan_meta.get("repair_log") else "plan adopted")
+    # Hook proporcional (accept30 M3): o plano real só existe aqui
+    # (plan_versions registrado); recalcula com as células reais e adota
+    # antes do loop quando houver folga. Nunca reduz/nunca pós-início.
+    _maybe_adopt_proportional_rounds(state, resolved, plan)
     state["plan_meta"] = plan_meta
     disc = (plan.get("open_discovery") or {})
     state["discovery"]["open"] = bool(disc.get("needed", False))
