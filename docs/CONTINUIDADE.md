@@ -497,6 +497,8 @@ segue pendente.
   Limites: sem revalidar runs antigos além accept28; diagnose_audit pós-hoc;
   HEAD 36ff960 ≠ run 95b0ec7; sem prod/8082 (offline).
 
+## Accept29 (2026-11-01) — pesquisa real sobre 1364dc1: 4/40+6N/A=0.10 partial, support ok 4ª vez, stop rounds c/ reserva, 8082 14967 tokens reconciliado, 3+1 plugins sem testes demonstrado, RA8 pendente. Detalhe em `docs/RELATORIO_TECNICO_MISSAO_POS28_ACCEPT29.md`; relatório do produto em `/home/thomaskyn/hermes-runs/accept29/adaptive_accept29/report.md`.
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`
