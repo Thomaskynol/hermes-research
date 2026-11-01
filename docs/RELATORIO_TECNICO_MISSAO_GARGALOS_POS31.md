@@ -21,6 +21,14 @@ Suporte accept33: 4 claims unsupported — frases LACUNA honestas cujas citaçõ
 contêm o literal (versão exata `2.1.4`, nomes de entidades); o verificador reprova
 corretamente por literalismo. RA8 segue PENDENTE.
 
+Remediação pós-revisão independente (cav-2: 0🔴 3🟡, sem acesso aos artefatos de
+runtime — números acima conferidos pelo orquestrador por leitura direta):
+guarda pós-stop/report e `except` externo agora também anexam note `proporcional:`
+(antes silenciosos); +3 testes (`stop`/`report` bloqueados com trace, resume-legado
+com trace sem adotar). Suite 641 OK skipped=10 EXIT 0. Limite: guarda bloqueada
+não atualiza `_proportional_cells` (1 note por chamada; sem chamadas reais
+pós-stop nos 3 call sites).
+
 ## 2. O que cada fix provou em produção
 
 **Fix accept32** (`9c311ad`, `_relevant_excerpt` + `resend_focus`): excerto de URL

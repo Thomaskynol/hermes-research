@@ -100,6 +100,47 @@ class ProportionalRealStateTest(unittest.TestCase):
             state, resolved, make_plan(10, 5)))
         self.assertEqual(resolved["max_rounds"], 3)
 
+    def test_blocked_stop_traces_note(self):
+        state = _state.new_state("Compare widgets?", run_id="accept33-blstop")
+        resolved = make_resolved()
+        ac._maybe_adopt_proportional_rounds(state, resolved, make_plan(0, 5))
+        state["rounds"].append({"round": 0})
+        state["stop"] = {"reason": "rounds", "partial": True, "detail": "x"}
+        self.assertFalse(ac._maybe_adopt_proportional_rounds(
+            state, resolved, make_plan(10, 5)))
+        self.assertEqual(resolved["max_rounds"], 3)
+        notes = [str(n) for n in state.get("notes", [])]
+        self.assertTrue(
+            any("proporcional:" in n and "bloqueado" in n and "stop" in n
+                for n in notes), notes)
+
+    def test_blocked_report_traces_note(self):
+        state = _state.new_state("Compare widgets?", run_id="accept33-blrep")
+        resolved = make_resolved()
+        ac._maybe_adopt_proportional_rounds(state, resolved, make_plan(0, 5))
+        state["rounds"].append({"round": 0})
+        state["report"] = {"verdict": "ok"}
+        self.assertFalse(ac._maybe_adopt_proportional_rounds(
+            state, resolved, make_plan(10, 5)))
+        self.assertEqual(resolved["max_rounds"], 3)
+        notes = [str(n) for n in state.get("notes", [])]
+        self.assertTrue(
+            any("proporcional:" in n and "bloqueado" in n and "report" in n
+                for n in notes), notes)
+
+    def test_legacy_resume_traces_without_adopting(self):
+        state = _state.new_state("Compare widgets?", run_id="accept33-leg")
+        resolved = make_resolved()
+        state["rounds"].append({"round": 0})  # resume sem base de cálculo
+        self.assertIsNone(state.get("_proportional_cells"))
+        self.assertFalse(ac._maybe_adopt_proportional_rounds(
+            state, resolved, make_plan(10, 5)))
+        self.assertEqual(resolved["max_rounds"], 3)
+        notes = [str(n) for n in state.get("notes", [])]
+        self.assertTrue(
+            any("proporcional:" in n and "resume" in n for n in notes),
+            notes)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -517,15 +517,6 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         except (TypeError, ValueError):
             last = None
         started = bool(state.get("rounds"))
-        if started:
-            # Pós-início: nunca após parada/finalização decidida (stop
-            # com reason ou report preenchido — new_state inicializa
-            # stop={"reason": None, ...} e report={}, que NÃO são
-            # decisão). Sem base de cálculo (resume legado) preserva;
-            # plano estável não re-adota.
-            if (bool((state.get("stop") or {}).get("reason"))
-                    or bool(state.get("report"))):
-                return False
         lims = dict((resolved or {}).get("budget") or {})
         try:
             lims["model_calls"] = (resolved or {}).get("max_model_calls")
@@ -534,6 +525,25 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         suggestion = proportional_max_rounds(lims, {"cells": cells})
         proposed = int(suggestion.get("max_rounds") or 0)
         current = int((resolved or {}).get("max_rounds") or 0)
+        if started:
+            # Pós-início: nunca após parada/finalização decidida (stop
+            # com reason ou report preenchido — new_state inicializa
+            # stop={"reason": None, ...} e report={}, que NÃO são
+            # decisão). Sem base de cálculo (resume legado) preserva;
+            # plano estável não re-adota.
+            if (bool((state.get("stop") or {}).get("reason"))
+                    or bool(state.get("report"))):
+                try:
+                    _kind = ("stop" if bool(
+                        (state.get("stop") or {}).get("reason"))
+                        else "report")
+                    state.setdefault("notes", []).append(
+                        f"proporcional: células {cells} (base {last}) → "
+                        f"proposto {proposed} vs vigente {current}: "
+                        f"bloqueado — {_kind} com decisão registrada")
+                except Exception:
+                    pass
+                return False
         if last is not None and cells == last:
             return False  # já rastreado: silencioso
         try:
@@ -621,7 +631,12 @@ def _maybe_adopt_proportional_rounds(state: dict, resolved: dict,
         except Exception:
             pass
         return True
-    except Exception:
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"proporcional: erro {exc} (sem adoção)")
+        except Exception:
+            pass
         return False
 
 

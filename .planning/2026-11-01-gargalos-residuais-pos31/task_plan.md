@@ -40,8 +40,8 @@ Phase 4 (accept32 concluído + causa-raiz do hook achada e corrigida; run accept
 
 ### Phase 5: Entrega e continuidade
 - [x] Relatórios técnico + final persistentes, commits coesos, CONTINUIDADE atualizada
-- [ ] Revisão independente pertinente sem induzir parecer
-- **Status:** in_progress (falta só revisão independente + commit final)
+- [x] Revisão independente pertinente sem induzir parecer (cav-2: 0🔴 3🟡; 🟡 remediados com +3 testes, suite 641 OK)
+- **Status:** complete
 
 ### Phase 5: Entrega e continuidade
 - [ ] Relatórios técnico + final persistentes, commits coesos, CONTINUIDADE atualizada
