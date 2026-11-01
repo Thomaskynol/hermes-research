@@ -262,9 +262,9 @@ class CandidateTargetTest(unittest.TestCase):
         return st
 
     def test_g5_alem_do_teto_fica_rastreado_fora_da_cobertura(self):
-        # accept28: o teto conta TODAS as required (a pré-definida e0
-        # consome um slot do target=2); só e1 entra na seleção, e2/e3
-        # ficam rastreados fora da cobertura.
+        # accept29-D1: pré-definida e0 (required sem discovered, fora do
+        # escopo per_candidate = plataforma/contexto) NÃO consome slot do
+        # target=2; e1+e2 entram na seleção, só e3 fica rastreado fora.
         st = self._state()
         st["evidence"] = {URL_REPO: "Cand 1 Cand 2 Cand 3 aparecem aqui"}
         led = cl.Ledger(st["plan"])
@@ -275,14 +275,16 @@ class CandidateTargetTest(unittest.TestCase):
                 {"criterion_id": "c0"})
         ents = {e["id"]: e for e in st["plan"]["entities"]}
         self.assertTrue(ents["e1"]["required"])
-        self.assertFalse(ents["e2"]["required"])
+        self.assertTrue(ents["e2"]["required"])
         self.assertFalse(ents["e3"]["required"])
         self.assertTrue(any("além do teto" in str(n)
                             for n in st["notes"]))
-        # per_candidate só foi estendido aos exigidos
+        # per_candidate estendido aos descobertos (denominador só conta
+        # exigidos); e3 segue fora da seleção
         crit = next(c for c in st["plan"]["criteria"] if c["id"] == "c1")
-        self.assertNotIn("e2", crit.get("applies_to", []))
-        self.assertNotIn("e3", crit.get("applies_to", []))
+        self.assertIn("e1", crit.get("applies_to", []))
+        self.assertIn("e2", crit.get("applies_to", []))
+        self.assertFalse(ents["e3"]["required"])
 
     def test_g6_candidato_sem_mencao_na_fonte_fica_fora_da_cobertura(self):
         st = self._state()
@@ -296,7 +298,9 @@ class CandidateTargetTest(unittest.TestCase):
         self.assertTrue(any("sem menção na fonte" in str(n)
                             for n in st["notes"]))
         crit = next(c for c in st["plan"]["criteria"] if c["id"] == "c1")
-        self.assertNotIn("e1", crit.get("applies_to", []))
+        # accept29-D1: candidate sem menção ganha célula avaliável, nunca
+        # seleção (denominador só conta exigidos)
+        self.assertIn("e1", crit.get("applies_to", []))
 
     def test_g5_denominador_nao_conta_entidade_opcional(self):
         plan = {

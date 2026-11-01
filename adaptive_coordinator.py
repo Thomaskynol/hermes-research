@@ -360,9 +360,16 @@ def _probe_native_embeddings(state: dict, *, context: str = "") -> dict:
 
 
 def resolve_adaptive(profile: str = "light",
-                     overrides: dict | None = None) -> dict:
+                     overrides: dict | None = None,
+                     user_demands_rounds: bool = False) -> dict:
     """Resolved adaptive config: depth profile + independent round/model/time
-    knobs. Records every applied value for the run record."""
+    knobs. Records every applied value for the run record.
+
+    ``max_rounds_source`` distinguishes human demand from harness config:
+    ``user`` only when the question/context explicitly demands rounds;
+    a CLI/operator ``--max-rounds`` flag is ``harness`` (never justifiable
+    by comparability with another run); absent override is ``default``.
+    """
     ov = dict(overrides or {})
     adaptive = {}
     for key in ("max_rounds", "max_model_calls", "max_ops_per_round",
@@ -378,8 +385,11 @@ def resolve_adaptive(profile: str = "light",
     canonical = resolved["profile"]
     resolved["max_rounds"] = adaptive.get("max_rounds",
                                           ADAPTIVE_ROUNDS[canonical])
-    resolved["max_rounds_source"] = ("user" if "max_rounds" in adaptive
-                                     else "default")
+    if "max_rounds" in adaptive:
+        resolved["max_rounds_source"] = ("user" if user_demands_rounds
+                                         else "harness")
+    else:
+        resolved["max_rounds_source"] = "default"
     resolved["max_model_calls"] = adaptive.get(
         "max_model_calls", ADAPTIVE_MODEL_CALLS[canonical])
     resolved["max_ops_per_round"] = adaptive.get(
@@ -429,9 +439,59 @@ def _rounds_stop_detail(state: dict, resolved: dict, budget) -> str:
         proportions = "; ".join(parts)
     except Exception:
         proportions = "consumo indisponível"
-    return (f"max_rounds={resolved.get('max_rounds')} consumed "
+    tail = (f"max_rounds={resolved.get('max_rounds')} consumed "
             f"(source={resolved.get('max_rounds_source', 'default')}; "
             f"{proportions}; reserva de finalização preservada)")
+    try:
+        _gaps = state.get("gaps") or []
+        _used = (snap or {}).get("used", {}) or {}
+        _lims = (snap or {}).get("limits", {}) or {}
+        _slack = all(int(_used.get(k, 0) or 0) < int(_lims.get(k, 1) or 1)
+                     for k in ("queries", "extractions", "time_s")
+                     if k in _lims)
+        _model_ok = (int((state.get("consumption", {}) or {}).get(
+            "model_calls", 0)) + 2
+            <= int(resolved.get("max_model_calls", 0) or 0))
+        if _gaps and _slack and _model_ok:
+            tail += (f"; teto de rounds foi o único vinculante com "
+                     f"{len(_gaps)} lacuna(s) aberta(s) e folga nos demais "
+                     f"tetos — parada não-justificada por comparabilidade; "
+                     f"ampliar max_rounds ou deixar budget/saturação decidir")
+    except Exception:
+        pass
+    return tail
+
+
+def proportional_max_rounds(budget_limits: dict, scope: dict) -> dict:
+    """Dimensionamento proporcional de max_rounds antes do run (registra conta).
+
+    Cada teto autorizado sustenta um nº de rounds (consumo médio/round
+    observado: ~3 queries, ~12 extrações, ~2 model calls + 2 de reserva
+    para write+audit, ~150s). Células/gaps pedem cobertura mínima
+    (~8 células/round). O proposto é o mínimo (teto mais restritivo) —
+    nunca justificável por comparabilidade entre runs. shortcut: médias
+    por round são heurística calibrada no accept29; recalibrar se o
+    perfil mudar o custo por round.
+    """
+    try:
+        lims = dict(budget_limits or {})
+        cells = int((scope or {}).get("cells", 0) or 0)
+        by_queries = max(1, int(lims.get("queries", 30) or 0) // 3)
+        by_extractions = max(1, int(lims.get("extractions", 120) or 0) // 12)
+        by_model = max(1, (int(lims.get("model_calls", 16) or 0) - 2) // 2)
+        by_time = max(1, int(lims.get("time_s", 1800) or 0) // 150)
+        by_cells = max(1, -(-max(1, cells) // 8))
+        rounds = max(1, min(by_queries, by_extractions, by_model, by_time,
+                            by_cells))
+        conta = (f"queries {lims.get('queries')}/3={by_queries}; extrações "
+                 f"{lims.get('extractions')}/12={by_extractions}; modelo "
+                 f"({lims.get('model_calls')}-2)/2={by_model}; tempo "
+                 f"{lims.get('time_s')}/150={by_time}; células "
+                 f"{cells}/8={by_cells} → max_rounds={rounds} "
+                 f"(mínimo; teto mais restritivo)")
+        return {"max_rounds": rounds, "conta": conta}
+    except Exception as exc:
+        return {"max_rounds": 3, "conta": f"conta indisponível: {exc}"}
 
 
 def _evidence_content_hashes(state: dict) -> dict:
@@ -2746,6 +2806,11 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "citar evidência delimitadora de escopo (ex.: a fonte do "
             "candidato declara escopo que exclui o eixo); sem "
             "referência utilizável a célula cai para insufficient. "
+            "Contribuição documentada ao eixo conta partial com a fonte "
+            "da entidade (ex.: mecanismos de qualidade que afetam o "
+            "eixo), sem exigir geração/execução autônoma demonstrada e "
+            "sem promover hipótese frágil (nunca atribua à célula o que "
+            "o documento não trata). "
             "Referencie SOMENTE urls do material selecionado acima"
             + ("; para fato do usuário, referencie user://context/CHAVE "
                "com origin user-provided (capa em partial, nunca covered)."
@@ -3045,8 +3110,12 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         if isinstance(e, dict) and e.get("discovered")
                         and e.get("required", True)]
         _cand_s = ("Candidatos exigidos pelo plano (use exatamente estes "
-                   "como conjunto de comparação; item sem evidência = "
-                   "LACUNA, não substitua por outro): "
+                   "como conjunto de comparação; descoberta — menção em "
+                   "listagem — não é seleção: seleção exige fonte própria "
+                   "com identidade + célula investigada; item sem fonte "
+                   "própria/célula = LACUNA com a causa, nunca apresentado "
+                   "como parte do conjunto exigido sem a ressalva; "
+                   "não substitua por outro): "
                    + "; ".join(_cand_labels) + "\n") if _cand_labels else ""
         # M8: substituídos seguem no relatório como explorados-fora-da-
         # seleção (nunca somem, nunca contam na comparação).
@@ -3742,11 +3811,21 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         except (TypeError, ValueError):
             _target = 5
         # Teto de candidatos (G5): a pergunta pede N candidatos; contam
-        # TODAS as entidades exigidas (predefinidas + descobertas), nunca
-        # só as discovered — sem isso o teto ignora a seleção inicial e o
-        # denominador de cobertura infla a cada versão do plano.
+        # as entidades exigidas que SÃO candidatas — discovered, ou já no
+        # escopo per_candidate do plano. Plataforma/contexto (required sem
+        # discovered e fora do escopo per_candidate, ex. a plataforma que a
+        # pergunta manda considerar) nunca consome slot: contá-la
+        # transformaria pergunta aberta em conjunto exigido.
+        _cand_scope: set = set()
+        for _c in new_plan.get("criteria", []):
+            if isinstance(_c, dict) and _c.get("per_candidate"):
+                _ap = _c.get("applies_to") or []
+                _ap = [_ap] if isinstance(_ap, str) else list(_ap)
+                _cand_scope.update(_ap)
         _already = sum(1 for e in new_plan.get("entities", [])
-                       if isinstance(e, dict) and e.get("required", True))
+                       if isinstance(e, dict) and e.get("required", True)
+                       and (e.get("discovered")
+                            or e.get("id") in _cand_scope))
         # Gate de evidência (G6): só vira candidato exigido quem tem fonte
         # própria que REALMENTE menciona o nome no corpus — forma cheia no
         # corpo (mesma aboutness da seleção e da auditoria de citações).
@@ -3770,9 +3849,12 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                 _supported = any(t in str(_ev[source_url]).lower()
                                  for t in _label_tokens)
         else:
-            # Fonte ainda não coletada (ou ausente): verificação adiada —
-            # o gap de célula manda ler e a avaliação decide.
-            _supported = True
+            # Fonte ainda não coletada (ou ausente): entra candidate
+            # (required=False) até prova — admissão adiada virava
+            # first-come-first-served com carimbo de required. O gap de
+            # célula G1 manda ler a fonte e a avaliação decide; com a
+            # 1ª covered/partial e slot vazio, _promote_evaluated promove.
+            _supported = False
         _is_required = (_already < max(1, _target)) and _supported
         _label = _gate_label
         new_plan.setdefault("entities", []).append({
@@ -3806,9 +3888,13 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                         f"discovery: critério {c.get('id')} estendido a "
                         f"{eid} (herdado de {collided_from})")
         # per_candidate (G3): critérios que o planner marcou como "vale para
-        # cada candidato" são estendidos a toda entidade descoberta. Sem
-        # isso o candidato é versionado mas nunca vira célula: accept8 teve
-        # 14 entidades e 1 avaliação por candidato, sem leitura própria.
+        # cada candidato" são estendidos a toda entidade descoberta,
+        # exigida ou candidate. Sem isso o candidato é versionado mas nunca
+        # vira célula: accept8 teve 14 entidades e 1 avaliação por
+        # candidato, sem leitura própria. O denominador não infla: o
+        # ledger filtra applies_to pelos exigidos; candidate ganha célula
+        # avaliável + gap G1 de coleta, promovendo com a 1ª covered/partial.
+        # (accept29-D1: extensão não é admissão; required decide a seleção.)
         # Fallback sem marcação: o critério que originou a proposta passa a
         # cobrir o candidato (o assessor já avalia por entidade ali), então
         # a descoberta vira cobertura real em vez de versão órfã.
@@ -3818,7 +3904,7 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
             _src_cid = str(ev.get("criterion_id") or "")
             _per = [c for c in new_plan.get("criteria", [])
                     if isinstance(c, dict) and c.get("id") == _src_cid]
-        for c in (_per if _is_required else []):
+        for c in _per:
             ap = c.get("applies_to") or []
             ap = [ap] if isinstance(ap, str) else list(ap)
             if eid not in ap:
@@ -4134,6 +4220,157 @@ def _record_unexplored(state: dict, olds: list) -> None:
             pass
 
 
+def _promote_evaluated(state: dict, ledger) -> bool:
+    """Promote a candidate with a first covered/partial to an empty slot.
+
+    Descoberto entra candidate (required=False) até prova; quando a 1ª
+    avaliação covered/partial chega com fonte própria coletada+mencionada
+    (own-doc, mesma regra de identidade da seleção) e há slot livre no
+    teto (mesma contagem de candidatas de _apply_discovery), o slot vazio
+    é preenchível — nunca LACUNA congelada. Estende applies_to
+    per_candidate, versiona o plano e reconstrói o ledger. Uma promoção
+    por chamada; False quando nada a promover.
+    """
+    try:
+        import copy as _copy
+        plan = state.get("plan") or {}
+        entities = [e for e in plan.get("entities", []) if isinstance(e, dict)]
+        emap = {e.get("id"): e for e in entities}
+        try:
+            _target = int(plan.get("candidate_target") or 5)
+        except (TypeError, ValueError):
+            _target = 5
+        _cand_scope: set = set()
+        for _c in plan.get("criteria", []):
+            if isinstance(_c, dict) and _c.get("per_candidate"):
+                _ap = _c.get("applies_to") or []
+                _ap = [_ap] if isinstance(_ap, str) else list(_ap)
+                _cand_scope.update(_ap)
+        _already = sum(1 for e in entities
+                       if e.get("required", True)
+                       and (e.get("discovered") or e.get("id") in _cand_scope))
+        if _already >= max(1, _target):
+            return False
+        try:
+            _eval_generic = _plan_shared_tokens(
+                state.get("plan"), state.get("question"))
+        except Exception:
+            _eval_generic = frozenset()
+        evidence = state.get("evidence", {}) or {}
+        cands = []
+        for e in entities:
+            if e.get("required", True) or not e.get("discovered"):
+                continue
+            eid = e.get("id")
+            _hits = [ev for ev in (state.get("evaluations") or [])
+                     if isinstance(ev, dict) and ev.get("entity_id") == eid
+                     and ev.get("state") in ("covered", "partial")
+                     and ev.get("references")]
+            if not _hits:
+                continue
+            _src = (e.get("source_url") or "").strip()
+            if not _src or _src not in evidence:
+                continue
+            try:
+                _ok = _singleton_rare(
+                    e, [_audited_source_body(state, u) for u in evidence
+                        if isinstance(u, str)], _eval_generic)
+                if not _identity_matches(
+                        e, _audited_source_body(state, _src),
+                        single_ok=_ok, generic=_eval_generic):
+                    continue
+            except Exception:
+                continue
+            cands.append(e)
+        if not cands:
+            return False
+        cands.sort(key=lambda e: str(e.get("id")))
+        new_id = cands[0].get("id")
+        new_plan = _copy.deepcopy(plan)
+        for e in new_plan.get("entities", []):
+            if e.get("id") == new_id:
+                e["required"] = True
+        for c in new_plan.get("criteria", []):
+            if not (isinstance(c, dict) and c.get("per_candidate")):
+                continue
+            ap = c.get("applies_to") or []
+            ap = [ap] if isinstance(ap, str) else list(ap)
+            if new_id not in ap:
+                c["applies_to"] = ap + [new_id]
+        from coverage_ledger import validate_plan as _validate
+        _validate(new_plan)
+        try:
+            _prev_v = max(int(v.get("version", 0) or 0)
+                          for v in (state.get("plan_versions") or []))
+        except (TypeError, ValueError):
+            _prev_v = len(state.get("plan_versions") or [])
+        new_plan["version"] = _prev_v + 1
+        state["plan"] = new_plan
+        try:
+            _req_ids = sorted(
+                [(coll, item.get("id"))
+                 for coll in ("entities", "criteria")
+                 for item in (new_plan.get(coll, []) or [])
+                 if isinstance(item, dict)
+                 and item.get("required", True)])
+        except Exception:
+            _req_ids = []
+        state.setdefault("plan_versions", []).append({
+            "version": new_plan["version"],
+            "plan_id": new_plan.get("plan_id"),
+            "at": __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ",
+                                              __import__("time").gmtime()),
+            "justification": (f"promotion: {new_id} 1ª covered/partial com "
+                              f"fonte própria em slot vazio"),
+            "required": _req_ids,
+            "snapshot": _copy.deepcopy(new_plan),
+            "type": "promotion", "new": new_id,
+            **_ledger.plan_version_record(new_plan),
+        })
+        state["notes"].append(
+            f"promotion: {new_id} candidate -> required (slot vazio)")
+        fresh = _ledger.Ledger(new_plan, run_id=state["run_id"])
+        fresh.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
+        kept = []
+        _dropped: list = []
+        for prev in state.get("evaluations", []):
+            try:
+                fresh.evaluate(prev["criterion_id"], prev.get("state", "insufficient"),
+                               prev.get("justification", ""), prev.get("origin", ""),
+                               prev.get("references", []), prev.get("entity_id"))
+                kept.append(prev)
+            except (ValueError, KeyError) as _exc:
+                # Cobertura perdida nunca invisível: registra quantas e porquê.
+                try:
+                    _cid = prev.get("criterion_id", "?") if isinstance(prev, dict) else "?"
+                    _eid = prev.get("entity_id") if isinstance(prev, dict) else None
+                    _dropped.append(f"{_cid}/{_eid or '-'}: {_exc}")
+                except Exception:
+                    _dropped.append("incompatível")
+        if _dropped:
+            try:
+                state.setdefault("notes", []).append(
+                    f"promotion: {len(_dropped)} avaliação(ões) descartada(s) "
+                    f"(incompatível com novo plano): " + "; ".join(_dropped[:5]))
+            except Exception:
+                pass
+        state["evaluations"] = kept
+        ledger.plan = fresh.plan
+        ledger._evals = fresh._evals
+        ledger._evidence = fresh._evidence
+        ledger._qualification = fresh._qualification
+        ledger._counts = fresh._counts
+        ledger.version = fresh.version
+        return True
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"promotion skipped: {exc}")
+        except Exception:
+            pass
+        return False
+
+
 def _maybe_substitute(state: dict, ledger) -> bool:
     """Justified candidate substitution (generic mechanism, strict rule).
 
@@ -4152,6 +4389,8 @@ def _maybe_substitute(state: dict, ledger) -> bool:
     never swap. One swap per call.
     """
     try:
+        if _promote_evaluated(state, ledger):
+            return True
         if len(state.get("rounds", []) or []) < 2:
             return False
         plan = state.get("plan") or {}
@@ -4432,7 +4671,7 @@ def run_adaptive(question: str, *, profile: str = "light",
                  quantitative: list | None = None,
                  user_context: dict | None = None,
                  checkpoint=None, resume: bool = False,
-                 control=None) -> dict:
+                 control=None, user_demands_rounds: bool = False) -> dict:
     """Execute the adaptive loop. All external effects are injected.
 
     user_context: fatos do usuário {KEY: VALUE} (origem user-provided):
@@ -4455,7 +4694,8 @@ def run_adaptive(question: str, *, profile: str = "light",
     """
     now = clock or time.monotonic
     t_start = now()
-    resolved = resolve_adaptive(profile, overrides)
+    resolved = resolve_adaptive(profile, overrides,
+                                 user_demands_rounds=user_demands_rounds)
     budget_given = budget is not None
     # user_context: só dict {KEY: VALUE}; origem sempre user-provided.
     _facts: dict = {}

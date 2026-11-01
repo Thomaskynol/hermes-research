@@ -499,6 +499,14 @@ segue pendente.
 
 ## Accept29 (2026-11-01) — pesquisa real sobre 1364dc1: 4/40+6N/A=0.10 partial, support ok 4ª vez, stop rounds c/ reserva, 8082 14967 tokens reconciliado, 3+1 plugins sem testes demonstrado, RA8 pendente. Detalhe em `docs/RELATORIO_TECNICO_MISSAO_POS28_ACCEPT29.md`; relatório do produto em `/home/thomaskyn/hermes-runs/accept29/adaptive_accept29/report.md`.
 
+## Fase A accept29-ativas (2026-11-01) — 5 causas + re-review, sem hardcode
+
+- Review independente (cav-3: 1🔴+1🟡+4❓) + 5 lanes read-only; reconciliação em `.slim/deepwork/missao-accept29-ativas/`.
+- Fix fix-3 (TDD 14 testes): G5 conta só candidatas (plataforma fora), descoberto=candidate, source harness/user/default + rounds proporcional, partial_declared, editorial no gerador, AGENTS.md +3 linhas (harness≠humano; causa antes de corrigir; sem repetir pesquisa).
+- Re-review (cav-4): 0🔴 4🟡, 🔴 resolvido. Remediação fix-4 (4 testes): notes de descarte, dedup de gaps, na_cells com rótulo, partial com só-inferências.
+- Evidência: suite 617 OK skipped=10 EXIT 0; diagnose accept29 antes==depois (46/44/14/76, sem regressão — run congelado não exercita os 4 caminhos).
+- Commit Fase A abaixo (só produto+testes+CONTINUIDADE; AGENTS.md alterado no workdir, untracked).
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

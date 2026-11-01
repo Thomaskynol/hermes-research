@@ -675,7 +675,13 @@ class SlugUrlSelectionTest(unittest.TestCase):
 
 class BudgetRoundsTest(unittest.TestCase):
     def test_max_rounds_source_recorded(self):
-        r_user = ac.resolve_adaptive("medium", {"max_rounds": 3})
+        # Contrato accept29 (3): override de harness marca source=harness;
+        # user só com exigência explícita na pergunta/contexto.
+        r_harness = ac.resolve_adaptive("medium", {"max_rounds": 3})
+        self.assertEqual(r_harness.get("max_rounds_source"), "harness",
+                         r_harness)
+        r_user = ac.resolve_adaptive("medium", {"max_rounds": 3},
+                                     user_demands_rounds=True)
         self.assertEqual(r_user.get("max_rounds_source"), "user", r_user)
         r_default = ac.resolve_adaptive("medium", None)
         self.assertEqual(r_default.get("max_rounds_source"), "default",
@@ -720,7 +726,7 @@ class BudgetRoundsTest(unittest.TestCase):
         self.assertEqual(res["stop"]["reason"], "rounds", res["stop"])
         self.assertTrue(res["stop"].get("partial"), res["stop"])
         detail = str(res["stop"].get("detail", ""))
-        for token in ("source=user", "queries", "model_calls"):
+        for token in ("source=harness", "queries", "model_calls"):
             self.assertIn(token, detail, detail)
 
 

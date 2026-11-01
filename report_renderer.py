@@ -373,21 +373,56 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
         if refs:
             lines.append(f"{labels['references']}: {refs}")
         entity_states = crit.get("entity_states")
+        try:
+            _labels_by_id = {
+                e.get("id"): (e.get("label") or e.get("id"))
+                for e in (state.get("plan") or {}).get("entities", [])
+                if isinstance(e, dict)}
+        except Exception:
+            _labels_by_id = {}
         if entity_states:
             lines.append("")
             lines.append("| Entidade | Estado |")
             lines.append("|---|---|")
             for eid, est in entity_states.items():
-                lines.append(f"| {eid} | {_state_label(labels, est)} |")
+                lines.append(f"| {_labels_by_id.get(eid, eid)} | "
+                             f"{_state_label(labels, est)} |")
         if crit.get("examined_scope"):
             _scope = str(crit["examined_scope"])
             lines.append(_scope[:1].upper() + _scope[1:] if _scope else _scope)
         for nc in crit.get("na_cells", []) or []:
+            _nc_label = _labels_by_id.get(nc.get("entity_id"),
+                                          nc.get("entity_id"))
             lines.append(
-                f"- **N/A** {nc.get('entity_id')}: "
+                f"- **N/A** {_nc_label}: "
                 f"{(nc.get('justification') or '').strip() or labels['not_investigated']}")
         lines.append("")
     return lines
+
+
+_DEBUG_NOTE_PREFIXES = (
+    "evaluation revised", "semantic boost", "unexplored reconciliado",
+    "synthesis criterion", "citação ajustada", "citação ajustada por",
+    "tighten citations", "discovery", "substitution", "promotion",
+    "truncado", "teto de seleção", "janela de relevancia",
+    "ordem semântica", "render: síntese citou",
+)
+
+
+def _is_debug_note(note: str) -> bool:
+    """Resíduo interno (diagnóstico/auditoria) vs nota ao usuário.
+
+    Diagnóstico e auditoria vivem em state['notes'] + verification.json;
+    só notas voltadas ao usuário vão ao corpo (§5). O anexo técnico
+    (§8) lista os resíduos classificados — nada é apagado do state.
+    shortcut: classificação por prefixo; se novo emissor surgir sem
+    prefixo listado, ele aparece no corpo até ser classificado.
+    """
+    try:
+        low = str(note or "").strip().lower()
+        return any(low.startswith(p) for p in _DEBUG_NOTE_PREFIXES)
+    except Exception:
+        return False
 
 
 def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
@@ -434,8 +469,9 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
         for url in outside:
             lines.append(f"- {url}")
     notes = [n for n in (state.get("notes") or []) if isinstance(n, str)]
-    if notes:
-        shown = notes if verbose else notes[-5:]
+    shown_user = [n for n in notes if not _is_debug_note(n)]
+    if shown_user:
+        shown = shown_user if verbose else shown_user[-5:]
         lines.append("")
         lines.append(f"### {labels['notes']}")
         for note in shown:
@@ -529,6 +565,13 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
                      "contam repetições entre chamadas, únicos não")
     else:
         lines.append("**Leitura:** não medida")
+    _debug = [n for n in (state.get("notes") or [])
+              if isinstance(n, str) and _is_debug_note(n)]
+    if _debug:
+        lines.append("")
+        lines.append("### Notas técnicas (diagnóstico interno)")
+        for note in _debug:
+            lines.append(f"- {note}")
     return lines
 
 
@@ -614,7 +657,12 @@ def render_report(state: dict, *, synthesis_text: str,
                   f"nunca contam como cobertura.", ""]
     lines += [f"## {labels['summary']}", ""]
     if synthesis.strip():
-        lines.append(synthesis.strip())
+        # Numeração única: a síntese traz seus próprios '## N' internos;
+        # rebaixados para '###' para não colidir com as seções do renderer
+        # (§§1-9). Defesa no renderer, nunca edição manual do artefato.
+        import re as _re
+        _demoted = _re.sub(r"(?m)^##(?!#)", "###", synthesis.strip())
+        lines.append(_demoted)
     else:
         lines.append(labels["no_synthesis"])
     lines.append("")
@@ -648,10 +696,16 @@ def render_report(state: dict, *, synthesis_text: str,
                      "pode ser apresentada como completa.")
     gaps = block.get("gaps") or []
     if gaps:
+        # §6 não relista: detalhe por lacuna vive na §5 (D4 editorial);
+        # aqui só a contagem + ponteiro, sem duplicar o next genérico.
+        _open = [g for g in gaps if g.get("state") not in ("covered",)]
         lines.append("")
-        lines.append(f"**{labels['next']}:**")
-        for gap in gaps:
-            lines.append(f"- {gap.get('label', gap.get('criterion_id'))}: "
+        lines.append(f"**{labels['next']}:** ver detalhes por lacuna na "
+                     f"seção 5 ({len(_open)} pendente(s)); priorizar células "
+                     f"com fonte própria indicada.")
+        _pri = [g for g in gaps if g.get("entity_id")][:3]
+        for gap in _pri:
+            lines.append(f"- {gap.get('entity_label', gap.get('label'))}: "
                          f"{gap.get('next', 'investigar com nova evidência')}")
     lines.append("")
     lines.extend(_sources_section(state, labels))

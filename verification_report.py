@@ -808,6 +808,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     claims = supported = uncited = 0
     declared: list[dict] = []
     declared_inference: list[dict] = []
+    partial_declared: list[dict] = []
     user_premises: list[dict] = []
     unsupported: list[dict] = []
     # B2: unidades por bullet/linha, não por blob multi-bullet. O split
@@ -1042,13 +1043,19 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             unsupported.append({"sentence": sentence,
                                 "citations": citations,
                                 "reason": reason})
-            declared_inference.append(
-                {"sentence": sentence, "citations": citations,
-                 "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
-                 "scope": "LACUNA explícita exigida (sem prova de "
-                          "integração); complementaridade plausível, "
-                          "não integração testada; limites: janela "
-                          "auditada"})
+            _decl = {"sentence": sentence, "citations": citations,
+                     "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
+                     "scope": "partial declarada (complementaridade "
+                              "plausível com premissas em fontes distintas; "
+                              "LACUNA explícita sem prova de integração; "
+                              "limites: janela auditada; nunca integração "
+                              "testada)"}
+            declared_inference.append(dict(_decl))
+            if _anchor_any_ok:
+                # Premissas sustentadas em fontes distintas contam partial
+                # declarada com limites explícitos; só alegação de
+                # integração testada exige doc-interop (≥2 entidades).
+                partial_declared.append(dict(_decl))
             continue
         # Trava de interoperabilidade (Missão 3): claim com >=2
         # entidades exige um doc que mencione >=2 delas (integração
@@ -1105,12 +1112,16 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     "reason": "inferência sem citação de "
                               "interoperabilidade (complementaridade "
                               "plausível, não integração testada)"})
-                declared_inference.append(
-                    {"sentence": sentence, "citations": citations,
-                     "anchor_ok": True, "relation_ok": False,
-                     "scope": "complementaridade plausível (âncoras em "
-                              "docs separados); LACUNA explícita (sem "
-                              "prova de integração)"})
+                _decl2 = {"sentence": sentence, "citations": citations,
+                          "anchor_ok": True, "relation_ok": False,
+                          "scope": "partial declarada (complementaridade "
+                                   "plausível com premissas em fontes "
+                                   "distintas — âncoras em docs separados; "
+                                   "LACUNA explícita sem prova de "
+                                   "integração; limites: janela auditada; "
+                                   "nunca integração testada)"}
+                declared_inference.append(dict(_decl2))
+                partial_declared.append(dict(_decl2))
                 continue
             if "entidade não mencionada no doc" not in reasons:
                 reasons.append("entidade não mencionada no doc")
@@ -1159,8 +1170,12 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     if claims == 0:
         status = "unknown"
     elif supported == 0:
-        # No cited sentence is sustained: the synthesis is unsupported.
-        status = "failed"
+        # Semântica: inferência declarada com limites explícitos
+        # (premissas em fontes distintas, sem alegar integração testada)
+        # é partial — nunca ok (relação sem prova) nem failed total
+        # (âncoras sustentadas). Só failed puro quando nada é nem
+        # sustentado nem partial declarado.
+        status = "partial" if partial_declared else "failed"
     elif supported / claims < 0.7:
         status = "partial"
     else:
@@ -1172,6 +1187,9 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     if declared_inference:
         detail += (f"; {len(declared_inference)} inferência(s) declarada(s) "
                    f"(nunca supported por âncora)")
+    if partial_declared:
+        detail += (f"; {len(partial_declared)} partial(is) declarada(s) "
+                   f"(premissas em fontes distintas, limites explícitos)")
     # B5+janela: registra qual janela foi auditada (texto usable integral +
     # hashes no formato last_selection, com seleção quando exposta).
     # Audita na mesma janela do writer ou diff excerto×full-text antes de
@@ -1202,6 +1220,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     return {"status": status, "claims": claims, "supported": supported,
             "uncited": uncited, "unsupported": unsupported, "detail": detail,
             "declared": declared, "declared_inference": declared_inference,
+            "partial_declared": partial_declared,
             "user_premises": user_premises, "audit_window": _audit_window}
 
 

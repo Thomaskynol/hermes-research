@@ -233,6 +233,48 @@ def summarize(block: dict) -> str:
             f"(rastreio: bloco question_coverage no artefato _depth.json)")
 
 
+
+def _gap_next(ledger: "Ledger", crit: dict, entry: dict) -> str:
+    """Próximo passo específico por lacuna a partir do estado.
+
+    Genérico ("investigar critério obrigatório") só quando nada mais se
+    sabe; com entidades insuficientes identificadas, cita a entidade e a
+    fonte própria (coletada: reler seções por dimensão; ausente: buscar
+    fonte que mencione o nome no corpo). Sem IDs crus: usa rótulos.
+    """
+    try:
+        applies = crit.get("applies_to") or []
+        applies = [applies] if isinstance(applies, str) else list(applies)
+        req = ledger._required_entity_ids()
+        emap = {e.get("id"): e for e in ledger.plan.get("entities", [])
+                if isinstance(e, dict)}
+        pending = [eid for eid in applies
+                   if eid in req and ledger._evals.get(
+                       (crit["id"], eid), {}).get("state",
+                                                  "uninvestigated")
+                   in ("insufficient", "uninvestigated", "blocked")]
+        if pending:
+            bits = []
+            for eid in pending[:4]:
+                ent = emap.get(eid) or {}
+                label = str(ent.get("label") or eid)
+                src = (ent.get("source_url") or "").strip()
+                if src and src in (ledger._evidence or {}):
+                    bits.append(f"ler a fonte própria de {label} "
+                                f"({src[:80]}) nas seções da dimensão")
+                elif src:
+                    bits.append(f"coletar a fonte própria de {label} "
+                                f"({src[:80]}) e avaliar a célula")
+                else:
+                    bits.append(f"buscar fonte própria que mencione "
+                                f"{label} no corpo e avaliar a célula")
+            return "; ".join(bits)
+    except Exception:
+        pass
+    return ("investigar critério obrigatório; "
+            "tentativas anteriores preservadas acima")
+
+
 class Ledger:
     """Explicit per-criterion evaluations against a validated plan.
 
@@ -599,14 +641,6 @@ class Ledger:
                         refs_out.append({"criterion_id": c["id"], **r})
             if entry["required"] and state not in ("covered",
                                                       "not_applicable"):
-                gaps.append({
-                    "criterion_id": c["id"],
-                    "label": entry["label"],
-                    "state": state,
-                    "justification": entry["justification"] or "não investigado",
-                    "next": ("investigar critério obrigatório; "
-                             "tentativas anteriores preservadas acima"),
-                })
                 # Gaps por célula acionável (G1): entidade versionada por
                 # descoberta com source_url própria e célula ainda sem
                 # cobertura ganha um gap endereçado à célula — o select_ops
@@ -614,13 +648,23 @@ class Ledger:
                 # genérica do critério redescobri-la. Chaves novas
                 # (entity_id/entity_label/source_url) são aditivas: leitores
                 # antigos que só olham criterion_id seguem funcionando.
+                # Dedup §6/parada: quando os gaps específicos por célula
+                # cobrem TODAS as pendências do critério, o genérico é
+                # suprimido (prefere o específico; contagem sem dupla do
+                # mesmo next). Se resta pendência sem fonte própria
+                # (ex.: entidade sem source_url), o genérico é mantido
+                # para não perder cobertura (G1b: e0 sem fonte + e1 com
+                # fonte → genérico + célula).
+                _cell_gaps: list = []
                 try:
                     _emap = {e.get("id"): e for e in
                              self.plan.get("entities", []) if isinstance(e, dict)}
                     for _eid in applies or []:
                         _ent = _emap.get(_eid) or {}
-                        if not _ent.get("required", True):
-                            continue  # além do teto: não gera célula
+                        if not (_ent.get("required", True)
+                                or _ent.get("discovered")):
+                            continue  # fora da seleção e sem descoberta:
+                            # sem célula (substituída/explorada)
                         _src = (_ent.get("source_url") or "").strip()
                         if not _src or _src in (self._evidence or {}):
                             continue
@@ -629,7 +673,7 @@ class Ledger:
                         if _cell not in ("uninvestigated", "insufficient",
                                          "blocked"):
                             continue
-                        gaps.append({
+                        _cell_gaps.append({
                             "criterion_id": c["id"],
                             "entity_id": _eid,
                             "entity_label": _ent.get("label", _eid),
@@ -643,6 +687,31 @@ class Ledger:
                         })
                 except Exception:
                     pass
+                try:
+                    _req_ids = self._required_entity_ids()
+                    _pending = [eid for eid in (applies or [])
+                                if eid in _req_ids and (self._evals.get(
+                                    (c["id"], eid)) or {}).get(
+                                    "state", "uninvestigated") in (
+                                    "uninvestigated", "insufficient",
+                                    "blocked")]
+                    _covered_by_cells = {g.get("entity_id")
+                                         for g in _cell_gaps}
+                    _fully_covered = bool(_cell_gaps) and bool(_pending) and all(
+                        eid in _covered_by_cells for eid in _pending)
+                except Exception:
+                    _fully_covered = bool(_cell_gaps) and not _pending
+                if _cell_gaps and _fully_covered:
+                    gaps.extend(_cell_gaps)
+                else:
+                    gaps.append({
+                        "criterion_id": c["id"],
+                        "label": entry["label"],
+                        "state": state,
+                        "justification": entry["justification"] or "não investigado",
+                        "next": _gap_next(self, c, entry),
+                    })
+                    gaps.extend(_cell_gaps)
         return {
             "status": status,
             "complete": complete,

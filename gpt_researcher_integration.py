@@ -413,6 +413,25 @@ def parse_user_context(items) -> dict:
     return facts
 
 
+def _user_demands_rounds(query, contexts) -> bool:
+    """True só se pergunta/contexto do usuário exigir rounds explicitamente.
+
+    Flag de harness (--max-rounds do operador/run.sh) nunca é exigência
+    humana: sem menção explícita a rounds/rodadas/iterações na pergunta ou
+    no contexto, a fonte é harness (comparabilidade nunca justifica).
+    """
+    import re as _re
+    try:
+        parts = [str(query or "")]
+        for _c in (contexts or []):
+            parts.append(str(_c or ""))
+        text = " ".join(parts).lower()
+        return bool(_re.search(r"\brounds?\b|\brodadas?\b|\bitera",
+                               text))
+    except Exception:
+        return False
+
+
 async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                          env_file=None):
     """Adaptive entry: our coordinator owns plan/state/coverage/rounds/budget.
@@ -474,7 +493,10 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
             print(f"[DEPTH] invalid DEPTH_OVERRIDES_JSON: {_e}")
             return
         _overrides.update(_cli_ov)
-        _resolved = _ac.resolve_adaptive(_a.depth, _overrides)
+        _resolved = _ac.resolve_adaptive(
+            _a.depth, _overrides,
+            user_demands_rounds=_user_demands_rounds(
+                _a.query, _a.context))
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")
         raise SystemExit(2)
