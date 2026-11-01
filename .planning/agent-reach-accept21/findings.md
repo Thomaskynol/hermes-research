@@ -488,3 +488,21 @@ lane, condições registradas no RELATORIO_ACCEPT25.md). 437s, EXIT=0.
   `native` do accept25 fez **zero requests** (manifest/counters/verification
   sem embedding; hits em `state.json` são texto de corpus). Conexão/
   demonstração integrada fica para o próximo lane; produto intocado.
+
+## Accept27 — boost semântico funcional no path native (evidência: run + state, 2026-11-01)
+
+- Hipótese: sonda record-only (accept26) → rerank com efeito na seleção do
+  assessor + desempate do writer, sem tocar identidade/proveniência/gates.
+  Confirmada: 4/4 rounds ranquearam via 8082 com notas de decisão; rank top
+  (arxiv/dev.to) entrou na seleção round 0; writer carrega o corte
+  `ordem semântica no restante`.
+- Cache por hash funciona entre rodadas (hits 0→7→15→29; só 6–14 vetores
+  novos/round) e reconciliação servidor↔state é exata (14335+140=14475).
+- Gates intactos sob boost ligado: 15 `identity mismatch` rejeitadas em run
+  real + caso controlado D2 (entra na seleção, nunca sustenta e1).
+- Limites: query estável por plano (lacuna aberta pesa nos tiers); doc
+  ≤1500 chars p/ vetor; cobertura 0.333 por teto de rounds (medium max-3),
+  não veracidade; sem causalidade vs accept26 (perfis distintos).
+- Arquivos: `adaptive_coordinator.py` (+~300), `run_manifest.py` (+18),
+  `tests/test_native_embeddings*.py` (18); intocados
+  `verification_report.py`, diagnose, `adaptive_state.py`, `sync_config.py`.

@@ -81,6 +81,207 @@ def _embedding_model() -> str:
             or EMBEDDING_DEFAULT_MODEL)
 
 
+def embed_texts_native(texts, *, base_url=None, model=None,
+                       timeout: float = 15.0) -> dict:
+    """POST um lote a {base}/embeddings (stdlib, sem dependência nova).
+
+    Retorna {"endpoint","model","prompt_tokens","vectors","status":"ok"}
+    com um vetor por texto de entrada (ordem preservada via data[].index).
+    Serviço fora do ar ou resposta incompleta levanta TransportError —
+    o chamador registra a indisponibilidade + efeito explicitamente
+    (nunca fallback silencioso).
+    """
+    import json as _json
+    import urllib.request as _url
+    base = (base_url or _embedding_base()).rstrip("/")
+    mdl = model or _embedding_model()
+    texts = list(texts or [])
+    payload = _json.dumps({"model": mdl, "input": texts}).encode("utf-8")
+    req = _url.Request(base + "/embeddings", data=payload,
+                       headers={"Content-Type": "application/json"},
+                       method="POST")
+    try:
+        with _url.urlopen(req, timeout=timeout) as resp:
+            body = _json.loads(resp.read().decode("utf-8", "replace")
+                               or "{}")
+    except Exception as exc:
+        raise TransportError(
+            f"embeddings indisponível ({base}): {exc}")
+    try:
+        data = body.get("data") or []
+        ordered = sorted(data, key=lambda d: (d or {}).get("index", 0))
+        vecs = [list((d or {}).get("embedding") or []) for d in ordered]
+    except Exception:
+        vecs = []
+    if len(vecs) != len(texts):
+        raise TransportError(
+            f"embeddings resposta incompleta ({base}): {len(vecs)} "
+            f"vetores p/ {len(texts)} textos")
+    try:
+        prompt_tokens = int(((body.get("usage") or {}).get("prompt_tokens"))
+                            or 0)
+    except (TypeError, ValueError):
+        prompt_tokens = 0
+    return {"endpoint": base, "model": body.get("model") or mdl,
+            "prompt_tokens": prompt_tokens, "vectors": vecs, "status": "ok"}
+
+
+def _cosine(a, b) -> float:
+    """Cosseno entre dois vetores (stdlib; 0.0 em vetores nulos)."""
+    try:
+        dot = sum(x * y for x, y in zip(a or [], b or []))
+        na = sum(x * x for x in (a or [])) ** 0.5
+        nb = sum(y * y for y in (b or [])) ** 0.5
+        if not na or not nb:
+            return 0.0
+        return dot / (na * nb)
+    except Exception:
+        return 0.0
+
+
+# Vetores por hash de conteúdo (sessão): conteúdo inalterado nunca é
+# recalculado — nem entre rodadas do mesmo processo. Chave = hash do
+# texto efetivamente vetorizado; cap simples p/ não crescer sem limite.
+_EMBED_VEC_CACHE: dict[str, list] = {}
+_EMBED_DOC_CHARS = 1500
+
+
+def _last_sel_urls(state: dict) -> list:
+    """URLs da última seleção do assessor (state["assessments"], observado)."""
+    try:
+        items = state.get("assessments") or []
+        if items:
+            return list((items[-1] or {}).get("selection") or [])
+    except Exception:
+        pass
+    return []
+
+
+def _semantic_boost(state: dict, plan, evidence, qualification):
+    """Ranqueia candidatos por similaridade à pergunta+dimensões (8082).
+
+    Query = pergunta + entidades/critérios exigidos do plano (estável por
+    plano: novo plano => novo hash => reembebe; a priorização por lacuna
+    aberta vive nos tiers de seleção). Docs = corpus utilizável não
+    excluído (fora user://), truncado a _EMBED_DOC_CHARS.
+    Vetores em cache por hash de conteúdo; 1 chamada batch p/ rodada só
+    com hashes novos. Retorna urls ordenadas ou None (desligado,
+    indisponível, sem candidatos). Nunca levanta, nunca gasta budget de
+    modelo, nunca filtra: SÓ reordena — reservas de entidade, seleção
+    prévia e os gates (_entity_mentioned/_evaluation_refs_have_identity,
+    verify_support) seguem intactos. Toda chamada (ou ausência dela)
+    é registrada em state["embeddings"] com efeito.
+    """
+    import os as _os
+    rec = state.setdefault("embeddings", {"calls": []})
+    if not isinstance(rec.get("calls"), list):
+        rec["calls"] = []
+    totals = rec.setdefault("totals", {"server_calls": 0, "vectors": 0,
+                                       "prompt_tokens": 0, "cache_hits": 0})
+    if _os.environ.get("HERMES_NATIVE_EMBEDDINGS", "1").strip() == "0":
+        rec["status"] = "disabled"
+        rec["last_rank"] = []
+        state.setdefault("notes", []).append(
+            "embeddings desligado (HERMES_NATIVE_EMBEDDINGS=0); "
+            "efeito: seleção por regras inalterada")
+        return None
+    try:
+        # Query estável por plano (pergunta + dimensões exigidas): lacunas
+        # abertas mudam por rodada mas as dimensões são as do plano — a
+        # priorização por lacuna vive nos tiers de seleção; query estável
+        # maximiza o acerto do cache (novo plano => novo hash => reembebe).
+        _ents = sorted({str(e.get("label") or e.get("id") or "")
+                        for e in ((plan or {}).get("entities") or [])
+                        if isinstance(e, dict) and e.get("required", True)})
+        _crits = sorted({str(c.get("label") or c.get("id") or "")
+                         for c in ((plan or {}).get("criteria") or [])
+                         if isinstance(c, dict) and c.get("required", True)})
+        qtext = " ".join([str((plan or {}).get("question")
+                              or state.get("question") or "")]
+                         + _ents + _crits)[:_EMBED_DOC_CHARS]
+    except Exception:
+        qtext = ""
+    cands: list[tuple[str, str]] = []
+    try:
+        for url, text in (evidence or {}).items():
+            if not isinstance(url, str) or url.startswith("user://"):
+                continue
+            try:
+                q = (qualification or {}).get(url) or {}
+                if q.get("excluded"):
+                    continue
+                body = str(q.get("usable_text") or text or "")
+            except Exception:
+                continue
+            if body.strip():
+                cands.append((url, body[:_EMBED_DOC_CHARS]))
+    except Exception:
+        cands = []
+    if not cands or not qtext.strip():
+        state.setdefault("notes", []).append(
+            "semantic boost: sem candidatos ou sem pergunta "
+            "(nada a ranquear, sem chamadas)")
+        rec["last_rank"] = []
+        return None
+    keys = ["q|" + _content_hash(qtext)]
+    texts = [qtext]
+    for url, body in cands:
+        keys.append("d|" + _content_hash(body))
+        texts.append(body)
+    if len(_EMBED_VEC_CACHE) > 2048:
+        _EMBED_VEC_CACHE.clear()
+    missing = [t for k, t in zip(keys, texts) if k not in _EMBED_VEC_CACHE]
+    entry_base = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "endpoint": _embedding_base(), "model": _embedding_model()}
+    if missing:
+        try:
+            got = embed_texts_native(missing)
+        except TransportError as exc:
+            entry = dict(entry_base, status="unavailable",
+                         error=str(exc)[:200],
+                         effect=("sem rerank semântico; "
+                                 "seleção por regras inalterada"))
+            rec["calls"].append(entry)
+            rec["status"] = "unavailable"
+            rec["last_rank"] = []
+            state.setdefault("notes", []).append(
+                f"embeddings indisponível: {exc} "
+                f"(efeito: {entry['effect']})")
+            return None
+        for k, v in zip([k for k in keys if k not in _EMBED_VEC_CACHE],
+                        got["vectors"]):
+            _EMBED_VEC_CACHE[k] = list(v or [])
+        entry_base["prompt_tokens"] = got["prompt_tokens"]
+        totals["server_calls"] += 1
+        totals["vectors"] += len(missing)
+        totals["prompt_tokens"] += got["prompt_tokens"]
+    else:
+        entry_base["prompt_tokens"] = 0
+    try:
+        qvec = _EMBED_VEC_CACHE[keys[0]]
+        scored = [(_cosine(qvec, _EMBED_VEC_CACHE[k]), i, url)
+                  for i, ((url, _b), k) in enumerate(zip(cands, keys[1:]))]
+        scored.sort(key=lambda t: (-t[0], t[1]))
+        ranked = [u for _s, _i, u in scored]
+    except Exception:
+        ranked = [u for u, _b in cands]
+    hits = len(texts) - len(missing)
+    totals["cache_hits"] += hits
+    rec["last_rank"] = list(ranked)
+    rec["calls"].append(dict(
+        entry_base, status="ok", vectors=len(missing), cache_hits=hits,
+        effect=(f"rerank semântico de {len(cands)} docs "
+                f"(pergunta+dimensões); top: "
+                f"{', '.join(ranked[:3])}; reservas de entidade e gates "
+                f"de identidade intactos (só reordena)")))
+    rec["status"] = "ok"
+    state.setdefault("notes", []).append(
+        f"semantic boost: {len(cands)} docs ranqueados "
+        f"({len(missing)} vetorizados, {hits} do cache); "
+        f"top: {', '.join(ranked[:3])}")
+    return ranked
+
+
 def embed_query_native(text, *, base_url=None, model=None,
                        timeout: float = 10.0) -> dict:
     """POST um texto a {base}/embeddings (stdlib, sem dependência nova).
@@ -113,12 +314,15 @@ def embed_query_native(text, *, base_url=None, model=None,
 
 
 def _probe_native_embeddings(state: dict, *, context: str = "") -> dict:
-    """Uma chamada embed_query por rodada de avaliação (só registro).
+    """Diagnóstico manual opcional do endpoint de embeddings (record-only).
 
-    Nunca levanta, nunca gasta budget de modelo, nunca altera avaliações:
-    anexa endpoint/modelo/prompt_tokens em state["embeddings"]["calls"] +
-    nota. 8082 down => status unavailable + efeito (sem rerank semântico),
-    nunca fallback. HERMES_NATIVE_EMBEDDINGS=0 desliga (skipped).
+    NÃO é mais chamado automaticamente por rodada: o path funcional é o
+    boost semântico (_semantic_boost, com efeito na seleção). Chamadas
+    rotineiras sem efeito foram eliminadas; HERMES_NATIVE_EMBEDDINGS=0
+    desliga tudo (skipped). Nunca levanta, nunca gasta budget de modelo,
+    nunca altera avaliações: anexa endpoint/modelo/prompt_tokens em
+    state["embeddings"]["calls"] + nota. 8082 down => status unavailable
+    + efeito, nunca fallback. Uso: diagnóstico pontual.
     """
     import os as _os
     rec = state.setdefault("embeddings", {"calls": []})
@@ -2008,7 +2212,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
     present in the corpus (one reserved slot per entity), (2) documents
     referenced by previous evaluations, (3) not-yet-sent material (so
     later rounds with >24 docs evaluate new evidence in bounded batches,
-    never the same fixed prefix), (4) already-sent, insertion order. The
+    never the same fixed prefix), (4) already-sent, insertion order. When
+    set_semantic_rank was fed (native 8082 boost), tier (3) follows that
+    order instead of evidence order; reservations, prior refs and the
+    identity/selection gates never move. The
     exact selection (urls, hashes, excerpts, cuts) is exposed as
     assess.last_selection for the caller to validate references against
     (storage outside the selection never justifies covered in that call).
@@ -2020,9 +2227,34 @@ def make_model_assessor(model_client, max_docs: int = 24,
 
     _sent: set[str] = set()
     _extra_terms: list[str] = []
+    _semantic_rank: list[str] = []
     _prior_refs: list[str] = []
     _prior_ref_closed: list[str] = []
     _prior_states: dict[tuple[str, str], str] = {}
+
+    def set_semantic_rank(urls) -> None:
+        """Ordem semântica (8082) p/ os lotes não-enviados; só reordena.
+
+        Reservas de entidade, refs prévias e gates de identidade/seleção
+        seguem intactos: o boost nunca filtra nem promove — apenas ordena
+        os dois laços de material ainda não enviado. Sem rank, ordem de
+        evidência inalterada."""
+        try:
+            _semantic_rank[:] = [str(u) for u in (urls or [])
+                                 if isinstance(u, str) and u]
+        except Exception:
+            pass
+
+    def _sem_order(urls: list) -> list:
+        if not _semantic_rank:
+            return urls
+        try:
+            _pos = {u: i for i, u in enumerate(_semantic_rank)}
+            _big = len(_semantic_rank) + 1
+            return sorted(urls,
+                          key=lambda u: (_pos.get(u, _big), urls.index(u)))
+        except Exception:
+            return urls
 
     def set_relevance_terms(terms) -> None:
         """Extra excerpt terms (e.g. issued query tokens); plan labels stay primary."""
@@ -2147,10 +2379,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 return False
             return any(t in low for t in _open_terms)
 
-        for _u in evidence:
+        for _u in _sem_order([_u for _u in evidence]):
             if _u not in _sent and _about_open(_u):
                 _push(_u)
-        for _u in evidence:
+        for _u in _sem_order([_u for _u in evidence]):
             if _u not in _sent:
                 _push(_u)
         for _u in _prior_ref_closed:
@@ -2399,6 +2631,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
     assess.last_stats = None  # type: ignore[attr-defined]
     assess.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
     assess.set_previous_evaluations = set_previous_evaluations  # type: ignore[attr-defined]
+    assess.set_semantic_rank = set_semantic_rank  # type: ignore[attr-defined]
     return assess
 
 
@@ -2466,6 +2699,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
         # Evidência referenciada pela avaliação nunca cai do prompt por
         # ordem alfabética; sem doc da entidade no corpus, sem piso
         # (LACUNA honesta, nunca preenchida por vizinho alfabético).
+        _sem_note = ""
         try:
             _req_ents = [e for e in (plan.get("entities") or [])
                          if isinstance(e, dict) and e.get("required", True)]
@@ -2493,7 +2727,24 @@ def make_model_writer(model_client, max_chars: int = 12000):
                 if _best is not None:
                     _floor.append(_best)
             _rest = [u for u in corpus_urls if u not in _floor]
-            _rest.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+            # Ordem semântica (8082) como desempate no restante: refs e
+            # piso de identidade intactos — o boost nunca remove nem
+            # promove por similaridade, só ordena o empate por refs.
+            try:
+                _wrank = [u for u in (view.get("semantic_rank") or [])
+                          if isinstance(u, str)]
+                if _wrank:
+                    _wpos = {u: i for i, u in enumerate(_wrank)}
+                    _wbig = len(_wrank) + 1
+                    _rest.sort(key=lambda u: (-_ref_count.get(u, 0),
+                                              _wpos.get(u, _wbig), u))
+                    _sem_note = ("ordem semântica no restante "
+                                 "(refs/piso intactos)")
+                else:
+                    _rest.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+            except Exception:
+                _rest.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+                _sem_note = ""
             corpus_urls[:] = _floor + _rest
         except Exception:
             corpus_urls.sort(key=lambda u: (-_ref_count.get(u, 0), u))
@@ -2521,6 +2772,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
         # material do prompt final.
         per_doc = 2000
         included, cuts, budget = [], [], int(max_chars)
+        if _sem_note:
+            cuts.append(_sem_note)
         parts = []
         total = 0
         sep = "\n\n"
@@ -2817,6 +3070,22 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             _prev_hook(list(state.get("evaluations") or []))
     except Exception:
         pass
+    # Boost semântico (8082, funcional): ranqueia candidatos pela
+    # pergunta+dimensões e registra a chamada; entrega ao assessor pelo hook
+    # opcional (assessors custom sem o hook: seleção inalterada, registro
+    # mantido). Nunca levanta, nunca gasta budget de modelo, nunca filtra:
+    # só reordena os lotes não-enviados.
+    try:
+        _ranked = _semantic_boost(state, state.get("plan"),
+                                  dict(state.get("evidence", {})),
+                                  dict(state.get("qualification", {})))
+        if _ranked:
+            _rank_hook = getattr(assess_fn, "set_semantic_rank", None)
+            if callable(_rank_hook):
+                _rank_hook(_ranked)
+    except Exception as exc:
+        state.setdefault("notes", []).append(
+            f"semantic boost wiring failed: {exc}")
     import inspect as _inspect
     _uc = state.get("user_context") or {}
     _facts = _uc.get("facts", {}) if isinstance(_uc, dict) else {}
@@ -3087,13 +3356,17 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
     state["gaps"] = list(block.get("gaps") or [])
-    # Sonda de embeddings do path native (record-only: nunca levanta, nunca
-    # gasta budget, nunca altera as avaliações mescladas acima).
+    # Decisão influenciada pelo boost (observada): a seleção registrada em
+    # state["assessments"] sob a ordem semântica; gates intactos acima.
     try:
-        _probe_native_embeddings(state)
-    except Exception as exc:  # observabilidade nunca quebra a avaliação
-        state.setdefault("notes", []).append(
-            f"embeddings probe failed: {exc}")
+        _rank = list((state.get("embeddings") or {}).get("last_rank") or [])
+        if _rank and _sel_urls is not None:
+            state["notes"].append(
+                "semantic boost: seleção "
+                f"{sorted(_sel_urls)} sob ordem "
+                f"{_rank[:6]} (gates de identidade/seleção intactos)")
+    except Exception:
+        pass
     return list(state.get("evaluations", []) or []), block
 
 
@@ -5293,7 +5566,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             "evaluations": list(state.get("evaluations") or []),
             "unexplored_alternatives": list(
                 state.get("unexplored_alternatives") or []),
-            "substitutions": list(state.get("substitutions") or [])}
+            "substitutions": list(state.get("substitutions") or []),
+            "semantic_rank": list(
+                (state.get("embeddings") or {}).get("last_rank") or [])}
     # -- write (1 model-boundary call when a real writer is used) ----
     if write is None:
         write = _default_writer

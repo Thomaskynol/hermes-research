@@ -10,14 +10,16 @@ adicional automaticamente — ver conferência em `findings.md`
 
 ## Next Step
 
-accept25 EXECUTADO sob `4b40bbe` (0/35 partial, support ok 2ª vez, 3
-contratos v2 provados; RA8 segue pendente — gargalo cobertura/seleção).
-Fechar Phase 5 (ACEITE_V1_RESULTADO + check-complete). Próximo run só sob
-nova hipótese explícita.
+accept27 EXECUTADO sob `5080a84` (boost semântico funcional no path native:
+4 calls 8082 ok, 36 vetores, 14475 tokens, cache 51; seleção/writer
+influenciados com gates intactos; coverage 0.333 partial, overall partial;
+RA8 segue pendente — gargalo cobertura/teto, não veracidade). Fechar Phase 5
+(ACEITE_V1_RESULTADO + check-complete). Próximo run só sob nova hipótese
+explícita.
 
 ## Current Phase
 
-Phase 10 (accept25: run real dos 3 contratos v2 — PROVA OBTIDA)
+Phase 11 (accept27: boost semântico funcional no path native — PROVA OBTIDA)
 
 ## Phases
 
@@ -166,6 +168,37 @@ Phase 10 (accept25: run real dos 3 contratos v2 — PROVA OBTIDA)
   cobertura/seleção, não veracidade; `assessor_error 0` (era 11)
 - **Status:** complete (evidência em `/home/thomaskyn/hermes-runs/accept25/`;
   RA8 segue PENDENTE; sem push)
+
+### Phase 11 (accept27): boost semântico funcional no path native — PROVA OBTIDA
+
+- [x] Hipótese explícita: primeira integração funcional dos embeddings no
+  caminho realmente usado (sonda record-only accept26 → rerank com efeito);
+  congelamento pré-run (HEAD `5080a84`, `HEAD.frozen`/`diffstat`/`hashes`
+  em `/home/thomaskyn/hermes-runs/accept27/`; `hashes.frozen == árvore`
+  pós-run; 1 literal editado na janela de lançamento, vigente desde o
+  round 0 — efeito "dimensões" no state)
+- [x] TDD RED→GREEN: 18 testes (`test_native_embeddings*.py`, fixtures
+  genéricas, mock + guarda anti-socket; RED inicial 12 erros + 3 falhas
+  com causa-raiz); suíte FULL fresca 563 OK (skipped=10), exit 0
+- [x] Demo corpus congelado `/tmp/demo_emb27` (md5 intacto, mesmas entradas
+  e limites): antiga perde D3 (`applied=[]`), nova recupera (`covered`);
+  D2 de entidade errada rejeitado (`identity mismatch`); excertos com refs
+  no writer
+- [x] Run real (8082 UP, vast DOWN controle, medium max-rounds 3, native+
+  opencode `muse-spark-1.3-contributor`, `HERMES_NATIVE_EMBEDDINGS=1`):
+  EXIT=0, stop `rounds`, 501s, coverage partial 0.333 (8 covered + 11
+  partial + 7 insufficient), model_calls 7, contadores 37/34/34/30/6/6,
+  verification overall `partial`
+- [x] 8082 com efeito: 4 calls (1/round,
+  `http://172.17.0.1:8082/v1` + `harrier-oss-v1-0.6b`), 36 vetores, 14475
+  tokens, cache_hits 51 (0→7→15→29); métricas servidor 3125→17460 (+14335)
+  + cached 125→265 (+140) = 14475 reconciliado; manifest separa embeddings
+  do gerador; writer com corte `ordem semântica no restante`
+- [x] Gates intactos: 15 `identity mismatch` (rejeitadas), 0
+  `outside selection`, 0 `indisponível`, nenhum raise/fallback; sem
+  atribuição causal vs accept26 (perfis/corpora distintos)
+- **Status:** complete (evidência em `/home/thomaskyn/hermes-runs/accept27/`
+  + `RELATORIO_ACCEPT27.md`; RA8 segue PENDENTE; sem push)
 
 ## Decisions Made
 

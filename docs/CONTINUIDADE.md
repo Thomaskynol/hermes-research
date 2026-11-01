@@ -335,6 +335,44 @@ segue pendente.
   `hermes-runs/accept26/RELATORIO_ACCEPT26.md`. RA8 segue pendente
   (gargalo é corpus/seleção, não veracidade).
 
+## Accept27 (2026-11-01) — boost semântico funcional no path native PROVADO
+
+- Produto (TDD RED→GREEN, 18 testes `test_native_embeddings*.py`):
+  `_semantic_boost` ranqueia candidatos (query estável pergunta+dimensões
+  do plano; docs truncados a 1500 chars) via batch `embed_texts_native`
+  (1 chamada/rodada só com hashes novos; cache por hash de conteúdo;
+  `HERMES_NATIVE_EMBEDDINGS=0` desliga); entrega ao assessor pelo hook
+  opcional `set_semantic_rank` (custom sem hook: inalterado) que reordena
+  SÓ os lotes não-enviados; writer usa o rank como desempate no restante
+  (refs/piso intactos). Só reordena: reservas de entidade, seleção
+  prévia e gates (`_evaluation_refs_have_identity`, seleção, `verify_support`)
+  intactos. Down = `unavailable` + efeito, sem raise, sem fallback, seleção
+  antiga. Registro separado do gerador: `state["embeddings"]`
+  (calls+totals) e `manifest.embeddings` (server_calls/vectors/
+  prompt_tokens_total/cache_hits). Sonda record-only virou diagnóstico
+  manual (`_probe_native_embeddings`, sem auto-call). `adaptive_state.py`
+  e `verification_report.py`/`diagnose` intocados.
+- Demo corpus congelado `/tmp/demo_emb27` (md5 intacto antes/depois,
+  mesmas entradas e limites): (a) seleção antiga `[D1,D2]` perdia D3
+  (insuficiência preservada) e nova `[D1,D3]` recupera com `covered`
+  (1 batch real 8082: 1012 tokens, 4 vetores, rank D3>D1>D2);
+  (b) D2 na seleção mas `identity mismatch` rejeita (applied=[]);
+  (c) excertos chegam ao writer com refs (`included_urls=[D3,D1,D2]`,
+  blocos `Fonte <url>:` no prompt). Detalhe em `RESULTADO.md` + JSONs.
+- Run real `hermes-runs/accept27` (8082 UP, vast DOWN como controle,
+  medium, native, max-rounds 3, `HERMES_NATIVE_EMBEDDINGS=1`): EXIT=0,
+  stop `rounds`, 501s, coverage `partial` 0.333 (8 covered + 11 partial +
+  7 insufficient), model_calls 7 (gerador, separado), contadores
+  37/34/34/30/6/6, verification overall `partial`. **4 calls 8082**
+  (1/round, `http://172.17.0.1:8082/v1` + `harrier-oss-v1-0.6b`),
+  36 vetores, 14475 prompt_tokens, cache_hits 51 (0→7→15→29); métricas
+  servidor 3125→17460 (+14335) + cached +140 = 14475 reconciliado;
+  manifest separa embeddings do gerador; writer com corte `ordem
+  semântica`. Gates: 15 identity-mismatch rejeitadas, 0 outside-selection,
+  0 down. Sem causalidade vs accept26 (perfis distintos). Relatório:
+  `hermes-runs/accept27/RELATORIO_ACCEPT27.md`. RA8 segue pendente
+  (teto de rounds/cobertura, não veracidade).
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

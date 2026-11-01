@@ -120,10 +120,11 @@ def _consumption(state: dict) -> dict:
 
 
 def _embeddings(state: dict) -> dict:
-    """Resumo da sonda de embeddings do path native (endpoint/modelo/tokens).
+    """Resumo do boost semântico do path native (endpoint/modelo/tokens).
 
-    state["embeddings"] é a fonte (calls por rodada); aqui só o resumo da
-    última chamada + contagem — detalhe integral segue em state.json.
+    state["embeddings"] é a fonte (calls por rodada + totais); aqui só o
+    resumo da última chamada + contadores — detalhe integral em state.json.
+    Consumo de embeddings separado das chamadas ao gerador (consumption).
     """
     emb = state.get("embeddings")
     if not isinstance(emb, dict):
@@ -134,12 +135,23 @@ def _embeddings(state: dict) -> dict:
     last = calls[-1] if calls else {}
     if not isinstance(last, dict):
         last = {}
+    totals = emb.get("totals") or {}
+    if not isinstance(totals, dict):
+        totals = {}
+    try:
+        prompt_total = int(totals.get("prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        prompt_total = 0
     return {
         "status": emb.get("status", "unknown"),
         "calls": len(calls),
         "last": {k: last.get(k) for k in
                  ("endpoint", "model", "prompt_tokens", "status",
                   "error", "effect", "at")},
+        "server_calls": int(totals.get("server_calls") or 0),
+        "vectors": int(totals.get("vectors") or 0),
+        "prompt_tokens_total": prompt_total,
+        "cache_hits": int(totals.get("cache_hits") or 0),
     }
 
 

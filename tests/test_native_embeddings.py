@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Sonda de embeddings no path native: _assess_round chama POST /v1/embeddings.
+"""Boost funcional no path native (8082): _assess_round ranqueia a seleção.
 
-Contrato (accept26):
+Contrato (accept27; substitui a sonda record-only do accept26):
 * base default = EMBEDDING_SERVER_URL ou http://172.17.0.1:8082/v1
   (alcançável do host e do container; nunca só 127.0.0.1);
 * modelo default harrier-oss-v1-0.6b;
-* cada _assess_round registra UMA chamada em state["embeddings"] com
-  endpoint/modelo/prompt_tokens (+ nota); avaliações e budgets intactos;
+* cada _assess_round com candidatos vetoriza em 1 batch
+  (embed_texts_native) e registra em state["embeddings"] endpoint/modelo/
+  tokens/vetores/cache + efeito; avaliações e budgets intactos;
 * 8082 down => status unavailable + efeito registrado, sem raise,
-  sem fallback silencioso;
+  sem fallback silencioso, seleção antiga preservada;
 * HERMES_NATIVE_EMBEDDINGS=0 desliga (registrado como skipped);
 * manifest carrega o resumo (endpoint/modelo/tokens da última chamada).
 
@@ -60,9 +61,13 @@ class TestNativeEmbeddingsProbe(unittest.TestCase):
         os.environ["HERMES_NATIVE_EMBEDDINGS"] = "1"
         os.environ.pop("EMBEDDING_SERVER_URL", None)
         self._orig = ac.embed_query_native
+        self._orig_texts = ac.embed_texts_native
+        ac._EMBED_VEC_CACHE.clear()
 
     def tearDown(self):
         ac.embed_query_native = self._orig
+        ac.embed_texts_native = self._orig_texts
+        ac._EMBED_VEC_CACHE.clear()
         os.environ.clear()
         os.environ.update(self._env)
 
@@ -83,20 +88,18 @@ class TestNativeEmbeddingsProbe(unittest.TestCase):
         os.environ["EMBEDDING_SERVER_URL"] = "http://10.0.0.9:8082/v1/"
         self.assertEqual(ac._embedding_base(), "http://10.0.0.9:8082/v1")
 
-    def test_assess_round_records_probe_with_tokens(self):
-        seen = {}
-
-        def fake_embed(text, **kw):
-            seen["text"] = text
+    def test_assess_round_records_boost_with_tokens(self):
+        def fake_embed(texts, **kw):
             return {"endpoint": ac._embedding_base(),
                     "model": "harrier-oss-v1-0.6b",
-                    "prompt_tokens": 7, "status": "ok"}
+                    "prompt_tokens": 7, "vectors": [[1.0]] * len(texts),
+                    "status": "ok"}
 
-        ac.embed_query_native = fake_embed
+        ac.embed_texts_native = fake_embed
         st = self._state()
         applied, _block = ac._assess_round(
             st, fake_assess, cl.Ledger(st["plan"], run_id=st["run_id"]), None)
-        # avaliações intactas (sonda é record-only)
+        # avaliações intactas (boost só reordena, nunca decide)
         self.assertEqual(applied[0]["state"], "partial")
         calls = st["embeddings"]["calls"]
         self.assertEqual(len(calls), 1)
@@ -104,13 +107,14 @@ class TestNativeEmbeddingsProbe(unittest.TestCase):
         self.assertEqual(calls[0]["model"], "harrier-oss-v1-0.6b")
         self.assertEqual(calls[0]["prompt_tokens"], 7)
         self.assertEqual(calls[0]["status"], "ok")
-        self.assertTrue(any("embeddings probe" in n for n in st["notes"]))
+        self.assertIn("effect", calls[0])
+        self.assertTrue(any("semantic boost" in n for n in st["notes"]))
 
     def test_assess_round_down_records_unavailable_without_raise(self):
-        def boom(text, **kw):
+        def boom(texts, **kw):
             raise ac.TransportError("embeddings indisponível (x): refused")
 
-        ac.embed_query_native = boom
+        ac.embed_texts_native = boom
         st = self._state()
         applied, _block = ac._assess_round(
             st, fake_assess, cl.Ledger(st["plan"], run_id=st["run_id"]), None)
@@ -124,7 +128,7 @@ class TestNativeEmbeddingsProbe(unittest.TestCase):
     def test_assess_round_disabled_records_skipped(self):
         os.environ["HERMES_NATIVE_EMBEDDINGS"] = "0"
         called = []
-        ac.embed_query_native = lambda text, **kw: called.append(text) or {}
+        ac.embed_texts_native = lambda texts, **kw: called.append(texts) or {}
         st = self._state()
         ac._assess_round(st, fake_assess,
                          cl.Ledger(st["plan"], run_id=st["run_id"]), None)

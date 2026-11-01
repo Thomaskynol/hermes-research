@@ -481,3 +481,44 @@
 - Nota embeddings: `:8082` UP pós-run mas path native com zero requests —
   integração fica para próximo lane, sem produto neste lane. Commit docs
   local, sem push.
+
+## 2026-11-01 — Sessão 19: accept27 — boost semântico funcional no path native (fixer, TDD)
+
+- RED: `tests/test_native_embeddings_boost.py` novo (12 testes, genérico
+  Widget Alfa/Bravo) falhou 12/12 sem implementação (`embed_texts_native`,
+  `_cosine`, `_EMBED_VEC_CACHE`, `_last_sel_urls` ausentes); +3 falhas de
+  integração com causa-raiz (fake casava slug ausente no corpo; query
+  instável entre rounds; `cuts` reiniciado após o bloco do writer) — fix
+  mínimo por hipótese, sem empilhar.
+- GREEN (escopo: `adaptive_coordinator.py` + `run_manifest.py` + 2 testes,
+  sem tocar `verification_report.py`/diagnose): batch 8082 com ordem por
+  índice, cache por hash, hook `set_semantic_rank` (só reordena tiers
+  não-enviados), writer desempata restante por rank (refs/piso intactos),
+  boost sempre registrado + entregue só com hook, down = unavailable sem
+  raise, `HERMES_NATIVE_EMBEDDINGS=0` desliga, sonda vira diagnóstico manual.
+  `adaptative_state.py` intocado. Foco: 18 passed. Ampla fresca: 563 passed,
+  10 skipped, EXIT=0 (sem `retriever_timeout` desta vez — 59 arquivos).
+- Demo congelada `/tmp/demo_emb27` (md5 `ef6a3e…` antes/depois, real 8082):
+  (a) antiga `[D1,D2]`→`applied=[]` vs nova `[D1,D3]`→`covered` (1 batch,
+  1012 tokens, 4 vetores, rank D3>D1>D2); (b) D2 na seleção mas
+  `identity mismatch` rejeita; (c) writer `included=[D3,D1,D2]` com blocos
+  `Fonte <url>:` no prompt. Mesmas entradas/limites; sem causalidade entre
+  corpora distintos.
+- Run real (run.sh congelado; medium max-rounds-3, native+opencode
+  `muse-spark-1.3-contributor`, `HERMES_NATIVE_EMBEDDINGS=1`, vast DOWN
+  controle, 8082 UP): EXIT=0, stop `rounds`, **501s**, coverage partial
+  0.333 (8 covered + 11 partial + 7 insufficient), model_calls 7,
+  37/34/34/30/6/6; verification overall `partial`. **RA8 segue PENDENTE.**
+- 8082 com efeito: 4 calls `172.17.0.1:8082/v1` + `harrier-oss-v1-0.6b`
+  (1/round), 36 vetores, 14475 prompt_tokens, cache 51 (0→7→15→29);
+  métricas 3125→17460 (+14335) + cached +140 = 14475 reconciliado;
+  manifest separa embeddings do gerador; writer `ordem semântica`.
+  Gates: 15 identity-mismatch rejeitadas, 0 outside-selection, 0 down.
+- Skills: TDD (RED→GREEN cumprido, sem novo ajuste pós-run);
+  systematic-debugging não disparada (sem falha/surpresa);
+  verification-before-completion via skill tool (FULL fresca 563 OK exit 0
+  antes de afirmar; run lido de arquivos+exits).
+- Outputs em `/home/thomaskyn/hermes-runs/accept27/` (fora do repo e do
+  /tmp); `docs/CONTINUIDADE.md` + plano sincronizados (Phase 11 complete).
+  1 literal editado na janela de lançamento, vigente desde round 0
+  (`hashes.frozen` == árvore). Sem push.
