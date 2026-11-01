@@ -541,6 +541,42 @@ segue pendente.
 - Detalhe em `docs/RELATORIO_TECNICO_MISSAO_GARGALOS_POS31.md`; runs em
   `/home/thomaskyn/hermes-runs/accept32/` e `.../accept33/`.
 
+## Fase D missão accept34 (2026-11-01) — AGENTS.md + diversidade de lote + isenção do writer, aceite parcial
+
+- AGENTS.md +3 pontos (testes com construtores reais; parcial/incremento≠missão;
+  bucket≠causa + alcance de revisão + estimativa≠limite≠consumo). Era untracked,
+  agora versionado (commit 3da5de8).
+- Fix accept34 (TDD RED 6 falhas→GREEN, `tests/test_accept34_cell_diversity.py` +
+  fixture `accept33_c9e6.json` com new_state REAL): M-A (ancora:dependencias,
+  resend só-required, `_open_cell_coverage` + reordenação gulosa do sufixo,
+  mesmos tetos) + M-B (`_writer_gate_guidance`: isenção explícita, premissa
+  do usuário marcada, sem literais indevidos, fora-do-corpus). Revisão cav-1:
+  No issues (alcance limitado). Suite então 647 OK skipped=10 EXIT 0.
+- accept34 real (`/home/thomaskyn/hermes-runs/accept34/`, HEAD/hashes pré==pós
+  3da5de8, EXIT 0, 874s, 8082 +13942/+548 cached, opencode v2.2.5 observado,
+  premissa controlada 2.1.4): q18/f49/m11/rounds8; stop rounds max_rounds=7
+  source=default (hook 3→5→7, by_cells vincula/empata), 15 lacunas abertas,
+  folga total. Diagnose (55): sel_ctx 14 (era 31), missing_dim 23 (era 14),
+  partial 18 (era 10), ok 0. Síntese 41/7/103. Verification: support
+  failed→ok, overall failed→partial (question/review partial, 0/55).
+- Atribuição: M-B demonstrado em produção (isenção + premissa marcada; 4 gates
+  não repetidos); M-A sem traço em runtime (grep diversidade=0) — queda
+  sel_ctx confundida por churn (finalistas/critérios/corpus 45→28 mudaram);
+  resend só-required confirmado (só alvos cand-*). RA8 segue pendente.
+- Revisão direcionada cav-2 (3🔴1🟡1❓): Context7[4][26] refutada (doc contém
+  "fetches current documentation directly from source repositories" —
+  falso-negativo do overlap PT×EN); Ranger/Refactoring parcial refutada como
+  contradição (refs reais; §1 nega fonte própria/combinações); URLs truncadas
+  §5 defeito real — causa `src[:80]` em `_gap_next`, corrigido (URL integral
+  + regressão em `test_accept29_causes.py`; URL completa em §7 [19]; artefato
+  congelado preservado); support/execution = semânticas pré-existentes.
+- Suite final 648 OK skipped=10 EXIT 0. Detalhe em
+  `docs/RELATORIO_TECNICO_MISSAO_ACCEPT34.md`; entrega em
+  `/home/thomaskyn/hermes-runs/accept34/adaptive_accept34/report.md`.
+- Fila restante (fora desta autorização/escopo): stop default com lacunas
+  abertas; churn auto-plan entre runs; overlap × tradução no auditor;
+  observabilidade do engajamento M-A.
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`

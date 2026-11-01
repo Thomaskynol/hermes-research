@@ -261,10 +261,10 @@ def _gap_next(ledger: "Ledger", crit: dict, entry: dict) -> str:
                 src = (ent.get("source_url") or "").strip()
                 if src and src in (ledger._evidence or {}):
                     bits.append(f"ler a fonte própria de {label} "
-                                f"({src[:80]}) nas seções da dimensão")
+                                f"({src}) nas seções da dimensão")
                 elif src:
                     bits.append(f"coletar a fonte própria de {label} "
-                                f"({src[:80]}) e avaliar a célula")
+                                f"({src}) e avaliar a célula")
                 else:
                     bits.append(f"buscar fonte própria que mencione "
                                 f"{label} no corpo e avaliar a célula")

@@ -402,6 +402,30 @@ class EditorialRendererTest(unittest.TestCase):
                             for g in gaps),
                         [g.get("next") for g in gaps])
 
+    def test_gap_next_keeps_long_source_url_whole(self):
+        """URL de fonte própria >80 chars sai inteira (sem corte)."""
+        long_url = ("https://example.com/t/widget-alpha-com-nome-bem-"
+                    "longo-para-passar-de-oitenta-caracteres/1234?tl=pt_BR")
+        self.assertGreater(len(long_url), 80)
+        plan = {"plan_id": "g2", "version": 1,
+                "entities": [{"id": "w1", "label": "Widget Alpha",
+                              "required": True, "discovered": True,
+                              "source_url": long_url}],
+                "criteria": [{"id": "c1", "label": "Eixo", "required": True,
+                              "per_candidate": True,
+                              "applies_to": ["w1"]}]}
+        led = ledger_mod.Ledger(plan, run_id="t")
+        led.set_corpus({long_url: DOC_A}, {long_url: qual(long_url, DOC_A)})
+        led.evaluate("c1", "insufficient", "sem material sobre Widget Alpha",
+                     "selected_material", None, "w1")
+        block = led.compute()
+        gaps = [g for g in block["gaps"]
+                if g.get("criterion_id") == "c1"]
+        self.assertTrue(gaps, block)
+        self.assertTrue(any(long_url in str(g.get("next", ""))
+                            for g in gaps),
+                        [g.get("next") for g in gaps])
+
 
 if __name__ == "__main__":
     unittest.main()
