@@ -108,15 +108,27 @@ class IdentityGateTest(unittest.TestCase):
 
 class DistinctiveTokensTest(unittest.TestCase):
     def test_planner_is_distinctive(self):
+        # Sem hardcode: "opencode" é genérico porque está na pergunta e
+        # em todas as labels (derivado do plano, não de lista fixa).
+        plan = {"entities": [{"id": "e1", "label": "opencode-planner"},
+                             {"id": "e2", "label": "opencode-tester"}],
+                "criteria": []}
+        shared = ac._plan_shared_tokens(plan, "Compare opencode plugins")
         toks = ac._entity_distinctive_tokens(
-            {"id": "e1", "label": "opencode-planner"})
+            {"id": "e1", "label": "opencode-planner"}, shared)
         self.assertIn("planner", toks)
         self.assertNotIn("opencode", toks)
-        self.assertNotIn("plugin", toks)
 
     def test_fully_generic_label_has_no_distinctive(self):
+        # Sem hardcode: rótulo só com kind-words não tem parte
+        # distintiva (legado fail-open preservado).
+        plan = {"entities": [
+            {"id": "e2", "label": "Plugin Manager Tool"},
+            {"id": "e3", "label": "Plugin Manager Helper"}]}
+        shared = ac._plan_shared_tokens(plan, "")
         self.assertEqual(ac._entity_distinctive_tokens(
-            {"id": "e2", "label": "OpenCode Marketplace Plugin"}), [])
+            {"id": "e2", "label": "Plugin Manager Tool"},
+            shared), [])
 
 
 if __name__ == "__main__":

@@ -707,6 +707,14 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
     so e sustentada pelo doc que menciona >=2 delas (integracao testada);
     doc de entidade unica e complementaridade plausivel, nunca prova.
     """
+    # Sem âncora de entidade (nem ancora nem relação nomeiam plano algum):
+    # paráfrase sem forma cheia nunca sustenta relação — LACUNA explícita,
+    # nunca supported/integração testada, em qualquer espelho que use este
+    # auditor.
+    if not named_anchor and not named_relation:
+        return False, False, "sem âncora de entidade", \
+            ("inferência sem âncora de entidade (sem citação de "
+             "interoperabilidade: LACUNA, nunca integração testada)")
     anchor_tokens = set(_content_tokens(anchor)) if anchor else set()
     relation_tokens = set(_content_tokens(relation)) if relation else set()
     if not anchor_tokens:
@@ -1704,6 +1712,34 @@ def verify_support(state: dict, report_text: str,
                        notes + ["relatório sem citações verificáveis"])
     if unknown or _bracket_unknown or unsupported:
         return _result("support", "failed", evidence, notes)
+    # Oráculo externo (diagnose pós-hoc, quando fornecido em
+    # state["diagnose_audit"]): misses que este auditor não ponderou
+    # impedem ok SOMENTE com pergunta parcial (gaps abertos) — sem
+    # pendência, viram nota informativa sem mudar o veredito.
+    # Ausente = sem efeito (comportamento in-product inalterado).
+    try:
+        _oracle = state.get("diagnose_audit") or {}
+        _o_uns = int(_oracle.get("unsupported", 0) or 0)
+        _o_items = [i for i in (_oracle.get("unsupported_items") or [])
+                    if isinstance(i, dict)]
+    except Exception:
+        _o_uns, _o_items = 0, []
+    if _o_uns or _o_items:
+        evidence["oracle_misses"] = [
+            {"sentence": str(i.get("sentence") or "")[:300],
+             "reason": str(i.get("reason") or "")[:300]}
+            for i in _o_items[:8]]
+        try:
+            _qc = state.get("question_coverage") or {}
+            _q_open = bool(_qc.get("gaps")) or (
+                bool(_qc) and not _qc.get("complete"))
+        except Exception:
+            _q_open = False
+        notes.append(
+            f"oráculo diagnose: {_o_uns or len(_o_items)} afirmação(ões) "
+            "sem suporte fora da janela deste auditor")
+        if _q_open:
+            return _result("support", "failed", evidence, notes)
     # Convergência B5: a sentença (full-text por bullet) pondera quando a
     # citação é do doc da entidade. Base aqui seria ok/partial (failed já
     # retornou); adota o pior sem reescrever os auditores.

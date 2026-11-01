@@ -176,6 +176,12 @@ class TestSubstitution(unittest.TestCase):
         st["evidence"] = {A: "nada util aqui " * 50,
                           C: "cand tres detalhes do eixo um " * 50}
         st["qualification"] = qual([A, C])
+        # Corpo auditado (usable_text) menciona o candidato — a troca
+        # exige menção no corpo auditado, nunca só no raw/slug.
+        st["qualification"][C] = {
+            "status": "usable",
+            "usable_text": "cand tres detalhes do eixo um " * 50,
+            "excluded": False}
         st["evaluations"] = [
             {"criterion_id": "c1", "entity_id": "e1",
              "state": "insufficient", "justification": "tentativa com fonte",

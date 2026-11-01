@@ -2,9 +2,8 @@
 
 > Ponto de entrada para retomar o trabalho. Plano ativo:
 > `.planning/agent-reach-accept21/` (`task_plan.md`, `findings.md`, `progress.md`).
-> Última atualização: 2026-11-01 (accept28: pergunta ORIGINAL do aceite sob
-> `95b0ec7`, 6/55 partial 0.109, support ok 3ª vez, 8082 com efeito
-> reconciliado, 3 contratos v2 observados, RA8 pendente; sem push).
+> Última atualização: 2026-11-01 (pós-accept28: 5 causas corrigidas + 9 achados
+> revisão, sem hardcode, 595 testes OK, diagnose 53/11 C9 LACUNA; sem push).
 > Commit local sem push.
 >
 > HEADs: produto `95b0ec7` (= `5080a84` + commit docs accept27; executado no
@@ -400,6 +399,27 @@ segue pendente.
   LACUNA declarada (+ contradição do plano flagrada); nenhum plugin
   demonstra melhorar implementação/testes/revisão no corpus. Relatório:
   `hermes-runs/accept28/RELATORIO_ACCEPT28.md`. RA8 segue pendente.
+
+## Pós-accept28 (2026-11-01) — 5 causas + 9 achados revisão, sem hardcode
+
+- Lanes read-only: DESC-SELEÇÃO (G5 contava só discovered, G6 token solto,
+  N/A→insufficient sem evidência nova, sem op descoberta sem nome),
+  IDENT ([17] genérico pega carona em [1], c1 global vs síntese C1,
+  C9 sem âncora rotulada integração testada), ORÇAMENTO (stop rounds sem
+  proporção, max-rounds default por comparabilidade, support ok com
+  question partial + misses).
+- Fix único writer via TDD: tests/test_accept28_causes.py (32 testes:
+  G5/G6/reserva/N-A direcional/hash conteúdo/identidade universal/
+  sem-âncora/LACUNA/rounds proporcional+source/oráculo condicional/
+  slug-URL/floor auditado); ajustes test_discovery_cells/identity_gate/
+  na_swap para novo contrato. Sem literais de produto (shared tokens do
+  plano+pergunta, kind-words genéricas).
+- Evidência: causes 32/32 OK, suite 595 OK (skipped=10 pré-existentes),
+  diagnose congelado 54/10→53/11 (só C9 combinação vira LACUNA sem-âncora),
+  repro R1/R2/R3 EXIT=0, hashes coordinator c6e90899 verification 64a30d45.
+  Revisão cavecrew 1🔴+8🟡 aplicada; resíduo URL+corpo eliminado (2646/2923).
+  Limites: sem revalidar runs antigos além accept28; diagnose_audit pós-hoc;
+  HEAD 36ff960 ≠ run 95b0ec7; sem prod/8082 (offline).
 
 ## Referências
 

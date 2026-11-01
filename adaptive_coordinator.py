@@ -378,6 +378,8 @@ def resolve_adaptive(profile: str = "light",
     canonical = resolved["profile"]
     resolved["max_rounds"] = adaptive.get("max_rounds",
                                           ADAPTIVE_ROUNDS[canonical])
+    resolved["max_rounds_source"] = ("user" if "max_rounds" in adaptive
+                                     else "default")
     resolved["max_model_calls"] = adaptive.get(
         "max_model_calls", ADAPTIVE_MODEL_CALLS[canonical])
     resolved["max_ops_per_round"] = adaptive.get(
@@ -392,6 +394,62 @@ def resolve_adaptive(profile: str = "light",
         raise ValueError("[ADAPTIVE] concurrency must be >= 1")
     resolved["adaptive"] = True
     return resolved
+
+
+def _rounds_stop_detail(state: dict, resolved: dict, budget) -> str:
+    """Proportional record for a rounds stop (never bare comparability).
+
+    A "rounds" stop is only justified with the numbers on the table:
+    consumed/limit per counter, model calls remaining and the finalization
+    reserve. Source distinguishes user override from profile default, so a
+    default can never be justified by comparability with another run.
+    """
+    try:
+        snap = budget.snapshot() if budget is not None else {}
+    except Exception:
+        snap = {}
+    try:
+        used = (snap or {}).get("used", {}) or {}
+        lims = (snap or {}).get("limits", {}) or {}
+        parts = [f"{k} {used.get(k, 0)}/{lims.get(k, 0)}"
+                 for k in ("queries", "unique_sources", "extractions",
+                           "yt_live_fetches") if k in lims]
+        cons = state.get("consumption", {}) or {}
+        parts.append(f"model_calls {cons.get('model_calls', 0)}/"
+                     f"{resolved.get('max_model_calls', 0)}")
+        try:
+            parts.append(f"model_remaining {_model_remaining(state, resolved)}")
+        except Exception:
+            pass
+        try:
+            parts.append(f"elapsed={round(float(state.get('elapsed_s', 0.0)), 1)}s/"
+                         f"{resolved.get('time_s', 0)}s")
+        except Exception:
+            pass
+        proportions = "; ".join(parts)
+    except Exception:
+        proportions = "consumo indisponível"
+    return (f"max_rounds={resolved.get('max_rounds')} consumed "
+            f"(source={resolved.get('max_rounds_source', 'default')}; "
+            f"{proportions}; reserva de finalização preservada)")
+
+
+def _evidence_content_hashes(state: dict) -> dict:
+    """Content hash per evidence URL (audited text).
+
+    Same URL with new content counts as new evidence for the
+    monotonicity guard (a rewritten page is a fact, not the same
+    corpus). States saved before hashes existed treat everything as
+    new once (lenient a single round).
+    """
+    out: dict[str, str] = {}
+    try:
+        for u in (state.get("evidence", {}) or {}):
+            if isinstance(u, str):
+                out[u] = _content_hash(_audited_source_body(state, u))
+    except Exception:
+        pass
+    return out
 
 
 def _content_hash(text: str) -> str:
@@ -1212,7 +1270,7 @@ def _examined_urls(state: dict) -> set[str]:
 
 
 def _identity_matches(entity: dict, text: str, *,
-                      single_ok: bool = True) -> bool:
+                      single_ok: bool = True, generic=None) -> bool:
     """Strict entity aboutness for selection (identity as concept).
 
     One shared word ("planning", "memory") is not aboutness, and neither
@@ -1222,7 +1280,7 @@ def _identity_matches(entity: dict, text: str, *,
     there is nothing else to anchor on). Same aboutness concept the
     citation audit enforces, restricted for selection: a listing line
     names the entity, prose coincidence does not promote a doc to
-    "about" it.
+    "about" it. ``generic`` adds per-plan shared tokens (no hardcode).
     """
     import re as _re2
     import unicodedata as _ud2
@@ -1242,13 +1300,15 @@ def _identity_matches(entity: dict, text: str, *,
     if _phrase and _re2.search(
             r"(^| )" + _re2.escape(_phrase) + r"($| )", _doc):
         return True
-    distinctive = [t for t in _entity_distinctive_tokens(entity or {})]
+    distinctive = [t for t in _entity_distinctive_tokens(entity or {},
+                                                          generic)]
     if single_ok and len(distinctive) == 1 and distinctive[0] in _doc:
         return True
     return False
 
 
-def _singleton_rare(entity: dict, texts: list[str]) -> bool:
+def _singleton_rare(entity: dict, texts: list[str],
+                    generic=None) -> bool:
     """Single-token entities only identify when the token is rare here.
 
     A lone common word ("planner" in 6/28 docs, "workspace" in 9/28,
@@ -1256,10 +1316,12 @@ def _singleton_rare(entity: dict, texts: list[str]) -> bool:
     (IDF intuition, stdlib only): the token must occur in at most
     max(2, n/10) of the examined texts. Rare singletons ("plannotator")
     keep the presence rule; common ones fall back to the full form.
+    ``generic`` adds per-plan shared tokens (no hardcode).
     """
     import re as _re3
     import unicodedata as _ud3
-    distinctive = [t for t in _entity_distinctive_tokens(entity or {})]
+    distinctive = [t for t in _entity_distinctive_tokens(entity or {},
+                                                         generic)]
     if len(distinctive) != 1:
         return True
     tok = distinctive[0]
@@ -1275,7 +1337,7 @@ def _singleton_rare(entity: dict, texts: list[str]) -> bool:
 
 
 def _entity_corpus_docs(entity: dict, evidence: dict,
-                        qualification: dict) -> list[str]:
+                        qualification: dict, generic=None) -> list[str]:
     """Corpus URLs about the entity (strict identity, observed).
 
     A single shared word ("planning", "memory") is not aboutness: the
@@ -1296,15 +1358,63 @@ def _entity_corpus_docs(entity: dict, evidence: dict,
             body = ""
         if body:
             bodies[url] = body
-    single_ok = _singleton_rare(entity, list(bodies.values()))
+    single_ok = _singleton_rare(entity, list(bodies.values()), generic)
     out = []
     for url, body in bodies.items():
         try:
-            if _identity_matches(entity, body, single_ok=single_ok):
+            if _identity_matches(entity, body, single_ok=single_ok,
+                                 generic=generic):
                 out.append(url)
         except Exception:
             pass
     return out
+
+
+def _audited_source_body(state: dict, url: str) -> str:
+    """Audited body of one corpus URL: usable_text when qualified, else raw.
+
+    The URL itself never counts (identity rule): only the body can name
+    the entity. Same body ``_entity_corpus_docs`` and the selection path
+    audit.
+    """
+    try:
+        evidence = (state or {}).get("evidence") or {}
+        qualification = (state or {}).get("qualification") or {}
+        try:
+            body = str((qualification.get(url) or {}).get("usable_text")
+                       or "")
+        except Exception:
+            body = ""
+        if body.strip():
+            return body
+        val = evidence.get(url, "")
+        return str(val or "")
+    except Exception:
+        return ""
+
+
+def _ref_has_identity(state: dict, entity: dict, ref,
+                      single_ok: bool = True, generic=None) -> bool:
+    """One reference names the entity (full form) in its audited body.
+
+    Same aboutness as ``_evaluation_refs_have_identity`` but per
+    reference: universality discards each loose ref individually instead
+    of letting one good ref launder a generic one. URL never counts —
+    only the body. Generic, no hardcoded names.
+    """
+    try:
+        if not isinstance(ref, dict):
+            return False
+        _u = ref.get("url", ref.get("doc_id", ""))
+        if not isinstance(_u, str) or not _u:
+            return False
+        _body = _audited_source_body(state, _u)
+        if not _body:
+            return False
+        return bool(_identity_matches(entity, _body, single_ok=single_ok,
+                                      generic=generic))
+    except Exception:
+        return False
 
 
 def _evaluation_refs_have_identity(state: dict, entity: dict,
@@ -1317,7 +1427,7 @@ def _evaluation_refs_have_identity(state: dict, entity: dict,
     no próprio corpo; slug da URL sozinho não estabelece identidade
     (mesma regra de ``_entity_corpus_docs``, que usa só o corpo). Doc
     sobre outra entidade (mesmo com palavra compartilhada) não atribui.
-    Sem hardcode de nomes.
+    Sem hardcode de nomes: o genérico vem do plano/pergunta.
     """
     try:
         if not isinstance(entity, dict):
@@ -1325,12 +1435,17 @@ def _evaluation_refs_have_identity(state: dict, entity: dict,
         refs = list(refs or [])
         if not refs:
             return False
+        try:
+            _generic = _plan_shared_tokens((state or {}).get("plan"),
+                                           (state or {}).get("question"))
+        except Exception:
+            _generic = frozenset()
         # Sem identidade distintiva (sem label ou só genérico): sem o que
         # exigir — mantém o legado (não estrito) para não quebrar células
         # sem nome próprio. Só entidades com parte distintiva exigem doc
         # sobre a entidade.
         try:
-            if not _entity_distinctive_tokens(entity):
+            if not _entity_distinctive_tokens(entity, _generic):
                 return True
         except Exception:
             return True
@@ -1345,23 +1460,13 @@ def _evaluation_refs_have_identity(state: dict, entity: dict,
                 except Exception:
                     bodies.append(str(_t or ""))
         try:
-            single_ok = _singleton_rare(entity, bodies)
+            single_ok = _singleton_rare(entity, bodies, _generic)
         except Exception:
             single_ok = True
         for _r in refs:
-            _u = (_r or {}).get("url", (_r or {}).get("doc_id", ""))
-            if not isinstance(_u, str) or not _u:
-                continue
             try:
-                _body = str((qualification.get(_u) or {}).get("usable_text")
-                            or evidence.get(_u) or "")
-            except Exception:
-                _body = ""
-            if not _body:
-                continue
-            try:
-                if _identity_matches(entity, _body,
-                                     single_ok=single_ok):
+                if _ref_has_identity(state, entity, _r, single_ok,
+                                     _generic):
                     return True
             except Exception:
                 continue
@@ -1403,8 +1508,14 @@ def _criterion_scope(state: dict, crit: dict) -> str:
             ent = emap.get(eid) or {}
             label = str(ent.get("label") or ent.get("id") or eid
                         if eid else "global")
+            try:
+                _scope_generic = _plan_shared_tokens(
+                    state.get("plan"), state.get("question"))
+            except Exception:
+                _scope_generic = frozenset()
             docs = _entity_corpus_docs(ent, evidence,
-                                       qualification) if eid else list(
+                                       qualification,
+                                       _scope_generic) if eid else list(
                 u for u in evidence if not str(u).startswith("user://"))
             n = len(docs)
             e = sum(1 for u in docs if u in examined)
@@ -1697,9 +1808,15 @@ def _rank_unfetched(state: dict, unfetched: list[str], gap: dict) -> list[str]:
     distinctive: set[str] = set()
     try:
         if gap_eid:
+            try:
+                _rank_generic = _plan_shared_tokens(
+                    state.get("plan"), state.get("question"))
+            except Exception:
+                _rank_generic = frozenset()
             for _e in (state.get("plan") or {}).get("entities", []) or []:
                 if isinstance(_e, dict) and _e.get("id") == gap_eid:
-                    distinctive = set(_entity_distinctive_tokens(_e))
+                    distinctive = set(_entity_distinctive_tokens(
+                        _e, _rank_generic))
                     break
     except Exception:
         distinctive = set()
@@ -2014,7 +2131,76 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
                     "entity_id": gap.get("entity_id"),
                     "entity_label": gap.get("entity_label"),
                     "status": "in-progress"})
+    # Reserva de descoberta (DESC a): enquanto algum eixo exigido segue
+    # zerado (sem covered/partial) e a descoberta está aberta, ≥1 slot do
+    # lote é uma query SEM nome de entidade, derivada de
+    # open_discovery.need — candidatos novos não morrem por inanição.
+    try:
+        if (cap or 0) > 0 and _discovery_reserve_due(state):
+            _need = str(((state.get("plan") or {}).get("open_discovery")
+                         or {}).get("need") or "").strip()
+            _short = (_need[:140] + "…") if len(_need) > 140 else _need
+            _seen_targets_all = {a.get("target")
+                                 for _al in (state.get("attempts", {})
+                                             or {}).values()
+                                 for a in (_al or [])
+                                 if isinstance(a, dict)} | {
+                                     o.get("target") for o in ops}
+            if _short and _short not in _seen_targets_all:
+                _res_op = {"op_id": f"r{len(state['rounds'])}-discovery",
+                           "kind": "gap_query", "channel": CHANNELS[0],
+                           "target": _short, "criterion_id": "",
+                           "entity_id": None, "status": "in-progress"}
+                ops.insert(0, _res_op)
+                # Células têm prioridade absoluta: o excesso expulsa
+                # não-células (do fim); se o cap só comporta cells, a
+                # reserva cede com nota em vez de expulsar leitura.
+                while len(ops) > max(0, cap):
+                    _drop = next(
+                        (i for i in range(len(ops) - 1, -1, -1)
+                         if ops[i].get("kind") != "read_source"), None)
+                    if _drop is None:
+                        break
+                    del ops[_drop]
+                if _res_op not in ops:
+                    state.setdefault("notes", []).append(
+                        "discovery reserve skipped: cap cheio de cell "
+                        "reads (prioridade absoluta de célula)")
+    except Exception as _exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"discovery reserve skipped: {_exc}")
+        except Exception:
+            pass
     return ops
+
+
+def _discovery_reserve_due(state: dict) -> bool:
+    """True when an entity-less discovery op is owed this round.
+
+    Owed = open discovery with a stated need AND at least one required
+    axis still at zero (no covered/partial cell anywhere). Generic: no
+    entity names, only the plan's own discovery need and ledger states.
+    """
+    try:
+        disc = ((state.get("plan") or {}).get("open_discovery") or {})
+        if not disc.get("needed", False):
+            return False
+        if not str(disc.get("need") or "").strip():
+            return False
+        plan = state.get("plan") or {}
+        req_cids = [c.get("id") for c in (plan.get("criteria") or [])
+                    if isinstance(c, dict) and c.get("required", True)
+                    and c.get("id")]
+        if not req_cids:
+            return True
+        covered_cids = {e.get("criterion_id")
+                        for e in (state.get("evaluations") or [])
+                        if isinstance(e, dict)
+                        and e.get("state") in ("covered", "partial")}
+        return any(cid not in covered_cids for cid in req_cids)
+    except Exception:
+        return False
 
 
 def _default_assess(plan, evidence, qualification) -> list:
@@ -2180,8 +2366,14 @@ def _open_priority(plan, prior_states) -> tuple[list[str], list[str]]:
                 if isinstance(cid, str):
                     open_cids.add(cid)
     terms: list[str] = []
+    try:
+        _open_generic = _plan_shared_tokens(
+            plan, (plan or {}).get("question"))
+    except Exception:
+        _open_generic = frozenset()
     for eid in open_eids:
-        terms.extend(_entity_distinctive_tokens(emap.get(eid) or {}))
+        terms.extend(_entity_distinctive_tokens(emap.get(eid) or {},
+                                                _open_generic))
     for c in criteria:
         if c.get("id") not in open_cids:
             continue
@@ -2432,22 +2624,39 @@ def make_model_assessor(model_client, max_docs: int = 24,
             _all_bodies = []
         def _doc_entity_terms(_url: str, _text: str) -> list[str]:
             try:
+                try:
+                    _terms_generic = _plan_shared_tokens(
+                        plan, (plan or {}).get("question"))
+                except Exception:
+                    _terms_generic = frozenset()
                 _req = [e for e in (plan or {}).get("entities", [])
                         if isinstance(e, dict) and e.get("required", True)]
                 if not _req:
                     return []
                 _out: list[str] = []
+                try:
+                    _aud_state = {"evidence": evidence,
+                                  "qualification": qualification}
+                except Exception:
+                    _aud_state = {}
                 for _ent in _req:
                     _eid = str(_ent.get("id") or "")
                     if _eid not in _rare_cache:
                         try:
-                            _rare_cache[_eid] = _singleton_rare(_ent, _all_bodies)
+                            _rare_cache[_eid] = _singleton_rare(
+                                _ent, _all_bodies, _terms_generic)
                         except Exception:
                             _rare_cache[_eid] = True
                     try:
-                        if _identity_matches(_ent, f"{_url}\n{_text}",
-                                             single_ok=_rare_cache.get(_eid, True)):
-                            for _tok in _entity_distinctive_tokens(_ent):
+                        # Corpo auditado apenas: slug na URL nunca ancora
+                        # janela de menção (regra identidade).
+                        if _identity_matches(
+                                _ent, _audited_source_body(
+                                    _aud_state, _url),
+                                single_ok=_rare_cache.get(_eid, True),
+                                generic=_terms_generic):
+                            for _tok in _entity_distinctive_tokens(
+                                    _ent, _terms_generic):
                                 if _tok and _tok not in _out:
                                     _out.append(_tok)
                     except Exception:
@@ -2703,20 +2912,30 @@ def make_model_writer(model_client, max_chars: int = 12000):
         try:
             _req_ents = [e for e in (plan.get("entities") or [])
                          if isinstance(e, dict) and e.get("required", True)]
+            try:
+                _floor_generic = _plan_shared_tokens(
+                    plan, question)
+            except Exception:
+                _floor_generic = frozenset()
             _floor_texts = [str(evidence.get(_u) or "")
                             for _u in corpus_urls]
             _floor: list[str] = []
             for _ent in _req_ents:
-                _single_ok = _singleton_rare(_ent, _floor_texts)
+                _single_ok = _singleton_rare(_ent, _floor_texts,
+                                             _floor_generic)
                 _best = None
                 _best_key = None
                 for _u in corpus_urls:
                     if _u in _floor:
                         continue
                     try:
+                        # Corpo auditado apenas (aqui: string pura da
+                        # evidência, sem qualification na view): slug na
+                        # URL nunca sustenta piso (regra identidade).
                         if not _identity_matches(
-                                _ent, f"{_u}\n{evidence.get(_u) or ''}",
-                                single_ok=_single_ok):
+                                _ent, str(evidence.get(_u) or ""),
+                                single_ok=_single_ok,
+                                generic=_floor_generic):
                             continue
                     except Exception:
                         continue
@@ -3233,6 +3452,8 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         # (_identity_matches + _singleton_rare no texto auditado). Doc
         # sobre outra entidade não atribui — rebaixa a insufficient com
         # nota, nunca promove por proximidade-em-listagem.
+        # Universal: cada ref precisa de identidade própria; a frouxa é
+        # descartada com nota em vez de pegar carona numa ref boa.
         if st in ("covered", "partial") and ev.get("entity_id"):
             try:
                 _ent = next(
@@ -3246,6 +3467,52 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                         f"{ev.get('entity_id')} sem doc da entidade "
                         f"(atribuição rejeitada, kept as insufficiency)")
                     continue
+                if isinstance(_ent, dict):
+                    try:
+                        _strip_generic = _plan_shared_tokens(
+                            state.get("plan"), state.get("question"))
+                    except Exception:
+                        _strip_generic = frozenset()
+                    try:
+                        _disc_gate = bool(
+                            _entity_distinctive_tokens(_ent,
+                                                       _strip_generic))
+                    except Exception:
+                        _disc_gate = False
+                    _refs_in = [r for r in (ev.get("references") or [])
+                                if isinstance(r, dict)]
+                    if _disc_gate and len(_refs_in) > 1:
+                        try:
+                            _gate_bodies = []
+                            for _u, _t in (state.get("evidence")
+                                           or {}).items():
+                                if isinstance(_u, str) and not _u.startswith(
+                                        "user://"):
+                                    try:
+                                        _gate_bodies.append(str(
+                                            (state.get("qualification")
+                                             or {}).get(_u, {}).get(
+                                                 "usable_text") or _t or ""))
+                                    except Exception:
+                                        _gate_bodies.append(str(_t or ""))
+                            _gate_single = _singleton_rare(
+                                _ent, _gate_bodies, _strip_generic)
+                        except Exception:
+                            _gate_single = True
+                        _kept = [r for r in _refs_in
+                                 if _ref_has_identity(
+                                     state, _ent, r, _gate_single,
+                                     _strip_generic)]
+                        if len(_kept) < len(_refs_in):
+                            state["notes"].append(
+                                f"identity mismatch: "
+                                f"{ev.get('criterion_id')}×"
+                                f"{ev.get('entity_id')} descarta "
+                                f"{len(_refs_in) - len(_kept)} ref(s) sem "
+                                f"menção à entidade (só doc da entidade "
+                                f"sustenta)")
+                            ev = dict(ev)
+                            ev["references"] = _kept
             except Exception:
                 pass
         applied.append(ev)
@@ -3307,17 +3574,35 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                 _merged[(_prev.get("criterion_id"),
                          _prev.get("entity_id"))] = _prev
         _seen_keys = set(state.get("_assessed_evidence_keys") or [])
-        _new_urls = set(dict(state.get("evidence", {}) or {})) - _seen_keys
+        _cur_hashes = _evidence_content_hashes(state)
+        _seen_hashes = state.get("_assessed_evidence_hashes") or {}
+        _changed = {u for u, h in _cur_hashes.items()
+                    if u in _seen_keys and _seen_hashes.get(u) != h}
+        _new_urls = (set(dict(state.get("evidence", {}) or {}))
+                     - _seen_keys) | _changed
         for _ev in applied:
             _key = (_ev.get("criterion_id"), _ev.get("entity_id"))
             _old = _merged.get(_key)
             if _old is not None and _old.get("state") != _ev.get("state"):
-                _orank = _RANK.get(_old.get("state"))
-                _nrank = _RANK.get(_ev.get("state"))
                 _refs = {(r or {}).get("url", (r or {}).get("doc_id", ""))
                          for r in (_ev.get("references", []) or [])
                          if isinstance(r, dict)}
                 _refs.discard("")
+                # N/A delimitado (direcional): sair de not_applicable
+                # recoloca a célula no denominador, então exige evidência
+                # nova; entrar em N/A com justificativa de escopo é
+                # permitido (a nota "revised" abaixo a mantém auditável).
+                # O assessor não reescreve o escopo sobre o mesmo corpus.
+                _old_na = _old.get("state") == "not_applicable"
+                _new_na = _ev.get("state") == "not_applicable"
+                if _old_na and not _new_na and not (_refs & _new_urls):
+                    state["notes"].append(
+                        f"not_applicable transition without new evidence "
+                        f"rejected for {_key}: kept {_old.get('state')} "
+                        f"(assessor said {_ev.get('state')})")
+                    continue
+                _orank = _RANK.get(_old.get("state"))
+                _nrank = _RANK.get(_ev.get("state"))
                 if (_orank is not None and _nrank is not None
                         and _nrank < _orank and not (_refs & _new_urls)):
                     state["notes"].append(
@@ -3350,8 +3635,24 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         state["evaluations"] = _final
         state["_assessed_evidence_keys"] = sorted(
             set(dict(state.get("evidence", {}) or {})))
+        state["_assessed_evidence_hashes"] = dict(_cur_hashes)
     except Exception:
         state["evaluations"] = applied
+    # Reconciliação: avaliações covered/partial desta rodada superam
+    # registros "unexplored" de rodadas anteriores (estados concordantes).
+    # Trilha por round: o que foi aplicado fica auditável.
+    _reconcile_unexplored(state)
+    try:
+        state.setdefault("evaluation_trail", []).append({
+            "round": len(state.get("rounds", []) or []),
+            "applied": [{"criterion_id": (e or {}).get("criterion_id"),
+                         "entity_id": (e or {}).get("entity_id"),
+                         "state": (e or {}).get("state")}
+                        for e in (state.get("evaluations") or [])
+                        if isinstance(e, dict)],
+        })
+    except Exception:
+        pass
     # Counts after evaluations: analyzed/used reflect what was applied.
     _update_ledger_counts(state, ledger)
     block = ledger.compute()
@@ -3440,28 +3741,40 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
             _target = int(new_plan.get("candidate_target") or 5)
         except (TypeError, ValueError):
             _target = 5
+        # Teto de candidatos (G5): a pergunta pede N candidatos; contam
+        # TODAS as entidades exigidas (predefinidas + descobertas), nunca
+        # só as discovered — sem isso o teto ignora a seleção inicial e o
+        # denominador de cobertura infla a cada versão do plano.
         _already = sum(1 for e in new_plan.get("entities", [])
-                       if isinstance(e, dict) and e.get("discovered")
-                       and e.get("required", True))
+                       if isinstance(e, dict) and e.get("required", True))
         # Gate de evidência (G6): só vira candidato exigido quem tem fonte
-        # própria que REALMENTE menciona o nome no corpus. Sem isso,
-        # accept10 exigiu 5 e 3 não tinham excerto algum (propostos de
-        # listas, mas a página do próprio candidato nunca foi lida):
-        # relatório honesto, porém inútil.
+        # própria que REALMENTE menciona o nome no corpus — forma cheia no
+        # corpo (mesma aboutness da seleção e da auditoria de citações).
+        # Tokens soltos numa listagem não admitem ninguém. Sem fonte
+        # própria, accept10 exigiu 5 e 3 não tinham excerto algum.
+        _gate_label = (_planner.normalize_entity_label(
+            entity.get("label", eid), source_url) or eid)
         _label_tokens = [t for t in str(entity.get("label", eid)).lower()
                          .replace("(", " ").replace(")", " ").replace("/", " ")
                          .replace("-", " ").split() if len(t) >= 4]
         _ev = state.get("evidence", {}) or {}
         if source_url and source_url in _ev:
-            _supported = any(t in str(_ev[source_url]).lower()
-                             for t in _label_tokens)
+            try:
+                # Mesmo corpo auditado da seleção (usable_text quando há
+                # qualificação; fallback raw) — nunca a URL.
+                _supported = _identity_matches(
+                    {"label": _gate_label, "id": eid},
+                    _audited_source_body(state, source_url),
+                    single_ok=False)
+            except Exception:
+                _supported = any(t in str(_ev[source_url]).lower()
+                                 for t in _label_tokens)
         else:
             # Fonte ainda não coletada (ou ausente): verificação adiada —
             # o gap de célula manda ler e a avaliação decide.
             _supported = True
         _is_required = (_already < max(1, _target)) and _supported
-        _label = (_planner.normalize_entity_label(
-            entity.get("label", eid), source_url) or eid)
+        _label = _gate_label
         new_plan.setdefault("entities", []).append({
             "id": eid, "label": _label,
             "required": _is_required, "discovered": True,
@@ -3687,7 +4000,9 @@ def _promote_discovery_news(state: dict, ledger, olds: list) -> bool:
                 continue
             probe = {"id": slug, "label": slug}
             try:
-                if not _identity_matches(probe, f"{cand}\n{body}"):
+                # URL nunca conta: só o corpo auditado identifica.
+                if not _identity_matches(
+                        probe, _audited_source_body(state, cand)):
                     continue
             except Exception:
                 continue
@@ -3726,6 +4041,45 @@ def _promote_discovery_news(state: dict, ledger, olds: list) -> bool:
         return False
 
 
+def _reconcile_unexplored(state: dict) -> None:
+    """Drop unexplored records superseded by later evaluations.
+
+    A candidate kept as "unexplored alternative" in one round may be
+    investigated afterwards; the stale record must not survive (the
+    writer would otherwise call an investigated required candidate an
+    "uninvestigated alternative"). Matches by entity id, falling back
+    to the recorded label.
+    """
+    try:
+        evals = [e for e in (state.get("evaluations") or [])
+                 if isinstance(e, dict)
+                 and e.get("state") in ("covered", "partial")]
+        if not evals:
+            return
+        cov_ids = {e.get("entity_id") for e in evals if e.get("entity_id")}
+        plan = state.get("plan") or {}
+        cov_labels = {str(e.get("label") or e.get("id"))
+                      for e in (plan.get("entities") or [])
+                      if isinstance(e, dict) and e.get("id") in cov_ids}
+        recs = state.get("unexplored_alternatives") or []
+        kept = [r for r in recs
+                if not (isinstance(r, dict)
+                        and (r.get("entity_id") in cov_ids
+                             or str(r.get("entity") or "") in cov_labels))]
+        if len(kept) != len(recs):
+            state["notes"].append(
+                "unexplored reconciliado: "
+                f"{len(recs) - len(kept)} registro(s) com covered/partial "
+                "posterior removido(s)")
+        state["unexplored_alternatives"] = kept
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"unexplored reconcile skipped: {exc}")
+        except Exception:
+            pass
+
+
 def _record_unexplored(state: dict, olds: list) -> None:
     """Sufficiency made explicit: required candidates kept without
     investigation must say what was left unexplored.
@@ -3749,13 +4103,20 @@ def _record_unexplored(state: dict, olds: list) -> None:
         if state.get("_unexplored_pool_size") == len(pool):
             return
         recs = []
+        try:
+            _unexp_generic = _plan_shared_tokens(
+                state.get("plan"), state.get("question"))
+        except Exception:
+            _unexp_generic = frozenset()
         for old_id in olds:
             ent = emap.get(old_id) or {}
-            toks = [t for t in _entity_distinctive_tokens(ent)
+            toks = [t for t in _entity_distinctive_tokens(ent,
+                                                          _unexp_generic)
                     if len(t) >= 4]
             hits = [u for u in pool
                     if toks and any(t in u.lower() for t in toks)][:5]
             recs.append({"entity": str(ent.get("label") or old_id),
+                         "entity_id": old_id,
                          "urls": hits})
         state.setdefault("unexplored_alternatives", []).extend(recs)
         state["notes"].append(
@@ -3811,14 +4172,22 @@ def _maybe_substitute(state: dict, ledger) -> bool:
             if not src or src not in evidence:
                 return False
             # Strict identity (same concept as selection): a collected
-            # source only counts when it names the candidate. The
-            # singleton gate is corpus-relative (rare here = identifies).
+            # source only counts when its BODY names the candidate — the
+            # URL slug never counts (identity rule). Singleton gate is
+            # corpus-relative (rare here = identifies).
             try:
+                try:
+                    _sup_generic = _plan_shared_tokens(
+                        state.get("plan"), state.get("question"))
+                except Exception:
+                    _sup_generic = frozenset()
                 _ok = _singleton_rare(
-                    ent, [str(v or "") for v in evidence.values()
-                          if isinstance(v, str)])
+                    ent, [_audited_source_body(state, u)
+                          for u in evidence
+                          if isinstance(u, str)], _sup_generic)
                 return _identity_matches(
-                    ent, f"{src}\n{evidence[src]}", single_ok=_ok)
+                    ent, _audited_source_body(state, src),
+                    single_ok=_ok, generic=_sup_generic)
             except Exception:
                 return False
 
@@ -4438,7 +4807,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
         # Explicit round/time motives (orçamento genérico não os esconde).
         if len(state["rounds"]) - 1 >= resolved["max_rounds"]:
             stop = {"reason": "rounds", "partial": bool(open_gaps),
-                    "detail": f"max_rounds={resolved['max_rounds']} consumed"}
+                    "detail": _rounds_stop_detail(state, resolved, budget)}
             state["rounds"][-1]["decision"] = stop["detail"]
             break
         if elapsed >= resolved["time_s"]:
@@ -4590,7 +4959,7 @@ def _resume_loop(state: dict, ledger, assess, write, audit, resolved: dict,
     if stop is None:  # max_rounds consumed by the loop guard
         open_gaps = block.get("gaps", [])
         stop = {"reason": "rounds", "partial": bool(open_gaps),
-                "detail": f"max_rounds={resolved['max_rounds']} consumed"}
+                "detail": _rounds_stop_detail(state, resolved, budget)}
     state["stop"] = stop
     try:
         state["elapsed_s"] = round(now() - t_start, 3)
@@ -4744,13 +5113,16 @@ def _hit_relevance_terms(state: dict, op: dict) -> list[str]:
     return [w for w in toks if not (w in seen or seen.add(w))]
 
 
-#: Tokens that never identify a project on their own: shared by every
-#: candidate of a comparison (the platform name, generic kind words).
+#: Kind words that never identify a project on their own: generic kind
+#: vocabulary for candidates of a comparison. Product/platform names are
+#: NOT listed here — a token shared by every candidate (or asked in the
+#: question) is derived per plan by _plan_shared_tokens, never hardcoded.
 #: Entity aboutness needs a distinctive name part; without one the legacy
 #: vocabulary gate applies (never stricter than before when the entity
 #: has no distinctive name part).
-_GENERIC_IDENTITY_TOKENS = frozenset({
-    "plugin", "plugins", "opencode", "open", "code", "command", "commands",
+_GENERIC_KIND_TOKENS = frozenset({
+    "plugin", "plugins",
+    "command", "commands",
     "tool", "tools", "extension", "extensions", "skill", "skills",
     "package", "packages", "agent", "agents", "test", "tests", "testing",
     "review", "reviews", "marketplace", "manager", "helper", "utils",
@@ -4762,22 +5134,65 @@ _GENERIC_IDENTITY_TOKENS = frozenset({
 })
 
 
-def _entity_distinctive_tokens(entity: dict) -> list[str]:
+def _plan_shared_tokens(plan=None, question=None) -> frozenset:
+    """Tokens that cannot identify ONE candidate (generic, per plan).
+
+    Union of question tokens and the intersection of normalized tokens
+    across every entity label (>=2 labels): a word naming all candidates
+    — or asked in the question — distinguishes none. No product
+    literals; derived from the plan under analysis.
+    """
+    out: set[str] = set()
+    try:
+        if isinstance(question, str) and question.strip():
+            out.update(t for t in _norm_tokens(question, min_len=4))
+        label_sets = []
+        for e in ((plan or {}).get("entities") or []):
+            if isinstance(e, dict):
+                toks = _norm_tokens(
+                    f"{e.get('label') or ''} {e.get('id') or ''}",
+                    min_len=4)
+                if toks:
+                    label_sets.append(set(toks))
+        if len(label_sets) >= 2:
+            out.update(set.intersection(*label_sets))
+    except Exception:
+        pass
+    return frozenset(out)
+
+
+def _entity_distinctive_tokens(entity: dict, generic=None) -> list[str]:
     """Name parts that identify THIS entity (generic kind words removed).
 
     Deterministic, no model, no question-specific names: normalized
-    label+id tokens (>=4 chars) minus the shared-vocabulary set. An
-    entity whose whole name is generic (e.g. "OpenCode Marketplace
-    Plugin") yields [] and keeps the legacy gate.
+    label+id tokens (>=4 chars) minus the shared-vocabulary set.
+    ``generic`` adds per-plan shared tokens (see _plan_shared_tokens);
+    without it only the fixed kind words apply. Shared tokens refine,
+    never annihilate: when stripping would empty a kind-distinctive
+    name (the subject is named in the question), the kind-distinctive
+    parts are kept — a subject named in the question still identifies
+    its docs. An entity with no kind-distinctive part at all yields []
+    and keeps the legacy gate.
     """
     if not isinstance(entity, dict):
         return []
+    try:
+        bad = set(_GENERIC_KIND_TOKENS) | set(generic or ())
+    except Exception:
+        bad = set(_GENERIC_KIND_TOKENS)
     toks = _norm_tokens(
         f"{entity.get('label') or ''} {entity.get('id') or ''}", min_len=4)
     seen: set[str] = set()
+    stripped = [t for t in toks
+                if t not in bad
+                and not (t in seen or seen.add(t))]
+    if stripped:
+        return stripped
+    # Never strip to zero a name the kind words already distinguish.
+    seen2: set[str] = set()
     return [t for t in toks
-            if t not in _GENERIC_IDENTITY_TOKENS
-            and not (t in seen or seen.add(t))]
+            if t not in _GENERIC_KIND_TOKENS
+            and not (t in seen2 or seen2.add(t))]
 
 
 def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
@@ -4801,9 +5216,9 @@ def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
     if any(t in hay for t in terms):
         # Identity (aboutness por entidade): um op liderado por entidade
         # exige menção à parte distintiva do nome no hit (título/snippet/
-        # URL). Vocabulário genérico compartilhado ("opencode", "plugin",
-        # "review") não identifica o candidato: blog genérico, espelho
-        # (uptodown), PDF alheio e homônimo (open-code.ai × opencode.ai)
+        # URL). Vocabulário genérico compartilhado (kind-words + nomes
+        # presentes em todas as labels/pergunta) não identifica o
+        # candidato: blog genérico, espelho, PDF alheio e homônimo
         # passam no gate de vocabulário mas não tratam da entidade.
         # shortcut: homônimos que diferem só por separador/prefixo de
         # domínio mas citam a parte distintiva passam (menção real decide,
@@ -4814,7 +5229,13 @@ def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
                 ent = next(
                     (e for e in (state.get("plan") or {}).get("entities", [])
                      if isinstance(e, dict) and e.get("id") == eid), None)
-                distinctive = _entity_distinctive_tokens(ent or {})
+                try:
+                    _snip_generic = _plan_shared_tokens(
+                        state.get("plan"), state.get("question"))
+                except Exception:
+                    _snip_generic = frozenset()
+                distinctive = _entity_distinctive_tokens(ent or {},
+                                                         _snip_generic)
             except Exception:
                 distinctive = []
             if distinctive:
@@ -5557,6 +5978,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     # de ausência falam do material examinado, nunca do corpus integral;
     # "não investigado por orçamento" não é "desconhecido-legítimo".
     _annotate_examined_scope(state, block)
+    # Reconciliação final: nada stale chega ao writer como "alternativa
+    # não investigada" (estados concordantes até a entrega).
+    _reconcile_unexplored(state)
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
