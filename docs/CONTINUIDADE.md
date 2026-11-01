@@ -520,6 +520,27 @@ segue pendente.
 - Fix M1–M4 + remediação 3🟡 (suite 629 OK). accept31 real (HEAD 06a5239, EXIT 0): 1/53+2N/A partial, overall partial; hook não adotou (plano v1 15 células). Fix M5: re-adoção em expansão (`_proportional_cells`), suite 633 OK skipped=10 EXIT 0, diagnose congelado idêntico, gate M5 sem issues.
 - Commit Fase B abaixo. RA8 segue pendente (nenhum run com cobertura plena).
 
+## Fase C gargalos pós-accept31 (2026-11-01) — resend-focus + hook proporcional em produção
+
+- accept32 real (HEAD 9c311ad, EXIT 0, 571s): 0/56 partial; diagnose missing=20,
+  selection_context=18 (era 29 — resend-focus com efeito), assessor_error=16,
+  partial=2, ok=0. Stop rounds 3 source=default com folga total.
+- Causa nova (código + runtime): `new_state` inicializa stop={reason:None}/report={}
+  nunca-None → guarda M5 sempre-True pós-início → re-adoção impossível; base no
+  plano v1 (0 cells) silenciosa. Testes M5 usavam state manual (mock-behavior gap).
+- Fix accept33 (commit 4615ccb, TDD RED 3 falhas→GREEN): guarda por decisão real +
+  trace note `proporcional:` sempre que cells!=last; 4 testes com new_state REAL;
+  full 638 OK skipped=10 EXIT 0.
+- accept33 real (EXIT 0, 1168s, freeze pré==pós, 8082 +22128/+224): hook ADOTOU 3→7
+  em produção (2 trace notes), 8 rounds; diagnose missing=14, sel_ctx=31,
+  assessor=0, partial=10, ok=1 (1/56); síntese 47/4/119; overall failed
+  (support: 4 LACUNA honestas sem literal citado). Gargalo residual: largura de
+  seleção por lote (teto 12k) + by_model=by_cells=7; 16 lacunas abertas com folga.
+- Relatório do produto accept33 honesto (LACUNA declaradas, finalistas distintos —
+  plano churna entre runs). RA8 segue pendente.
+- Detalhe em `docs/RELATORIO_TECNICO_MISSAO_GARGALOS_POS31.md`; runs em
+  `/home/thomaskyn/hermes-runs/accept32/` e `.../accept33/`.
+
 ## Referências
 
 - Roteiro: `docs/ACEITE_V1.md`
