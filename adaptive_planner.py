@@ -84,12 +84,16 @@ def build_plan_prompt(question: str, purpose: str = "",
         '"purpose": "<what the answer will be used for>", '
         '"entities": [{"id": "e1", "label": "...", "required": true}], '
         '"criteria": [{"id": "c1", "label": "...", "required": true, '
-        '"applies_to": ["e1"]}], '
+        '"description": "1-2 frases operacionais: o que conta como evidencia '
+        'do eixo", "applies_to": ["e1"]}], '
         '"open_discovery": {"needed": true/false, "need": "..."}, '
         '"candidate_target": 5, '
         '"initial_paths": ["..."], "restrictions": "...", "premises": ["..."]}\n'
         "Rules: every user requirement must appear as a required entity or "
-        "criterion (nothing may disappear silently); named entities are tracked "
+        "criterion (nothing may disappear silently); every required criterion "
+        "must carry a non-empty \"description\" (1-2 operational sentences "
+        "stating what counts as evidence for the axis); plans without it "
+        "are rejected; named entities are tracked "
         "individually; open-ended requests set open_discovery.needed=true and "
         "must NOT invent candidate names; criteria that apply only to some "
         "entities list them in applies_to (omit applies_to when global).\n"
@@ -229,6 +233,24 @@ def drop_placeholder_entities(plan: dict, meta: dict) -> dict:
     return candidate
 
 
+def _description_quality_ok(desc) -> bool:
+    """Presence-only backstop for required criterion descriptions.
+
+    Presence-only: the ledger demands a non-empty description; this adds
+    only a minimal length backstop (non-empty, >=20 chars, >=4 tokens)
+    against label-only plans. It never judges semantic quality — the real
+    quality gate is the assessor refusing thin axes downstream.
+    Generic, no product literals.
+    """
+    try:
+        t = str(desc or "").strip()
+    except Exception:
+        return False
+    if len(t) < 20:
+        return False
+    return len(t.split()) >= 4
+
+
 def generate_plan(question: str, model_client, purpose: str = "",
                   constraints: dict | None = None) -> tuple[dict, dict]:
     """Generate + validate a plan. Returns (plan, meta).
@@ -261,6 +283,14 @@ def generate_plan(question: str, model_client, purpose: str = "",
         plan = _ledger.validate_plan(candidate)
     except ValueError as exc:
         raise PlanError(f"[PLAN] frontier plan invalid: {exc}")
+    for _c in plan.get("criteria", []) or []:
+        if isinstance(_c, dict) and _c.get("required", True):
+            _d = _c.get("description", _c.get("definition", ""))
+            if not _description_quality_ok(_d):
+                raise PlanError(
+                    f"[PLAN] criterion {_c.get('id')!r} needs an operational "
+                    f"description (1-2 sentences, what counts as evidence); "
+                    f"label-only rejected fail-closed")
     plan = drop_placeholder_entities(plan, meta)
     if not str(plan.get("question", "")).strip():
         raise PlanError("[PLAN] frontier plan dropped the question")
@@ -274,6 +304,14 @@ def plan_from_explicit(source: str | dict) -> tuple[dict, dict]:
         plan = _ledger.validate_plan(dict(source))
     else:
         plan = _ledger.load_coverage_plan(source)
+    for _c in plan.get("criteria", []) or []:
+        if isinstance(_c, dict) and _c.get("required", True):
+            _d = _c.get("description", _c.get("definition", ""))
+            if not _description_quality_ok(_d):
+                raise PlanError(
+                    f"[PLAN] criterion {_c.get('id')!r} needs an operational "
+                    f"description (1-2 sentences, what counts as evidence); "
+                    f"label-only rejected fail-closed")
     meta = {"repairs": 0, "repair_log": ["explicit plan, no model involved"],
             "model_calls": 0}
     plan.setdefault("schema_version", PLAN_SCHEMA_VERSION)

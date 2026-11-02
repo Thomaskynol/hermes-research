@@ -38,7 +38,7 @@ def plan():
         "question": "Pergunta de controle",
         "entities": [{"id": "e0", "label": "entidade 0", "required": True}],
         "criteria": [{"id": "c0", "label": "critério 0",
-                      "required": True, "applies_to": ["e0"]}],
+                      "required": True, "applies_to": ["e0"], "description": "Eixo critério 0: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["consulta inicial"],
     }
 

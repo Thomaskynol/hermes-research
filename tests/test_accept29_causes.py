@@ -77,7 +77,7 @@ class DiscoveryCapTest(unittest.TestCase):
             "entities": [{"id": "e0", "label": "Widget Platform",
                           "required": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True}],
+                          "per_candidate": True, "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 1,
         })
         st = base_state(plan, {URL_A: DOC_A})
@@ -101,7 +101,7 @@ class DiscoveryCapTest(unittest.TestCase):
                           "required": True}],
             "candidate_target": 2,
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True}],
+                          "per_candidate": True, "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {})
         st["discovery"]["candidates"] = []
@@ -123,7 +123,7 @@ class DiscoveryCapTest(unittest.TestCase):
                           "required": False, "discovered": True,
                           "source_url": URL_A}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["w1"]}],
+                          "per_candidate": True, "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 2,
         })
         st = base_state(plan, {URL_A: DOC_A})
@@ -158,7 +158,7 @@ class WriterSelectionRuleTest(unittest.TestCase):
                      "discovered": True}],
                 "criteria": [{"id": "c1", "label": "axis", "required": True,
                               "per_candidate": True,
-                              "applies_to": ["w1", "w2"]}],
+                              "applies_to": ["w1", "w2"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "candidate_target": 2}
         block = {"criteria": [], "gaps": []}
         view = {"question": "q", "plan": plan,
@@ -228,7 +228,7 @@ class RoundsSourceTest(unittest.TestCase):
                   "entities": [{"id": "e0", "label": "Widget",
                                 "required": True}],
                   "criteria": [{"id": "c1", "label": "axis", "required": True,
-                                "applies_to": ["e0"]}],
+                                "applies_to": ["e0"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "initial_paths": ["Compare widgets"]},
             search_fn=search, fetch_fn=fetch, assess_fn=assess,
             writer_fn=writer, auditor_fn=auditor, clock=_t.monotonic,
@@ -249,7 +249,7 @@ class InferencePartialTest(unittest.TestCase):
                             "required": True}],
               "criteria": [{"id": "c0", "label": "compatibilidade",
                             "required": True,
-                            "applies_to": ["e0", "e1"]}]}
+                            "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
     def test_premises_in_distinct_docs_count_partial_declared(self):
         """Premissas em fontes distintas = partial declarada com limites
@@ -296,7 +296,7 @@ class TestsAxisPromptTest(unittest.TestCase):
                               "required": True, "discovered": True}],
                 "criteria": [{"id": "c1", "label": "eixo", "required": True,
                               "per_candidate": True,
-                              "applies_to": ["w1"]}]}
+                              "applies_to": ["w1"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         try:
             assess(plan, {URL_A: DOC_A}, {URL_A: qual(URL_A, DOC_A)})
         except Exception:
@@ -352,7 +352,7 @@ class EditorialRendererTest(unittest.TestCase):
                 "entities": [{"id": "w1", "label": "Widget Alpha",
                               "required": True}],
                 "criteria": [{"id": "c1", "label": "Eixo Um",
-                              "required": True, "applies_to": ["w1"]}]}
+                              "required": True, "applies_to": ["w1"], "description": "Eixo Eixo Um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         block = {"status": "partial", "proportion": 0.0, "numerator": 0,
                  "denominator": 1, "na": 0, "na_cells": [], "definition": "d",
                  "criteria": [{"id": "c1", "label": "Eixo Um",
@@ -362,7 +362,7 @@ class EditorialRendererTest(unittest.TestCase):
                                "origin": "o", "entity_id": None,
                                "references": [],
                                "entity_states": {"w1": "insufficient"},
-                               "na_cells": []}],
+                               "na_cells": [], "description": "Eixo Eixo Um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                  "gaps": [{"criterion_id": "c1", "label": "Eixo Um",
                            "state": "insufficient",
                            "justification": "sem material",
@@ -388,7 +388,7 @@ class EditorialRendererTest(unittest.TestCase):
                               "source_url": URL_A}],
                 "criteria": [{"id": "c1", "label": "Eixo", "required": True,
                               "per_candidate": True,
-                              "applies_to": ["w1"]}]}
+                              "applies_to": ["w1"], "description": "Eixo Eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         led = ledger_mod.Ledger(plan, run_id="t")
         led.set_corpus({URL_A: DOC_A}, {URL_A: qual(URL_A, DOC_A)})
         led.evaluate("c1", "insufficient", "sem material sobre Widget Alpha",
@@ -413,7 +413,7 @@ class EditorialRendererTest(unittest.TestCase):
                               "source_url": long_url}],
                 "criteria": [{"id": "c1", "label": "Eixo", "required": True,
                               "per_candidate": True,
-                              "applies_to": ["w1"]}]}
+                              "applies_to": ["w1"], "description": "Eixo Eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         led = ledger_mod.Ledger(plan, run_id="t")
         led.set_corpus({long_url: DOC_A}, {long_url: qual(long_url, DOC_A)})
         led.evaluate("c1", "insufficient", "sem material sobre Widget Alpha",

@@ -43,7 +43,7 @@ def plan1():
         "entities": [{"id": "e1", "required": True,
                       "discovered": True, "source_url": URL}],
         "criteria": [{"id": "c1", "label": "eixo um", "required": True,
-                      "per_candidate": True, "applies_to": ["e1"]}],
+                      "per_candidate": True, "applies_to": ["e1"], "description": "Eixo eixo um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["consulta"],
     }
 

@@ -33,7 +33,7 @@ def state():
         "plan": {
             "entities": [{"id": "e1", "label": "Candidato 1"}],
             "criteria": [{"id": "c1", "label": "Melhoria de planejamento",
-                          "required": True, "applies_to": ["e1"]}],
+                          "required": True, "applies_to": ["e1"], "description": "Eixo Melhoria de planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         },
         "evidence": {},
         "attempts": {},
@@ -135,7 +135,7 @@ class QuestionAnchorTest(unittest.TestCase):
         st["plan"] = {
             "entities": [{"id": "e1", "label": "Plugin Alfa"}],
             "criteria": [{"id": "c1", "label": "Suporte a atalhos",
-                          "required": True, "applies_to": ["e1"]}],
+                          "required": True, "applies_to": ["e1"], "description": "Eixo Suporte a atalhos: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         }
         q = ac._short_gap_query(
             st, {"criterion_id": "c1", "label": "Suporte a atalhos"})
@@ -147,7 +147,7 @@ class QuestionAnchorTest(unittest.TestCase):
         st["plan"] = {
             "entities": [{"id": "e1", "label": "OpenCode CLI"}],
             "criteria": [{"id": "c1", "label": "atalhos",
-                          "required": True, "applies_to": ["e1"]}],
+                          "required": True, "applies_to": ["e1"], "description": "Eixo atalhos: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         }
         q = ac._short_gap_query(st, {"criterion_id": "c1", "label": "atalhos"})
         self.assertEqual(q.lower().count("opencode"), 1)

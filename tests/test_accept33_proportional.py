@@ -27,10 +27,10 @@ import adaptive_state as _state
 def make_plan(n_ent, n_crit):
     return {"plan_id": "p", "version": 1, "question": "q",
             "entities": [{"id": f"w{i}", "label": f"Widget {i}",
-                          "required": True} for i in range(n_ent)],
+                          "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for i in range(n_ent)],
             "criteria": [{"id": f"c{j}", "label": f"axis {j}",
                           "required": True, "per_candidate": True,
-                          "applies_to": [f"w{i}" for i in range(n_ent)]}
+                          "applies_to": [f"w{i}" for i in range(n_ent)], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                          for j in range(n_crit)],
             "initial_paths": ["q"]}
 

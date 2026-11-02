@@ -130,10 +130,10 @@ class DiagnoseMirrorTest(unittest.TestCase):
         url = "https://alpha.example/docs"
         return {
             "plan": {"entities": [{"id": eid, "label": label,
-                                   "required": True}],
+                                   "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                      "criteria": [{"id": cid, "label": "Compat",
                                    "required": True,
-                                   "applies_to": [eid]}]},
+                                   "applies_to": [eid], "description": "Eixo Compat: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]},
             "evidence": {url: doc},
             "report": {"markdown": f"{line} [1]",
                        "numbers": {"1": url}},

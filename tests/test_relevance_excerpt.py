@@ -103,7 +103,7 @@ class AssessorRelevanceTest(unittest.TestCase):
         plan = {"plan_id": "p", "version": 1,
                 "entities": [{"id": "e", "required": True}],
                 "criteria": [{"id": "c", "label": "failure modes",
-                              "required": True, "applies_to": ["e"]}],
+                              "required": True, "applies_to": ["e"], "description": "Eixo failure modes: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": []}
         evidence = {"https://example.org/paper": long_doc()}
         try:
@@ -126,7 +126,7 @@ class AssessorRelevanceTest(unittest.TestCase):
         plan = {"plan_id": "p", "version": 1,
                 "entities": [{"id": "e", "required": True}],
                 "criteria": [{"id": "c", "label": "something",
-                              "required": True, "applies_to": ["e"]}],
+                              "required": True, "applies_to": ["e"], "description": "Eixo something: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": []}
         attempts = {"c": [{"channel": "web",
                             "outcome": "failed",
@@ -202,7 +202,7 @@ class QueryTermsHookTest(unittest.TestCase):
             "plan_id": "p", "version": 1,
             "entities": [{"id": "fair-rag", "required": True}],
             "criteria": [{"id": "c-fail", "label": "modos de falha relatados",
-                          "required": True, "applies_to": ["fair-rag"]}],
+                          "required": True, "applies_to": ["fair-rag"], "description": "Eixo modos de falha relatados: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": []}
         state["evidence"] = {"https://example.org/paper": _english_long_doc()}
         state["qualification"] = {"https://example.org/paper": {
@@ -230,7 +230,7 @@ class QueryTermsHookTest(unittest.TestCase):
         write.set_relevance_terms(["failure", "limitations"])
         view = {"question": "modos de falha?",
                 "plan": {"criteria": [{"id": "c",
-                                       "label": "modos de falha relatados"}],
+                                       "label": "modos de falha relatados", "description": "Eixo modos de falha relatados: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                          "entities": []},
                 "evidence": {"https://example.org/paper": _english_long_doc()},
                 "question_coverage": {}}
@@ -253,7 +253,7 @@ class QueryTermsHookTest(unittest.TestCase):
             "plan_id": "p", "version": 1,
             "entities": [{"id": "e", "required": True}],
             "criteria": [{"id": "c", "label": "modos",
-                          "required": True, "applies_to": ["e"]}],
+                          "required": True, "applies_to": ["e"], "description": "Eixo modos: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": []}
         state["evidence"] = {"https://example.org/paper": "some text here"}
         state["qualification"] = {"https://example.org/paper": {

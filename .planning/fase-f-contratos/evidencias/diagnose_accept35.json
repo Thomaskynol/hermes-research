@@ -1,0 +1,1272 @@
+{
+  "cells": {
+    "buckets": {
+      "missing_dimension_evidence": 12,
+      "ok": 2,
+      "partial_legit": 15,
+      "selection_context": 20,
+      "assessor_error": 6
+    },
+    "total": 55,
+    "rows": [
+      {
+        "criterion_id": "c1",
+        "entity_id": null,
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 41,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/",
+          "https://github.com/timrichardson/opencode-planner",
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+          "https://github.com/nikiforovall/opencode-marketplace",
+          "https://opencode.im/"
+        ],
+        "ref_support": [],
+        "justification": "Material lista >=5 candidatos nomeados (planning-with-files, opencode-planner, opencode-code-review, suite bandonker, marketplace) e diretorio com 149 plugins, mas dimensoes de comparacao (custos, compat 2.1.4, combinacao/sobreposicao) seguem sem evidencia.",
+        "entity_label": null,
+        "criterion_label": "Descobrir e comparar cinco plugins para OpenCode"
+      },
+      {
+        "criterion_id": "c2",
+        "entity_id": "pwf",
+        "state": "covered",
+        "bucket": "ok",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "ref_support": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "justification": "Excertos da fonte da entidade descrevem gerenciamento de estado de execução ativa: fases, status e dependências, além de superfície de planejamento auditável — melhoria direta de planejamento.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Melhoria de planejamento"
+      },
+      {
+        "criterion_id": "c2",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "justification": "Fonte do candidato documenta workflow de planejamento (plan agent/prompt /plan_prompt e revisão do plano); contribuição documentada ao eixo sem exigir execução autônoma demonstrada.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Melhoria de planejamento"
+      },
+      {
+        "criterion_id": "c2",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 1,
+        "support_urls": [
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Nenhum excerto do material selecionado descreve o opencode-code-review de erskingardner; sem evidência utilizável.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Melhoria de planejamento"
+      },
+      {
+        "criterion_id": "c2",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 1,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Material selecionado não atribui funcionalidade de planejamento ao candidato peers; diretório é genérico e não sustenta a célula.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Melhoria de planejamento"
+      },
+      {
+        "criterion_id": "c2",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 4,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [],
+        "justification": "Evidência disponível para sun-praise/opencode-review trata de code review automático, não de planejamento; sem evidência para este eixo.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Melhoria de planejamento"
+      },
+      {
+        "criterion_id": "c3",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "ref_support": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "justification": "Fonte da entidade documenta gestão de fases/status/dependências e hooks de progresso, que afetam acompanhamento da implementação, sem demonstrar geração de código.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Melhoria de implementação"
+      },
+      {
+        "criterion_id": "c3",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "justification": "Diretório descreve workflow repetível de planning, implementation e review e fonte do candidato descreve agente após revisão; mecanismo de qualidade que afeta implementação, sem alegar geração autônoma.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Melhoria de implementação"
+      },
+      {
+        "criterion_id": "c3",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 2,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem excerto utilizável sobre o candidato erskingardner/opencode-code-review para implementação.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Melhoria de implementação"
+      },
+      {
+        "criterion_id": "c3",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem evidência atribuível ao candidato peers para melhoria de implementação no material selecionado.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Melhoria de implementação"
+      },
+      {
+        "criterion_id": "c3",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 4,
+        "support_docs": 2,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [],
+        "justification": "Evidência disponível limita-se a review estruturado automático; não trata de melhoria de implementação.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Melhoria de implementação"
+      },
+      {
+        "criterion_id": "c4",
+        "entity_id": "pwf",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Nenhum excerto do material selecionado documenta melhoria de testes pelo planning-with-files; tentativa registrada falhou.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Melhoria de testes"
+      },
+      {
+        "criterion_id": "c4",
+        "entity_id": "oplanner",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "justification": "Fontes do opencode-planner no material selecionado não tratam de geração ou melhoria de testes.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Melhoria de testes"
+      },
+      {
+        "criterion_id": "c4",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem evidência utilizável sobre testes para o candidato ocreview no material selecionado.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Melhoria de testes"
+      },
+      {
+        "criterion_id": "c4",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem evidência atribuível ao candidato peers para o eixo testes.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Melhoria de testes"
+      },
+      {
+        "criterion_id": "c4",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 4,
+        "support_docs": 4,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Evidência disponível trata de review, não de testes; sem base para cobrir o eixo.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Melhoria de testes"
+      },
+      {
+        "criterion_id": "c5",
+        "entity_id": "pwf",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Nenhum excerto do material selecionado documenta revisão de código pelo planning-with-files.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Melhoria de revisão de código"
+      },
+      {
+        "criterion_id": "c5",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "justification": "Fonte documenta etapa de review do plano/agente (After review), mecanismo que afeta revisão sem demonstrar revisão de código autônoma.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Melhoria de revisão de código"
+      },
+      {
+        "criterion_id": "c5",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem excerto utilizável do candidato erskingardner/opencode-code-review no material selecionado; não inventar cobertura pelo nome.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Melhoria de revisão de código"
+      },
+      {
+        "criterion_id": "c5",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Sem evidência atribuível ao candidato peers para revisão de código.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Melhoria de revisão de código"
+      },
+      {
+        "criterion_id": "c5",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 4,
+        "support_docs": 4,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Curadoria documenta opencode-review como automatic structured code review; contribuição direta ao eixo revisão, sem detalhar dependências ou compatibilidade.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Melhoria de revisão de código"
+      },
+      {
+        "criterion_id": "c6",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "ref_support": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "justification": "Fonte declara compatibilidade OpenCode V1+V2; versão instalada 2.1.4 é premissa do usuário, sem menção nominal 2.1.4 na fonte — LACUNA parcial.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Compatibilidade com a versão instalada neste computador"
+      },
+      {
+        "criterion_id": "c6",
+        "entity_id": "oplanner",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "user://context/installed_opencode_version"
+        ],
+        "ref_support": [],
+        "justification": "LACUNA: fonte cita suporte V1/V2 e release 0.6.0, mas nenhuma fonte selecionada menciona a versão instalada 2.1.4; compatibilidade específica não demonstrada.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Compatibilidade com a versão instalada neste computador"
+      },
+      {
+        "criterion_id": "c6",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 1,
+        "support_urls": [
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "user://context/installed_opencode_version"
+        ],
+        "ref_support": [],
+        "justification": "LACUNA: sem fonte selecionada sobre compatibilidade do candidato e sem menção à versão 2.1.4 informada.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Compatibilidade com a versão instalada neste computador"
+      },
+      {
+        "criterion_id": "c6",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "user://context/installed_opencode_version"
+        ],
+        "ref_support": [],
+        "justification": "LACUNA: material selecionado não menciona a versão instalada 2.1.4 para este candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Compatibilidade com a versão instalada neste computador"
+      },
+      {
+        "criterion_id": "c6",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 4,
+        "support_docs": 2,
+        "support_urls": [
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "refs": [
+          "user://context/installed_opencode_version"
+        ],
+        "ref_support": [],
+        "justification": "LACUNA: evidência de review não menciona versão do OpenCode; sem fonte que cite 2.1.4.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Compatibilidade com a versão instalada neste computador"
+      },
+      {
+        "criterion_id": "c7",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "ref_support": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "justification": "Fontes da entidade demonstram funcionalidades: instalação via plugin, hooks PreCompact/PreComp, replay com nonce, recovery com consentimento e correção de ponteiros de plano.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Funcionalidades demonstradas"
+      },
+      {
+        "criterion_id": "c7",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "ref_support": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "justification": "Excerto da npm indica plan_prompt tool e resumo como plugin de planejamento; evidência parcial de funcionalidade documentada, sem demo completa no excerto.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Funcionalidades demonstradas"
+      },
+      {
+        "criterion_id": "c7",
+        "entity_id": "ocreview",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "ref_support": [
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "justification": "Documentadas: 4 subagentes paralelos, scoring 0-100 com threshold 80, git history/blame, notificacao desktop.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Funcionalidades demonstradas"
+      },
+      {
+        "criterion_id": "c7",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência atribuível ao candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Funcionalidades demonstradas"
+      },
+      {
+        "criterion_id": "c7",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 4,
+        "support_docs": 4,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Descricao Automatic structured code review indica funcionalidade documentada, mas excerto truncado sem demonstracao detalhada.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Funcionalidades demonstradas"
+      },
+      {
+        "criterion_id": "c8",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "ref_support": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "justification": "Fonte contrasta 'npx skills add' vs 'npm install' sob node_modules e frontmatter hooks, indicando dependências de instalação, sem lista completa de versões.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Dependências"
+      },
+      {
+        "criterion_id": "c8",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "ref_support": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "justification": "Excerto da npm informa Deps 0 e Size 42 kB para opencode-planner; evidência direta mas parcial pelo excerto truncado.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Dependências"
+      },
+      {
+        "criterion_id": "c8",
+        "entity_id": "ocreview",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "ref_support": [
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "justification": "Caminhos ~/.config/opencode/commands, .opencode/plugins ou global, plugin code-review.ts; notificacoes so macOS/Linux.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Dependências"
+      },
+      {
+        "criterion_id": "c8",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência atribuível ao candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Dependências"
+      },
+      {
+        "criterion_id": "c8",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 4,
+        "support_docs": 4,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Definição do critério não fornecida; não estender evidência de review sem base.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Dependências"
+      },
+      {
+        "criterion_id": "c9",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "ref_support": [
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "justification": "Fonte indica 'MIT License', sugerindo ausência de custo de licença, sem detalhar custos operacionais de modelos.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Custos"
+      },
+      {
+        "criterion_id": "c9",
+        "entity_id": "oplanner",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "justification": "Definição do critério não fornecida; excertos disponíveis não mapeiam para o eixo.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Custos"
+      },
+      {
+        "criterion_id": "c9",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 1,
+        "support_urls": [
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência utilizável do candidato.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Custos"
+      },
+      {
+        "criterion_id": "c9",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência atribuível ao candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Custos"
+      },
+      {
+        "criterion_id": "c9",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 4,
+        "support_docs": 4,
+        "support_urls": [
+          "https://blog.cloudflare.com/ai-code-review/",
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Definição do critério não fornecida; não estender evidência de review sem base.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Custos"
+      },
+      {
+        "criterion_id": "c10",
+        "entity_id": "pwf",
+        "state": "covered",
+        "bucket": "ok",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "refs": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/",
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "ref_support": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/",
+          "https://github.com/OthmanAdi/planning-with-files"
+        ],
+        "justification": "Fonte declara 'Actively maintained', versão v1.2.0/v3.12.0, changelog e contribuidores — manutenção demonstrada.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Manutenção"
+      },
+      {
+        "criterion_id": "c10",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "partial_legit",
+        "entity_docs": 2,
+        "support_docs": 2,
+        "support_urls": [
+          "https://github.com/timrichardson/opencode-planner",
+          "https://npm.io/package/opencode-planner"
+        ],
+        "refs": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "ref_support": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "justification": "Excerto informa Version 0.6.0, Stars 9 e Weekly 0; sinal parcial de manutenção/adoção limitada, sem histórico completo.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Manutenção"
+      },
+      {
+        "criterion_id": "c10",
+        "entity_id": "ocreview",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 2,
+        "support_docs": 1,
+        "support_urls": [
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência utilizável do candidato.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Manutenção"
+      },
+      {
+        "criterion_id": "c10",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 1,
+        "support_docs": 1,
+        "support_urls": [
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência atribuível ao candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Manutenção"
+      },
+      {
+        "criterion_id": "c10",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "assessor_error",
+        "entity_docs": 4,
+        "support_docs": 3,
+        "support_urls": [
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/sun-praise/opencode-review"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "justification": "Definição do critério não fornecida; não estender evidência de review sem base.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Manutenção"
+      },
+      {
+        "criterion_id": "c11",
+        "entity_id": "pwf",
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 2,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/"
+        ],
+        "ref_support": [],
+        "justification": "Fonte delimita escopo: recovery com consentimento, quarentena cross-project, writers fail-closed e sem fallback para plano legado não relacionado.",
+        "entity_label": "planning-with-files",
+        "criterion_label": "Limitações"
+      },
+      {
+        "criterion_id": "c11",
+        "entity_id": "oplanner",
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 2,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://npm.io/package/opencode-planner"
+        ],
+        "ref_support": [],
+        "justification": "Excerto adverte que OpenCode V1 rejeita campo plugins plural em configuração compartilhada V1/V2; limitação documentada parcial, sem matriz completa de limitações.",
+        "entity_label": "opencode-planner",
+        "criterion_label": "Limitações"
+      },
+      {
+        "criterion_id": "c11",
+        "entity_id": "ocreview",
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 2,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "ref_support": [],
+        "justification": "Filtra issues <80 e pre-existentes; notificacao limitada a macOS/Linux.",
+        "entity_label": "opencode-code-review",
+        "criterion_label": "Limitações"
+      },
+      {
+        "criterion_id": "c11",
+        "entity_id": "opencode-plugin-peers",
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 1,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://opencode.im/plugins"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida e sem evidência atribuível ao candidato.",
+        "entity_label": "opencode-plugin-peers",
+        "criterion_label": "Limitações"
+      },
+      {
+        "criterion_id": "c11",
+        "entity_id": "opencode-review-sun-praise",
+        "state": "insufficient",
+        "bucket": "selection_context",
+        "entity_docs": 4,
+        "support_docs": 1,
+        "support_urls": [
+          "https://dicastech.com.br/revisao-de-codigo-com-ia/"
+        ],
+        "refs": [
+          "https://github.com/awesome-opencode/awesome-opencode"
+        ],
+        "ref_support": [],
+        "justification": "Definição do critério não fornecida; não estender evidência de review sem base.",
+        "entity_label": "opencode-review",
+        "criterion_label": "Limitações"
+      },
+      {
+        "criterion_id": "c12",
+        "entity_id": null,
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 41,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://opencode.im/plugins",
+          "https://opencode.im/",
+          "https://opencode.ai/docs/plugins/"
+        ],
+        "ref_support": [],
+        "justification": "Nenhuma fonte selecionada justifica combinacoes entre plugins; sem matriz de interoperabilidade.",
+        "entity_label": null,
+        "criterion_label": "Justificar quais plugins combinam entre si"
+      },
+      {
+        "criterion_id": "c13",
+        "entity_id": null,
+        "state": "insufficient",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 41,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://www.opendock.net/plugins/opencode-planning-with-files/",
+          "https://github.com/timrichardson/opencode-planner",
+          "https://github.com/erskingardner/opencode-code-review"
+        ],
+        "ref_support": [],
+        "justification": "Nenhuma fonte compara sobreposicao de funcoes; apenas descricoes isoladas por plugin.",
+        "entity_label": null,
+        "criterion_label": "Justificar quais plugins têm funções sobrepostas"
+      },
+      {
+        "criterion_id": "c14",
+        "entity_id": null,
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 41,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://opencode.im/plugins",
+          "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+          "https://github.com/timrichardson/opencode-planner"
+        ],
+        "ref_support": [],
+        "justification": "Sinais de atualidade parciais: Recently active, verifications last 30 days, First published 2026-09-21, release 0.6.0, 2026; nem todas as fontes datadas.",
+        "entity_label": null,
+        "criterion_label": "Usar fontes atuais"
+      },
+      {
+        "criterion_id": "c15",
+        "entity_id": null,
+        "state": "partial",
+        "bucket": "missing_dimension_evidence",
+        "entity_docs": 41,
+        "support_docs": 0,
+        "support_urls": [],
+        "refs": [
+          "https://github.com/OthmanAdi/planning-with-files",
+          "https://github.com/awesome-opencode/awesome-opencode",
+          "https://github.com/erskingardner/opencode-code-review",
+          "https://github.com/sun-praise/opencode-review",
+          "https://github.com/timrichardson/opencode-planner",
+          "https://opencode.im/plugins?category=tools"
+        ],
+        "ref_support": [],
+        "justification": "Síntese entregue separa material (3 marcadores: documentado, inferência, lacuna; 8 fonte(s) do corpus citadas).",
+        "entity_label": null,
+        "criterion_label": "Diferenciar funcionalidades documentadas de inferências"
+      }
+    ]
+  },
+  "synthesis": {
+    "supported": 35,
+    "unsupported": 9,
+    "uncited": 104,
+    "unsupported_items": [
+      {
+        "sentence": "- planning-with-files tem segunda fonte do mesmo projeto no corpus ([26]): repositório distingue memória de agente de gerenciamento de estado ativo ([26]).",
+        "cites": [
+          "26",
+          "26"
+        ],
+        "reason": "overlap 0.17 < 0.35 e 1 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-planner prevê uso do agente de plano como ponto de partida para personalização antes de implementar ([8]).",
+        "cites": [
+          "8"
+        ],
+        "reason": "overlap 0.30 < 0.35 e 1 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review revisa pull requests com múltiplos subagentes especializados e pontuação baseada em confiança para filtrar falsos positivos ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.14 < 0.35 e 1 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review usa 4 subagentes paralelos que auditam mudanças de forma independente ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.00 < 0.35 e 0 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review pontua problemas e filtra abaixo de limiar documentado como 80 ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.00 < 0.35 e 0 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review inclui verificação de conformidade com diretrizes de projeto, detecção focada em mudanças e contexto de histórico ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.00 < 0.35 e 0 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review define papéis por modelo para triagem, diretrizes, resumo e conformidade ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.11 < 0.35 e 1 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review foca em mudanças e filtra abaixo do limiar, sem cobrir problemas pré-existentes fora do diff ([11]).",
+        "cites": [
+          "11"
+        ],
+        "reason": "overlap 0.00 < 0.35 e 0 palavra(s) rara(s) em comum"
+      },
+      {
+        "sentence": "- Contradição: nenhuma contradição direta entre fontes da mesma entidade verificada nos excertos — as duas fontes de planning-with-files concordam sobre estado ativo ([10]).",
+        "cites": [
+          "10"
+        ],
+        "reason": "overlap 0.08 < 0.35 e 1 palavra(s) rara(s) em comum"
+      }
+    ],
+    "declared": [
+      {
+        "sentence": "- planning-with-files tem fonte própria no corpus ([10]): página descreve plugin nativo OpenCode por OthmanAdi ([10]).",
+        "cites": [
+          "10",
+          "10"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- opencode-planner tem fonte própria no corpus ([8]): página adiciona agente dedicado de planejamento antes da implementação ([8]).",
+        "cites": [
+          "8",
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- opencode-code-review tem fonte própria no corpus ([11]): página descreve revisão de pull requests com subagentes e pontuação por confiança ([11]).",
+        "cites": [
+          "11",
+          "11"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado: opencode-planner adiciona agente dedicado para planejamento somente-leitura antes da implementação ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado: opencode-planner é emulação do agente experimental de plano, sem dependência rígida de modo experimental, embora essa configuração habilite ferramenta de saída de plano ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado parcial: opencode-planner lista comandos de desenvolvimento e integração, sem afirmar melhoria de testes do código do usuário ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado com isenção: planning-with-files declara suporte a OpenCode V1 + V2 como plugin nativo, versão do plugin v1.2.0 ([10]).",
+        "cites": [
+          "10"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado com isenção: opencode-planner documenta instalação compartilhada V1/V2 e instalação só V2 com campo plural de configuração, versão do plugin 0.6.0 ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado parcial: opencode-planner exige configuração de campo singular ou plural conforme V1/V2 e rejeita campo desconhecido em V1 ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado: opencode-code-review instala por cópia de agentes, comando e plugin para diretórios de configuração, com notificações em sistemas suportados ([11]).",
+        "cites": [
+          "11"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado parcial: opencode-planner declara licença MIT, sem preço de uso documentado nos excertos ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado parcial: opencode-planner usa publicação com notas automáticas e sem segredo de token para publicação, sem datas de manutenção nos excertos ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- Documentado: opencode-planner não adiciona campo plural em configuração compartilhada V1/V2 porque V1 rejeita campo desconhecido ([8]).",
+        "cites": [
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- INFERÊNCIA de complementaridade: planning-with-files organiza fases e dependências enquanto opencode-code-review audita mudanças com subagentes, funções distintas que se complementam em fluxo planejar-executar-revisar, limites sem prova de integração testada nem ausência de conflitos, integração a",
+        "cites": [
+          "10",
+          "11"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      },
+      {
+        "sentence": "- INFERÊNCIA de sobreposição: planning-with-files e opencode-planner sobrepõem-se em planejamento, o primeiro com estado e conclusão e o segundo com agente de plano pré-implementação, limites sem medida de redundância e sem decisão de exclusão mútua ([10]) ([8]).",
+        "cites": [
+          "10",
+          "8"
+        ],
+        "scope": "integração testada (interoperabilidade citada); limites: janela auditada"
+      }
+    ]
+  }
+}

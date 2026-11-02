@@ -42,7 +42,7 @@ def cell_plan():
                      {"id": "e1", "label": "Repo X", "required": True,
                       "source_url": URL_REPO}],
         "criteria": [{"id": "c0", "label": "funciona", "required": True,
-                      "applies_to": ["e0", "e1"]}],
+                      "applies_to": ["e0", "e1"], "description": "Eixo funciona: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["q"],
     }
 
@@ -81,7 +81,7 @@ class DiscoverySourceUrlTest(unittest.TestCase):
             "plan_id": "d1", "version": 1,
             "entities": [{"id": "e0", "label": "Alvo", "required": True}],
             "criteria": [{"id": "c0", "label": "x", "required": True,
-                          "applies_to": ["e0"]}],
+                          "applies_to": ["e0"], "description": "Eixo x: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
         st["evidence"] = {URL_REPO: "corpo do repo"}
         st["discovery"] = {"candidates": [], "open": True}
@@ -178,8 +178,8 @@ class PerCandidateExtensionTest(unittest.TestCase):
     def test_g3_per_candidate_estendido_ao_novo_candidato(self):
         st = self._state([
             {"id": "c0", "label": "funcionalidades", "required": True,
-             "per_candidate": True},
-            {"id": "c9", "label": "sintese", "required": True},
+             "per_candidate": True, "description": "Eixo funcionalidades: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
+            {"id": "c9", "label": "sintese", "required": True, "description": "Eixo sintese: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ])
         led = cl.Ledger(st["plan"])
         ac._apply_discovery(
@@ -194,8 +194,8 @@ class PerCandidateExtensionTest(unittest.TestCase):
 
     def test_g3_fallback_criterio_de_origem_sem_marcacao(self):
         st = self._state([
-            {"id": "c1", "label": "identificar candidatos", "required": True},
-            {"id": "c9", "label": "sintese", "required": True},
+            {"id": "c1", "label": "identificar candidatos", "required": True, "description": "Eixo identificar candidatos: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
+            {"id": "c9", "label": "sintese", "required": True, "description": "Eixo sintese: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ])
         led = cl.Ledger(st["plan"])
         ac._apply_discovery(
@@ -233,7 +233,7 @@ class WriterCitedFirstTest(unittest.TestCase):
         write = ac.make_model_writer(fake_client, max_chars=2400)
         view = {
             "question": "comparar",
-            "plan": {"criteria": [{"id": "c0", "label": "comparar"}],
+            "plan": {"criteria": [{"id": "c0", "label": "comparar", "description": "Eixo comparar: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                      "entities": []},
             "evidence": {other: "texto " * 400, cited: "texto " * 400},
             "question_coverage": {
@@ -253,9 +253,9 @@ class CandidateTargetTest(unittest.TestCase):
             "plan_id": "g5", "version": 1, "candidate_target": 2,
             "entities": [{"id": "e0", "label": "Alvo", "required": True}],
             "criteria": [
-                {"id": "c0", "label": "candidato", "required": True},
+                {"id": "c0", "label": "candidato", "required": True, "description": "Eixo candidato: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                 {"id": "c1", "label": "features", "required": True,
-                 "per_candidate": True}],
+                 "per_candidate": True, "description": "Eixo features: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
         st["evidence"] = {}
         st["discovery"] = {"candidates": [], "open": True}
@@ -309,7 +309,7 @@ class CandidateTargetTest(unittest.TestCase):
                          {"id": "e1", "label": "Cand", "required": True},
                          {"id": "e2", "label": "Extra", "required": False}],
             "criteria": [{"id": "c0", "label": "x", "required": True,
-                          "applies_to": ["e0", "e1", "e2"]}],
+                          "applies_to": ["e0", "e1", "e2"], "description": "Eixo x: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         }
         block = cl.Ledger(plan).compute()
         crit = next(c for c in block["criteria"] if c["id"] == "c0")

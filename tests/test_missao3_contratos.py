@@ -58,7 +58,7 @@ PLAN_1 = {"plan_id": "p", "version": 1,
           "entities": [{"id": "e0", "label": "Widget Alpha",
                         "required": True}],
           "criteria": [{"id": "c0", "label": "compatibilidade",
-                        "required": True, "applies_to": ["e0"]}]}
+                        "required": True, "applies_to": ["e0"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 PLAN_2 = {"plan_id": "p", "version": 1,
           "entities": [{"id": "e0", "label": "Widget Alpha",
@@ -66,7 +66,7 @@ PLAN_2 = {"plan_id": "p", "version": 1,
                        {"id": "e1", "label": "Widget Beta",
                         "required": True}],
           "criteria": [{"id": "c0", "label": "compatibilidade",
-                        "required": True, "applies_to": ["e0", "e1"]}]}
+                        "required": True, "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 OK_AUDIT = {"enabled": True, "claims": 1, "claims_reviewed": 1,
             "verdicts": [{"id": 0, "verdict": "sustained"}],

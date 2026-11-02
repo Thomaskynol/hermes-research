@@ -3584,6 +3584,13 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "eixo), sem exigir geração/execução autônoma demonstrada e "
             "sem promover hipótese frágil (nunca atribua à célula o que "
             "o documento não trata). "
+            "Critérios de combinação/sobreposição (complementaridade): "
+            "conclusão prudente a partir de premissas em documentos de "
+            "fontes distintas deve ser marcada como INFERÊNCIA, citar ao "
+            "menos 2 documentos-premissa de fontes distintas, declarar "
+            "os limites, e conta partial (nunca covered); sem prova de "
+            "interoperabilidade a afirmação de integração é LACUNA, sem "
+            "apagar a INFERÊNCIA de complementaridade registrada. "
             "Referencie SOMENTE urls do material selecionado acima"
             + ("; para fato do usuário, referencie user://context/CHAVE "
                "com origin user-provided (capa em partial, nunca covered)."
@@ -3683,25 +3690,108 @@ def make_model_assessor(model_client, max_docs: int = 24,
     return assess
 
 
-def _candidate_corpus_status(evidence: dict, entity: dict,
-                             generic=None) -> tuple[str, list[str]]:
-    """Own-source vs listing-mention vs unnamed for one candidate (F3).
+def _candidate_selection_status(state: dict, entity: dict,
+                                  included_urls) -> dict:
+    """Four observable stages for one candidate (generic, no literals).
 
-    Three-way status over the corpus the writer sees (raw strings; the
-    writer view carries no qualification): "fonte própria" when the
-    entity's own source_url names it in-body; "apenas menções em
-    lista/catálogo" when some corpus doc names it but no own-source
-    does; "sem documento que o nomeie" when no corpus doc names it.
-    Identity via _identity_matches (+ rarity), never URL substrings or
-    product literals. Returns (status, mention_urls up to 3).
-    Unverifiable input (no bodies, invalid entity, internal error)
-    returns "estado não verificado no corpus" — never the strong
-    absence claim, which requires an examined non-empty corpus.
+    - obtida_usable: source_url collected with usable qualification.
+    - examinada_assessor: source_url in assessor selections (_examined_urls).
+    - incluida_writer: source_url in the writer included_urls.
+    - analisada_celula: some evaluation for the entity has a reference
+      resolving to a doc ABOUT the entity (ref url in
+      _entity_corpus_docs): listing mentions never count.
     """
     try:
-        bodies = {u: str(t or "") for u, t in (evidence or {}).items()
-                  if isinstance(u, str) and not u.startswith("user://")
-                  and str(t or "").strip()}
+        inc = set(included_urls or [])
+        src = str((entity or {}).get("source_url") or "")
+        eid = (entity or {}).get("id")
+        evidence = (state or {}).get("evidence") or {}
+        qualification = (state or {}).get("qualification") or {}
+        obtida = False
+        if src and isinstance(src, str) and src in evidence:
+            try:
+                q = qualification.get(src) or {}
+                if not q.get("excluded") and str(
+                        q.get("usable_text") or evidence.get(src)
+                        or "").strip():
+                    obtida = True
+            except Exception:
+                obtida = bool(str(evidence.get(src) or "").strip())
+        try:
+            examinada = bool(src and src in _examined_urls(state or {}))
+        except Exception:
+            examinada = False
+        incluida = bool(src and src in inc)
+        analisada = False
+        try:
+            _ev = (state or {}).get("evidence") or {}
+            _qual = (state or {}).get("qualification") or {}
+            try:
+                _gen = _plan_shared_tokens(
+                    (state or {}).get("plan"), (state or {}).get("question"))
+            except Exception:
+                _gen = frozenset()
+            try:
+                _docs = set(_entity_corpus_docs(
+                    entity or {}, _ev, _qual, _gen))
+            except Exception:
+                _docs = set()
+            for ev in (state or {}).get("evaluations") or []:
+                if not isinstance(ev, dict):
+                    continue
+                if eid is not None and ev.get("entity_id") != eid:
+                    continue
+                for _r in ev.get("references") or []:
+                    try:
+                        if isinstance(_r, dict):
+                            _u = str(_r.get("url", _r.get("doc_id", ""))
+                                     or "")
+                        else:
+                            _u = str(_r or "")
+                    except Exception:
+                        continue
+                    if _u and _u in _docs:
+                        analisada = True
+                        break
+                if analisada:
+                    break
+        except Exception:
+            analisada = False
+        return {"obtida_usable": obtida, "examinada_assessor": examinada,
+                "incluida_writer": incluida, "analisada_celula": analisada}
+    except Exception:
+        return {"obtida_usable": False, "examinada_assessor": False,
+                "incluida_writer": False, "analisada_celula": False}
+
+
+def _candidate_corpus_status(evidence: dict, entity: dict,
+                             generic=None,
+                             qualification: dict | None = None
+                             ) -> tuple[str, list[str]]:
+    """Own-source vs listing-mention vs unnamed for one candidate (F3).
+
+    Status over the QUALIFIED body (usable_text when present, else raw):
+    "fonte própria" when the entity's own source_url names it in-body;
+    "apenas menções em lista/catálogo" when some corpus doc names it but
+    no own-source does; "sem documento que o nomeie" when no corpus doc
+    names it. Identity via _identity_matches (+ rarity), never URL
+    substrings or product literals. Returns (status, mention_urls up to 3).
+    Unverifiable input returns "estado não verificado no corpus" — never
+    the strong absence claim.
+    """
+    try:
+        qual = qualification or {}
+        bodies: dict[str, str] = {}
+        for u, t in (evidence or {}).items():
+            if not isinstance(u, str) or u.startswith("user://"):
+                continue
+            try:
+                body = str((qual.get(u) or {}).get("usable_text")
+                           or t or "")
+            except Exception:
+                body = str(t or "")
+            if body.strip():
+                bodies[u] = body
         if not isinstance(entity, dict) or not bodies:
             return ("estado não verificado no corpus", [])
         single_ok = _singleton_rare(entity, list(bodies.values()), generic)
@@ -3788,6 +3878,9 @@ def make_model_writer(model_client, max_chars: int = 12000):
         cov = view.get("question_coverage", {}) or {}
         plan = view.get("plan", {}) or {}
         evidence = dict(view.get("evidence", {}) or {})
+        qualification = dict(view.get("qualification") or {}
+                              if isinstance(view.get("qualification"), dict)
+                              else {})
         # Contexto do usuário: separado do corpus, rotulado como informado
         # pelo usuário (nunca evidência coletada). Sustenta no máximo
         # partial (o teto vive no _assess_round); aqui só rotulagem honesta.
@@ -3836,8 +3929,14 @@ def make_model_writer(model_client, max_chars: int = 12000):
                     plan, question)
             except Exception:
                 _floor_generic = frozenset()
-            _floor_texts = [str(evidence.get(_u) or "")
-                            for _u in corpus_urls]
+            _floor_texts = []
+            for _u in corpus_urls:
+                try:
+                    _floor_texts.append(str(
+                        (qualification.get(_u) or {}).get("usable_text")
+                        or evidence.get(_u) or ""))
+                except Exception:
+                    _floor_texts.append(str(evidence.get(_u) or ""))
             _floor: list[str] = []
             for _ent in _req_ents:
                 _single_ok = _singleton_rare(_ent, _floor_texts,
@@ -3848,18 +3947,29 @@ def make_model_writer(model_client, max_chars: int = 12000):
                     if _u in _floor:
                         continue
                     try:
-                        # Corpo auditado apenas (aqui: string pura da
-                        # evidência, sem qualification na view): slug na
-                        # URL nunca sustenta piso (regra identidade).
+                        # Corpo qualificado (usable_text quando há
+                        # qualificação, senão raw): slug na URL nunca
+                        # sustenta piso (regra identidade).
+                        try:
+                            _body = str(
+                                (qualification.get(_u) or {})
+                                .get("usable_text")
+                                or evidence.get(_u) or "")
+                        except Exception:
+                            _body = str(evidence.get(_u) or "")
                         if not _identity_matches(
-                                _ent, str(evidence.get(_u) or ""),
+                                _ent, _body,
                                 single_ok=_single_ok,
                                 generic=_floor_generic):
                             continue
                     except Exception:
                         continue
-                    _key = (_ref_count.get(_u, 0),
-                            _u == (_ent.get("source_url") or ""))
+                    # Piso com prioridade absoluta à fonte própria: source_url
+                    # que nomeia a entidade no corpo vence qualquer listagem,
+                    # qualquer que seja o ref_count (a listagem nunca desloca
+                    # a fonte própria do prompt).
+                    _key = (_u == (_ent.get("source_url") or ""),
+                            _ref_count.get(_u, 0))
                     if _best_key is None or _key > _best_key:
                         _best, _best_key = _u, _key
                 if _best is not None:
@@ -3963,10 +4073,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         for e in (plan.get("entities") or [])
                         if isinstance(e, dict) and e.get("discovered")
                         and e.get("required", True)]
-        # F3: estado por candidato verificado no corpus (fonte própria /
-        # apenas menções em lista/catálogo / sem documento que o nomeie):
-        # o writer usa exatamente o estado informado — nunca a forma
-        # forte ("sem documento...") para quem tem "apenas menções".
+        # F3: estado por candidato verificado no corpus qualificado +
+        # estágio de seleção (obtida/incluída): fonte obtida mas fora do
+        # prompt do writer nunca é "fora do corpus" — é "fonte obtida,
+        # fora da seleção do writer (LACUNA de análise; ler a seguir)".
         _cand_items = list(_cand_labels)
         try:
             _st_generic = _plan_shared_tokens(plan, question)
@@ -3980,22 +4090,46 @@ def make_model_writer(model_client, max_chars: int = 12000):
                 _cand_items = []
                 for _ce in _cand_ents:
                     _st, _st_urls = _candidate_corpus_status(
-                        evidence, _ce, _st_generic)
+                        evidence, _ce, _st_generic, qualification)
                     _tag = str(_ce.get("label") or _ce.get("id"))
-                    if _st_urls:
+                    _src = str((_ce or {}).get("source_url") or "")
+                    _sel = (_src and _src in included)
+                    if _st == "fonte própria" and _src and not _sel:
+                        _cand_items.append(
+                            f"{_tag}: fonte obtida, fora da seleção do "
+                            f"writer (LACUNA de análise; ler a seguir: "
+                            f"{_src})")
+                    elif _st_urls:
                         _cand_items.append(
                             f"{_tag}: {_st} ({'; '.join(_st_urls)})")
                     else:
                         _cand_items.append(f"{_tag}: {_st}")
         except Exception:
             pass
-        _cand_s = ("Candidatos exigidos pelo plano (use exatamente estes "
-                   "como conjunto de comparação; descoberta — menção em "
+        try:
+            _targets = (view.get("user_context") or {}).get("targets")
+        except Exception:
+            _targets = None
+        _targets_s = ""
+        try:
+            if isinstance(_targets, list) and _targets:
+                _t = ", ".join(str(t) for t in _targets[:8])
+                _targets_s = (f"Alvos do usuário (user_context.targets, "
+                              f"exigência real do pedido): {_t}. ")
+            elif isinstance(view.get("user_context"), dict) and view.get(
+                    "user_context"):
+                _targets_s = ("Alvos do usuário em user_context (exigência "
+                              "real do pedido); seleção do processo abaixo "
+                              "pode diferir por evidência. ")
+        except Exception:
+            _targets_s = ""
+        _cand_s = ("Seleção do processo (candidatos exigidos pelo plano; "
+                   f"{_targets_s}descoberta — menção em "
                    "listagem — não é seleção: seleção exige fonte própria "
                    "com identidade + célula investigada; item sem fonte "
                    "própria/célula = LACUNA com a causa, nunca apresentado "
-                   "como parte do conjunto exigido sem a ressalva; "
-                   "não substitua por outro; estado por candidato "
+                   "como parte da seleção sem a ressalva; "
+                   "estado por candidato "
                    "verificado no corpus — use exatamente o estado "
                    "informado para cada candidato; 'estado não "
                    "verificado' = não afirme presença nem ausência): "
@@ -4022,13 +4156,18 @@ def make_model_writer(model_client, max_chars: int = 12000):
         # Alternativas descobertas mas não investigadas: o writer não
         # afirma fatos sobre elas; registra-as como não investigadas
         # (suficiência explícita: manter o candidato com LACUNA exige
-        # dizer o que se deixou de explorar).
+        # dizer o que se deixou de explorar). Dedup por entidade.
         _unexp_s = ""
         try:
             _unexp_labels = []
+            _unexp_seen: set = set()
             for _x in (view.get("unexplored_alternatives") or []):
                 if not isinstance(_x, dict):
                     continue
+                _key = str(_x.get("entity_id") or _x.get("entity"))
+                if _key in _unexp_seen:
+                    continue
+                _unexp_seen.add(_key)
                 _urls = ", ".join(_x.get("urls") or [])
                 _unexp_labels.append(
                     f"{_x.get('entity')}: {_urls}" if _urls
@@ -4958,79 +5097,6 @@ def _slug_label(url: str) -> str | None:
         return None
 
 
-def _promote_discovery_news(state: dict, ledger, olds: list) -> bool:
-    """Promote a collected+mentioned discovery candidate to substitute an
-    unevidenced required entity (identity as concept, not word overlap).
-
-    The discovery pool holds URLs that never became plan entities; when
-    the plan itself offers no substitute, a pool URL already collected
-    whose text names its own slug-derived label is adopted via
-    _apply_discovery and swapped in. Returns True on the first swap.
-    """
-    try:
-        plan = state.get("plan") or {}
-        entities = [e for e in plan.get("entities", []) if isinstance(e, dict)]
-        plan_urls = {str(e.get("source_url") or "") for e in entities}
-        plan_urls.discard("")
-        evidence = state.get("evidence", {}) or {}
-        taken = {e.get("id") for e in entities}
-        taken |= {str(e.get("label", "")).strip().lower() for e in entities}
-        cands = sorted({c for c in
-                        (state.get("discovery", {}) or {}).get(
-                            "candidates", []) or []
-                        if isinstance(c, str)
-                        and c.startswith(("http://", "https://"))
-                        and c not in plan_urls and c in evidence})
-        for cand in cands:
-            slug = _slug_label(cand)
-            if not slug or slug in taken:
-                continue
-            body = evidence.get(cand) or ""
-            if not isinstance(body, str) or not body.strip():
-                continue
-            probe = {"id": slug, "label": slug}
-            try:
-                # URL nunca conta: só o corpo auditado identifica.
-                if not _identity_matches(
-                        probe, _audited_source_body(state, cand)):
-                    continue
-            except Exception:
-                continue
-            eid = slug
-            _n = 1
-            while eid in taken:
-                _n += 1
-                eid = f"{slug}-{_n}"
-            _apply_discovery(
-                state, ledger,
-                {"entity": {"id": eid, "label": slug, "url": cand},
-                 "criteria": []}, {})
-            tracked = next(
-                (e for e in (state.get("plan") or {}).get("entities", [])
-                 if isinstance(e, dict) and (e.get("source_url") == cand
-                                             or e.get("id") == eid)),
-                None)
-            if tracked is None:
-                continue
-            new_id = tracked.get("id")
-            for old_id in olds:
-                reason = (
-                    f"{old_id} sem evidência referenciada após "
-                    f"{len(state.get('rounds', []))} rounds; {new_id} com "
-                    f"fonte própria coletada e mencionada "
-                    f"(pool de descoberta)")
-                if _do_substitute(state, ledger, old_id, new_id, reason):
-                    return True
-        return False
-    except Exception as exc:
-        try:
-            state.setdefault("notes", []).append(
-                f"discovery promotion skipped: {exc}")
-        except Exception:
-            pass
-        return False
-
-
 def _reconcile_unexplored(state: dict) -> None:
     """Drop unexplored records superseded by later evaluations.
 
@@ -5108,6 +5174,22 @@ def _record_unexplored(state: dict, olds: list) -> None:
             recs.append({"entity": str(ent.get("label") or old_id),
                          "entity_id": old_id,
                          "urls": hits})
+        # Dedup: mesmo entity_id com mesmas urls nunca duplica (frase
+        # completa única por entidade; gate de frase + dedup).
+        try:
+            _seen = {(str(r.get("entity_id") or r.get("entity")),
+                      tuple(r.get("urls") or []))
+                     for r in (state.get("unexplored_alternatives") or [])
+                     if isinstance(r, dict)}
+        except Exception:
+            _seen = set()
+        _new_recs = [r for r in recs
+                     if (str(r.get("entity_id") or r.get("entity")),
+                         tuple(r.get("urls") or [])) not in _seen]
+        if not _new_recs:
+            state["_unexplored_pool_size"] = len(pool)
+            return
+        recs = _new_recs
         state.setdefault("unexplored_alternatives", []).extend(recs)
         state["notes"].append(
             "sem substituto no plano; alternativas descobertas não "
@@ -5352,9 +5434,175 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                     return False
             return True
 
+        def _cell_counts(eid: str) -> tuple[int, int]:
+            cov = par = 0
+            for c in per_crits:
+                if eid not in (c.get("applies_to") or []):
+                    continue
+                st = (ledger._evals.get((c.get("id"), eid), {})
+                      .get("state", "uninvestigated"))
+                if st == "covered":
+                    cov += 1
+                elif st == "partial":
+                    par += 1
+            return cov, par
+
+        def _own_ref_counts(eid: str) -> tuple[int, int]:
+            ent = emap.get(eid) or {}
+            src = str(ent.get("source_url") or "")
+            cov = par = 0
+            for ev in evals:
+                if ev.get("entity_id") != eid:
+                    continue
+                st = ev.get("state")
+                if st not in ("covered", "partial"):
+                    continue
+                refs = ev.get("references") or []
+                own = any(isinstance(r, dict) and
+                          str(r.get("url", r.get("doc_id", ""))) == src
+                          for r in refs) if src else bool(refs)
+                if not own:
+                    continue
+                if st == "covered":
+                    cov += 1
+                else:
+                    par += 1
+            return cov, par
+
+        def _comparative_pairs() -> list[tuple]:
+            olds_c: list[str] = []
+            for eid, ent in emap.items():
+                if not (ent.get("discovered")
+                        and ent.get("required", True)):
+                    continue
+                cells = [c for c in per_crits
+                         if eid in (c.get("applies_to") or [])]
+                if not cells:
+                    continue
+                oc, op = _cell_counts(eid)
+                if oc == 0 and op <= 1:
+                    olds_c.append(eid)
+            news_c = []
+            for e in entities:
+                if e.get("required", True) or not e.get("discovered"):
+                    continue
+                if not _supported(e):
+                    continue
+                nc, np = _own_ref_counts(str(e.get("id")))
+                if nc >= 1 or np >= 2:
+                    news_c.append(e)
+            pairs = []
+            for oid in olds_c:
+                oc, op = _cell_counts(oid)
+                for ne in news_c:
+                    nid = str(ne.get("id"))
+                    if nid == oid:
+                        continue
+                    nc, np = _own_ref_counts(nid)
+                    # Dominância estrita nos essenciais (lexicográfica).
+                    if not (nc > oc or (nc == oc and np > op)):
+                        continue
+                    pairs.append((nc - oc, np - op, oid, nid, oc, op,
+                                  nc, np))
+            # Ordenação por (delta_covered, delta_partial, id); 1 troca.
+            pairs.sort(key=lambda t: (-t[0], -t[1], t[2], t[3]))
+            return pairs
+
+        def _hysteresis_blocked(oid: str, nid: str) -> bool:
+            try:
+                hist = state.get("_substitution_history") or []
+                if not hist:
+                    return False
+                last = hist[-1]
+                if not isinstance(last, dict):
+                    return False
+                if last.get("old") == nid and last.get("new") == oid:
+                    # Fingerprint: evidência atual != registrada libera.
+                    # Registrado "oc/op->nc/np" para (old=nid, new=oid):
+                    # compara célula atual de nid e refs próprias de oid
+                    # com os valores da troca (mesma métrica por entidade).
+                    try:
+                        _fp = str(last.get("fingerprint") or "")
+                        _left, _, _right = _fp.partition("->")
+                        _roc, _, _rop = _left.partition("/")
+                        _rnc, _, _rnp = _right.partition("/")
+                        _cur_cell = _cell_counts(nid)
+                        _cur_own = _own_ref_counts(oid)
+                        if (_cur_cell != (int(_roc), int(_rop))
+                                or _cur_own != (int(_rnc), int(_rnp))):
+                            return False
+                    except Exception:
+                        pass
+                    try:
+                        rounds_now = len(state.get("rounds", []) or [])
+                        if rounds_now - int(last.get("round", 0)) < 2:
+                            # Nova evidência para o antigo-novo libera.
+                            for ev in evals:
+                                if ev.get("entity_id") == oid \
+                                        and ev.get("references"):
+                                    return False
+                            return True
+                    except Exception:
+                        return False
+                return False
+            except Exception:
+                return False
+
+        _pairs = _comparative_pairs()
+        _pairs = [p for p in _pairs
+                  if not _hysteresis_blocked(p[2], p[3])]
+        if _pairs:
+            _dc, _dp, _oid, _nid, _oc, _op, _nc, _np = _pairs[0]
+            reason = (
+                f"comparação old-vs-novo nos essenciais per_candidate: "
+                f"{_oid} (covered={_oc}, partial={_op}) vs {_nid} "
+                f"(covered={_nc}, partial={_np}); "
+                f"delta_covered={_dc}, delta_partial={_dp}; "
+                f"troca: {_oid} sem evidência forte após "
+                f"{len(state.get('rounds', []))} rounds; {_nid} com "
+                f"ref própria resolvida")
+            ok = _do_substitute(state, ledger, _oid, _nid, reason)
+            if ok:
+                try:
+                    state.setdefault(
+                        "_substitution_history", []).append(
+                        {"old": _oid, "new": _nid,
+                         "round": len(state.get("rounds", []) or []),
+                         "fingerprint": f"{_oc}/{_op}->{_nc}/{_np}"})
+                except Exception:
+                    pass
+            return ok
+        # Empate comparativo (novo sem dominância) mantém + unexplored:
+        # parcial fraca (<=1 partial, sem covered) empatada registra o que
+        # se deixou de explorar em vez de sumir silenciosamente.
+        if not _pairs:
+            try:
+                _tie = []
+                for eid, ent in emap.items():
+                    if not (ent.get("discovered")
+                            and ent.get("required", True)):
+                        continue
+                    _oc, _op = _cell_counts(eid)
+                    if _oc == 0 and _op <= 1:
+                        _tie.append(eid)
+                # Só empate quando há alternativo suportado sem dominância.
+                _has_alt = any(
+                    not e.get("required", True) and e.get("discovered")
+                    and _supported(e) for e in entities)
+                if _tie and _has_alt:
+                    _record_unexplored(state, sorted(_tie))
+            except Exception:
+                pass
+        # Contrato 3 (comparativo): sem par com dominância estrita em
+        # _comparative_pairs não há troca — só _record_unexplored + False.
+        # O caminho antigo olds/news via _old_ok/_supported trocava sem
+        # dominância (bypass do gate); removido junto com
+        # _promote_discovery_news (mecanismo órfão do gate antigo).
         olds = [eid for eid in emap
                 if emap[eid].get("required", True) and _old_ok(eid)]
-        if not olds:
+        if olds:
+            _record_unexplored(state, olds)
+        else:
             # Sem candidato trocável, mas pode haver entidade fraca
             # (required+discovered sem nenhuma célula covered/partial):
             # mantê-la sem investigar exige ao menos declarar o que se
@@ -5369,30 +5617,7 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                          if eid in (c.get("applies_to") or []))]
             if _weak:
                 _record_unexplored(state, _weak)
-            return False
-        news = [e for e in entities
-                if not e.get("required", True) and e.get("discovered")
-                and _supported(e)]
-        if not news:
-            # Pool de descoberta antes de desistir: candidatos coletados
-            # e mencionados que nunca viraram entidade do plano podem
-            # substituir (accept18: repos reais descobertos, plano
-            # travado). Sem ninguém, registra o que se deixou de explorar.
-            if _promote_discovery_news(state, ledger, olds):
-                return True
-            _record_unexplored(state, olds)
-            return False
-        # Least evidenced first: no collected source beats a collected one.
-        olds.sort(key=lambda eid: (
-            1 if (emap[eid].get("source_url") or "") in evidence else 0,
-            str(eid)))
-        news.sort(key=lambda e: str(e.get("id")))
-        old_id = olds[0]
-        new_id = news[0].get("id")
-        reason = (f"{old_id} sem evidência referenciada após "
-                  f"{len(state.get('rounds', []))} rounds; {new_id} com "
-                  f"fonte própria coletada e mencionada")
-        return _do_substitute(state, ledger, old_id, new_id, reason)
+        return False
     except Exception as exc:
         try:
             state.setdefault("notes", []).append(
@@ -7122,6 +7347,111 @@ def _assess_synthesis_criteria(state: dict, block: dict,
         return None
 
 
+def _promote_partial_declared(state: dict, ledger,
+                                partial_declared: list[dict],
+                                n_to_url: dict | None = None) -> bool:
+    """Promote anchor-sustained combination inferences to ledger partial.
+
+    Generic, no literals: each entry with anchor_ok + citations + limits
+    becomes partial (never covered) on the first still-open GLOBAL
+    required criterion (multi-premise inference never anchors on a
+    per_candidate cell), with premise-doc refs. Returns True when
+    anything promoted.
+    """
+    try:
+        decls = [d for d in (partial_declared or [])
+                 if isinstance(d, dict)]
+        if not decls:
+            return False
+        promoted = False
+        for decl in decls:
+            try:
+                if not decl.get("anchor_ok"):
+                    continue
+                cits = decl.get("citations") or []
+                if not cits:
+                    continue
+                scope = str(decl.get("scope") or "")
+                low = scope.lower()
+                if "limit" not in low and "limite" not in low:
+                    continue
+                urls: list[str] = []
+                _prem = decl.get("premise_docs")
+                if isinstance(_prem, list) and _prem and isinstance(
+                        _prem[0], str):
+                    urls = [u for u in _prem if isinstance(u, str) and u]
+                else:
+                    for n in cits:
+                        try:
+                            u = (n_to_url or {}).get(int(n))
+                        except Exception:
+                            try:
+                                u = (n_to_url or {}).get(n)
+                            except Exception:
+                                u = None
+                        if isinstance(u, str) and u:
+                            urls.append(u)
+                urls = [u for u in dict.fromkeys(urls) if u]
+                if len(urls) < 2:
+                    continue
+                targets = []
+                for c in (ledger.plan.get("criteria") or []):
+                    if not isinstance(c, dict):
+                        continue
+                    if not c.get("required", True):
+                        continue
+                    try:
+                        if ledger.state_of(c.get("id")) == "covered":
+                            continue
+                    except Exception:
+                        pass
+                    targets.append(c)
+                if not targets:
+                    continue
+                # Inferência multi-premissa nunca ancora em per_candidate:
+                # prefere critérios globais abertos (sem per_candidate e
+                # sem applies_to restrito); fallback: obrigatório aberto
+                # não-per_candidate; último recurso: primeiro aberto.
+                def _is_global(_c: dict) -> bool:
+                    try:
+                        if _c.get("per_candidate"):
+                            return not (_c.get("applies_to") or [])
+                        return True
+                    except Exception:
+                        return False
+                _globals = [c for c in targets if _is_global(c)]
+                if _globals:
+                    crit = _globals[0]
+                else:
+                    _non_per = [c for c in targets
+                                if not c.get("per_candidate")]
+                    crit = _non_per[0] if _non_per else targets[0]
+                refs = [{"url": u} for u in urls[:8]]
+                just = (
+                    "INFERÊNCIA de complementaridade promovida pós-audit "
+                    f"({str(decl.get('sentence') or '')[:200]}). "
+                    f"Limites: {scope[:200]}")
+                try:
+                    ev = ledger.evaluate(
+                        crit["id"], "partial", just,
+                        "declared-inference", refs, None)
+                except (ValueError, KeyError):
+                    continue
+                try:
+                    state.setdefault("evaluations", []).append(dict(ev))
+                    state.setdefault("notes", []).append(
+                        f"partial declarado promovido: {crit['id']} "
+                        f"(premissas em {len(urls)} docs)")
+                except Exception:
+                    pass
+                promoted = True
+            except Exception:
+                continue
+        return promoted
+    except Exception:
+        return False
+
+
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
               write, audit, t_start: float, now, run_dir,
               control=None) -> dict:
@@ -7148,6 +7478,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     state["question_coverage"] = block
     view = {"question": state["question"], "plan": state["plan"],
             "evidence": dict(state["evidence"]),
+            "qualification": dict(state.get("qualification") or {}),
             "user_context": state.get("user_context") or {},
             "question_coverage": block, "stop": state["stop"],
             "rounds": state["rounds"],
@@ -7389,6 +7720,41 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             if _new in ("failed", "partial"):
                 _support.setdefault("notes", []).append(
                     f"support: {_check.get('detail')}")
+        # Pós-audit: partial declarado (anchor_ok, citado, com limites)
+        # vira partial no ledger com refs premise-docs (nunca covered).
+        try:
+            _decls = (_check or {}).get("partial_declared") or []
+            if _decls:
+                _n2u = _verify._n_to_url(
+                    getattr(_renderer.render_report, "last_numbers", {})
+                    or {})
+                _pledger = _ledger.Ledger(
+                    state.get("plan") or {}, run_id=state.get("run_id"))
+                _pledger.set_corpus(dict(state.get("evidence") or {}),
+                                    dict(state.get("qualification") or {}))
+                for _prev in state.get("evaluations") or []:
+                    try:
+                        _pledger.evaluate(
+                            _prev["criterion_id"],
+                            _prev.get("state", "insufficient"),
+                            _prev.get("justification", ""),
+                            _prev.get("origin", ""),
+                            _prev.get("references", []),
+                            _prev.get("entity_id"))
+                    except (ValueError, KeyError):
+                        pass
+                if _promote_partial_declared(state, _pledger, _decls,
+                                             _n2u):
+                    try:
+                        block = _pledger.compute()
+                        state["question_coverage"] = block
+                        _annotate_examined_scope(state, block)
+                    except Exception as _exc:
+                        state.setdefault("notes", []).append(
+                            f"partial declarado recompute skipped: {_exc}")
+        except Exception as _exc:
+            state.setdefault("notes", []).append(
+                f"partial declarado promotion skipped: {_exc}")
         verification["overall"] = _verify.aggregate(
             verification["dimensions"])
         state["verification"] = verification

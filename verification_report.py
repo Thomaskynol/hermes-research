@@ -1733,6 +1733,13 @@ def verify_support(state: dict, report_text: str,
                        notes + ["relatório sem citações verificáveis"])
     if unknown or _bracket_unknown or unsupported:
         return _result("support", "failed", evidence, notes)
+    try:
+        _contra = _contradictory_absence(report_text or "", state)
+    except Exception:
+        _contra = ""
+    if _contra:
+        notes.append(_contra)
+        return _result("support", "failed", evidence, notes)
     # Oráculo externo (diagnose pós-hoc, quando fornecido em
     # state["diagnose_audit"]): misses que este auditor não ponderou
     # impedem ok SOMENTE com pergunta parcial (gaps abertos) — sem
@@ -1781,6 +1788,79 @@ def verify_support(state: dict, report_text: str,
                      "foram integralmente revisadas")
         return _result("support", "partial", evidence, notes)
     return _result("support", "ok", evidence, notes)
+
+
+def _contradictory_absence(report_text: str, state: dict) -> str:
+    """Detecta §0-ausência × §7-usable contraditórios (genérico).
+
+    Retorna nota quando uma linha de afirmação (fora tabela/nota própria)
+    diz 'fora do corpus' sobre entidade que tem documento utilizável no
+    corpus que a nomeia no corpo.
+    """
+    try:
+        plan = state.get("plan") or {}
+        evidence = state.get("evidence") or {}
+        qualification = state.get("qualification") or {}
+        entities = [e for e in plan.get("entities") or []
+                    if isinstance(e, dict) and str(e.get("label") or "").strip()]
+        if not entities:
+            return ""
+        # Docs utilizáveis por entidade (identidade estrita no corpo
+        # qualificado: forma cheia com fronteira, nunca substring de label
+        # — mesmo conceito de _identity_matches/status).
+        docs_by_ent: dict[str, str] = {}
+        for ent in entities:
+            for url, text in evidence.items():
+                if not isinstance(url, str) or url.startswith("user://"):
+                    continue
+                try:
+                    qual = qualification.get(url) or {}
+                    if qual.get("excluded"):
+                        continue
+                    body = str(qual.get("usable_text") or text or "")
+                except Exception:
+                    body = str(text or "")
+                if not body.strip():
+                    continue
+                try:
+                    _hit = bool(_entity_mentioned(
+                        str(ent.get("label") or ""), ent.get("id"), body))
+                except Exception:
+                    _hit = False
+                if _hit:
+                    docs_by_ent[str(ent.get("id"))] = url
+                    break
+        if not docs_by_ent:
+            return ""
+        for line in str(report_text or "").splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(("|", "#", ">", "```")):
+                continue
+            _low0 = s.lower()
+            if _low0.startswith(("- render:", "- support:")):
+                continue
+            low = s.lower()
+            if "fora do corpus" not in low:
+                continue
+            for ent in entities:
+                try:
+                    _named = bool(_entity_mentioned(
+                        str(ent.get("label") or ""), ent.get("id"), s))
+                except Exception:
+                    _named = False
+                if not _named:
+                    continue
+                url = docs_by_ent.get(str(ent.get("id")))
+                if url:
+                    return (f"contradição §0-ausência × §7-usable: "
+                            f"{ent.get('label') or ent.get('id')} tem "
+                            f"documento utilizável no corpus ({url[:80]}), "
+                            f"mas o relatório afirma 'fora do corpus'")
+        return ""
+    except Exception:
+        return ""
 
 
 def aggregate(dimensions: dict) -> str:

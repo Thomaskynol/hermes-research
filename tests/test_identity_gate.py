@@ -36,7 +36,7 @@ def state_with_entity():
                  "source_url": "https://github.com/x/opencode-planner"},
             ],
             "criteria": [{"id": "c1", "label": "planejamento",
-                           "required": True, "applies_to": ["e1"]}],
+                           "required": True, "applies_to": ["e1"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         },
     }
 

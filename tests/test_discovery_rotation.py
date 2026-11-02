@@ -37,9 +37,9 @@ def plan2():
                      {"id": "e2", "label": "Beta", "required": True}],
         "criteria": [
             {"id": "c1", "label": "alpha", "required": True,
-             "applies_to": ["e1"]},
+             "applies_to": ["e1"], "description": "Eixo alpha: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c2", "label": "beta", "required": True,
-             "applies_to": ["e2"]},
+             "applies_to": ["e2"], "description": "Eixo beta: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["compare tools"],
     }
@@ -150,7 +150,7 @@ class ElicitationPromptTest(unittest.TestCase):
         assess = ac.make_model_assessor(model, max_docs=3)
         plan = {"entities": [{"id": "e1", "label": "Candidato 1"}],
                 "criteria": [{"id": "c1", "label": "Melhoria",
-                              "required": True, "applies_to": ["e1"]}],
+                              "required": True, "applies_to": ["e1"], "description": "Eixo Melhoria: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "open_discovery": {"needed": True}}
         assess(plan,
                {"https://example.org/a": "texto com Projeto X nomeado"},
@@ -166,7 +166,7 @@ def single_plan():
         "plan_id": "ctx-1", "version": 1, "question": "Qual ferramenta?",
         "entities": [{"id": "e0", "label": "entidade 0", "required": True}],
         "criteria": [{"id": "c0", "label": "critério 0",
-                      "required": True, "applies_to": ["e0"]}],
+                      "required": True, "applies_to": ["e0"], "description": "Eixo critério 0: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["consulta inicial"],
     }
 
@@ -252,7 +252,7 @@ def collision_state():
         "entities": [{"id": "e1", "label": "slot generico",
                       "required": True}],
         "criteria": [{"id": "c0", "label": "função demonstrada",
-                      "required": True, "applies_to": ["e1"]}],
+                      "required": True, "applies_to": ["e1"], "description": "Eixo função demonstrada: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
     }
     st["discovery"] = {"candidates": [], "open": True}
     st["evidence"] = {"https://example.org/r": "texto util"}

@@ -35,7 +35,7 @@ class WriterFloorTest(unittest.TestCase):
                  "source_url": "https://aaa.example/lit"},
             ], "criteria": [
                 {"id": "c1", "label": "planning", "required": True,
-                 "applies_to": ["e1", "e2"]},
+                 "applies_to": ["e1", "e2"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             ]},
             "evidence": {
                 "https://zzz.example/pwf": (
@@ -216,7 +216,7 @@ class DiscoveryPromotionTest(unittest.TestCase):
                 ],
                 "criteria": [
                     {"id": "c1", "label": "planning", "required": True,
-                     "per_candidate": True, "applies_to": ["e1"]},
+                     "per_candidate": True, "applies_to": ["e1"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                 ],
             },
             "plan_versions": [{"version": 1}],
@@ -237,20 +237,23 @@ class DiscoveryPromotionTest(unittest.TestCase):
             "notes": [],
         }
 
-    def test_pool_candidate_is_promoted(self):
+    def test_pool_candidate_without_dominance_records_unexplored(self):
+        # Contrato 3 (fase F fix-lane): troca exige dominância estrita em
+        # _comparative_pairs. O candidato do pool tem fonte coletada e
+        # mencionada mas nenhuma avaliação covered/partial com ref própria
+        # — sem dominância — logo não há troca automática; registra
+        # unexplored. (Antes afirmava a promoção; requisito mudou pelo
+        # contrato 3 — ver NOTAS.txt da lane; sem commit.)
         import coverage_ledger as ledger_mod
         st = self._state()
         ledger = ledger_mod.Ledger(st["plan"], run_id="t")
         ledger.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
-        self.assertTrue(ac._maybe_substitute(st, ledger))
-        subs = st.get("substitutions") or []
-        self.assertEqual(len(subs), 1)
-        new_id = subs[0]["new"]
-        ent = next(e for e in st["plan"]["entities"]
-                   if e["id"] == new_id)
-        self.assertTrue(ent.get("required"))
-        self.assertEqual(
-            ent.get("source_url"), "https://github.com/x/real-planner")
+        self.assertFalse(ac._maybe_substitute(st, ledger))
+        recs = st.get("unexplored_alternatives") or []
+        self.assertTrue(recs)
+        self.assertTrue(any("não exploradas" in n for n in st["notes"]))
+        emap = {e["id"]: e for e in st["plan"]["entities"]}
+        self.assertTrue(emap["e1"].get("required", True))
 
     def test_no_pool_match_records_unexplored(self):
         import coverage_ledger as ledger_mod

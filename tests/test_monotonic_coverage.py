@@ -34,7 +34,7 @@ def make_plan():
         "plan_id": "monotonic", "version": 1,
         "entities": [{"id": "e0", "required": True}],
         "criteria": [{"id": "c0", "label": "criterion 0",
-                      "required": True, "applies_to": ["e0"]}],
+                      "required": True, "applies_to": ["e0"], "description": "Eixo criterion 0: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["query"],
     }
 

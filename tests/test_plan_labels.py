@@ -56,7 +56,7 @@ def _plan():
         ],
         "criteria": [
             {"id": "c1", "label": "feature", "required": True,
-             "applies_to": ["e1", "e2"]},
+             "applies_to": ["e1", "e2"], "description": "Eixo feature: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
     }
 

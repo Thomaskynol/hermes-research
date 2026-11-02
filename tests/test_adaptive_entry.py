@@ -38,7 +38,7 @@ def base_plan(n=2):
         "question": "Compare entry tools",
         "entities": [{"id": f"e{i}", "required": True} for i in range(n)],
         "criteria": [{"id": f"c{i}", "label": f"criterion {i}",
-                      "required": True, "applies_to": [f"e{i}"]}
+                      "required": True, "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(n)],
         "initial_paths": ["entry query"],
     }
@@ -213,7 +213,7 @@ class AdaptiveEntry(unittest.TestCase):
                 "entities": [{"id": f"e{i}", "required": True} for i in range(3)],
                 "criteria": [{"id": "shared", "label": "shared",
                               "required": True,
-                              "applies_to": ["e0", "e1", "e2"]}],
+                              "applies_to": ["e0", "e1", "e2"], "description": "Eixo shared: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["entry query"]}
         docs = {URLS[0]: "note for e0 only"}
         model = FakeModelTransport(plan)

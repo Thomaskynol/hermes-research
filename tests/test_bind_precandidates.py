@@ -26,14 +26,14 @@ import adaptive_coordinator as ac
 def make_plan(discovery_needed=False):
     return {
         "plan_id": "bind-test", "version": 1,
-        "entities": [{"id": f"e{i}", "label": f"E{i}", "required": True}
+        "entities": [{"id": f"e{i}", "label": f"E{i}", "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(1, 4)],
         "criteria": [
             {"id": "c1", "label": "dim one", "required": True,
-             "per_candidate": True},
+             "per_candidate": True, "description": "Eixo dim one: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c2", "label": "dim two", "required": True,
-             "per_candidate": True},
-            {"id": "cg", "label": "global synthesis", "required": True},
+             "per_candidate": True, "description": "Eixo dim two: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
+            {"id": "cg", "label": "global synthesis", "required": True, "description": "Eixo global synthesis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"],
         "open_discovery": {"needed": discovery_needed},

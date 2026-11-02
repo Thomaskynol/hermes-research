@@ -76,7 +76,7 @@ class DescBCapTest(unittest.TestCase):
             "entities": [{"id": "e0", "label": "Widget Alpha",
                           "required": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["e0"]}],
+                          "per_candidate": True, "applies_to": ["e0"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 1,
             "open_discovery": {"needed": True,
                                "need": "discover candidates"},
@@ -101,7 +101,7 @@ class DescBReconcileTest(unittest.TestCase):
             "entities": [{"id": "w2", "label": "Widget Beta", "required": True,
                           "discovered": True, "source_url": URL_B}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["w2"]}],
+                          "per_candidate": True, "applies_to": ["w2"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {URL_B: DOC_B})
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -170,7 +170,7 @@ class DescBReconcileTest(unittest.TestCase):
                  "discovered": True, "source_url": URL_G}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
                           "per_candidate": True,
-                          "applies_to": ["w_old", "w_new"]}],
+                          "applies_to": ["w_old", "w_new"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         body = "a generic catalog of tools with no candidate names in it"
         st = base_state(plan, {URL_G: body})
@@ -212,7 +212,7 @@ class DescCGuardTest(unittest.TestCase):
                           "discovered": True, "source_url": URL_B}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
                           "per_candidate": True,
-                          "applies_to": ["w1", "w2"]}],
+                          "applies_to": ["w1", "w2"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -288,7 +288,7 @@ class DescCGuardTest(unittest.TestCase):
             "entities": [{"id": "w1", "label": "Widget Alpha",
                           "required": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "applies_to": ["w1"]}],
+                          "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {URL_A: DOC_A})
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -341,7 +341,7 @@ class DescAReserveTest(unittest.TestCase):
             "plan_id": "res", "version": 1, "question": "q",
             "entities": [{"id": "e0", "label": "Widget", "required": True}],
             "criteria": [{"id": "c1", "label": "planning axis", "required": True,
-                          "per_candidate": True, "applies_to": ["e0"]}],
+                          "per_candidate": True, "applies_to": ["e0"], "description": "Eixo planning axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "open_discovery": {"needed": True,
                                "need": "discover planning candidates"},
         })
@@ -362,7 +362,7 @@ class DescAReserveTest(unittest.TestCase):
             "plan_id": "g6b", "version": 1, "question": "q",
             "entities": [{"id": "e0", "label": "Widget", "required": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["e0"]}],
+                          "per_candidate": True, "applies_to": ["e0"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 5,
             "open_discovery": {"needed": True, "need": "discover"},
         })
@@ -390,7 +390,7 @@ class DescAReserveTest(unittest.TestCase):
             "entities": [{"id": "e0", "label": "Widget", "required": True,
                           "discovered": True, "source_url": URL_CELL}],
             "criteria": [{"id": "c1", "label": "planning axis", "required": True,
-                          "per_candidate": True, "applies_to": ["e0"]}],
+                          "per_candidate": True, "applies_to": ["e0"], "description": "Eixo planning axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "open_discovery": {"needed": True,
                                "need": "discover planning candidates"},
         })
@@ -413,7 +413,7 @@ class DescAReserveTest(unittest.TestCase):
             "plan_id": "g6", "version": 1, "question": "q",
             "entities": [{"id": "e0", "label": "Widget", "required": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["e0"]}],
+                          "per_candidate": True, "applies_to": ["e0"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 5,
             "open_discovery": {"needed": True, "need": "discover"},
         })
@@ -445,7 +445,7 @@ class IdentUniversalTest(unittest.TestCase):
                           "required": True, "discovered": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
                           "per_candidate": True,
-                          "applies_to": ["w1", "w2"]}],
+                          "applies_to": ["w1", "w2"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, evidence)
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -567,7 +567,7 @@ class IdentNoAnchorTest(unittest.TestCase):
                             "required": True}],
               "criteria": [{"id": "c0", "label": "compatibilidade",
                             "required": True,
-                            "applies_to": ["e0", "e1"]}]}
+                            "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
     SENT = ("Os dois planejadores testados, por inferência, "
             "funcionam de forma combinada [1].")
     DOC = ("Os dois planejadores testados funcionam de forma "
@@ -614,7 +614,7 @@ class SlugUrlSelectionTest(unittest.TestCase):
                               "required": True, "discovered": True}],
                 "criteria": [{"id": "c1", "label": "axis", "required": True,
                               "per_candidate": True,
-                              "applies_to": ["w1"]}]}
+                              "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
     def test_floor_ignores_url_slug(self):
         """Floor pins doc COM menção no corpo, nunca slug alfabético."""
@@ -648,7 +648,7 @@ class SlugUrlSelectionTest(unittest.TestCase):
                 "entities": [{"id": "w1", "label": "Widget Gamma",
                               "required": True}],
                 "criteria": [{"id": "c1", "label": "axis", "required": True,
-                              "applies_to": ["w1"]}],
+                              "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["q"]}
         seen_terms = []
         real_excerpt = ac._relevant_excerpt
@@ -718,7 +718,7 @@ class BudgetRoundsTest(unittest.TestCase):
                   "entities": [{"id": "e0", "label": "Widget",
                                 "required": True}],
                   "criteria": [{"id": "c1", "label": "axis", "required": True,
-                                "applies_to": ["e0"]}],
+                                "applies_to": ["e0"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "initial_paths": ["Compare widgets"]},
             search_fn=search, fetch_fn=fetch, assess_fn=assess,
             writer_fn=writer, auditor_fn=auditor, clock=_t.monotonic,
@@ -748,7 +748,7 @@ class InferencePremisesPairTest(unittest.TestCase):
                             "required": True}],
               "criteria": [{"id": "c0", "label": "compatibilidade",
                             "required": True,
-                            "applies_to": ["e0", "e1"]}]}
+                            "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
     def test_positive_two_docs_each_sustain_premise_declares_plausible(self):
         sent = ("Widget Alpha gerencia planos [1] \u2014 INFER\u00caNCIA: "
@@ -814,7 +814,7 @@ class DeliveryPathTest(unittest.TestCase):
                           "required": True, "discovered": True}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
                           "per_candidate": True,
-                          "applies_to": ["w1"]}],
+                          "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -882,10 +882,10 @@ class DeliveryPathTest(unittest.TestCase):
                           "required": True, "discovered": True}],
             "criteria": [{"id": "c12", "label": "planejamento",
                           "required": True, "per_candidate": True,
-                          "applies_to": ["w1", "w2"]},
+                          "applies_to": ["w1", "w2"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                          {"id": "c13", "label": "distribuicao",
                           "required": True, "per_candidate": True,
-                          "applies_to": ["w1", "w2"]}],
+                          "applies_to": ["w1", "w2"], "description": "Eixo distribuicao: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
         led = ledger_mod.Ledger(plan, run_id="t")
@@ -907,7 +907,7 @@ class DeliveryPathTest(unittest.TestCase):
              "entities": plan["entities"],
              "criteria": [{"id": "c0", "label": "compatibilidade",
                            "required": True,
-                           "applies_to": ["w1", "w2"]}]})
+                           "applies_to": ["w1", "w2"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]})
         self.assertEqual(res["supported"], 0, res)
         seen = {}
 

@@ -51,10 +51,10 @@ def plan(n=2):
     return {
         "plan_id": "core-plan", "version": 1,
         "question": "Comparar ferramentas do núcleo",
-        "entities": [{"id": f"e{i}", "label": f"entidade {i}", "required": True}
+        "entities": [{"id": f"e{i}", "label": f"entidade {i}", "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(n)],
         "criteria": [{"id": f"c{i}", "label": f"critério {i}",
-                      "required": True, "applies_to": [f"e{i}"]}
+                      "required": True, "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(n)],
         "initial_paths": ["consulta inicial"],
     }

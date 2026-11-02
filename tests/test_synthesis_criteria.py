@@ -39,9 +39,9 @@ def synth_state():
         "entities": [{"id": "e0", "label": "Alvo", "required": True}],
         "criteria": [
             {"id": "c0", "label": "funciona", "required": True,
-             "applies_to": ["e0"]},
+             "applies_to": ["e0"], "description": "Eixo funciona: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c1", "label": "separar documentado de inferido",
-             "required": True, "synthesis": True},
+             "required": True, "synthesis": True, "description": "Eixo separar documentado de inferido: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"]}
     st["evidence"] = {URL: "the plugin supports planning with MIT license"}

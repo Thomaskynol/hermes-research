@@ -29,7 +29,7 @@ PLAN = {"plan_id": "p", "version": 1,
         "entities": [{"id": "e0", "label": "Ferramenta Y",
                       "required": True}],
         "criteria": [{"id": "c0", "label": "feature", "required": True,
-                      "applies_to": ["e0"]}]}
+                      "applies_to": ["e0"], "description": "Eixo feature: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 DOC_PLAIN = ("Pagina de discussao geral sobre configuracao, sem flags "
              "de player e sem literais de codigo.")

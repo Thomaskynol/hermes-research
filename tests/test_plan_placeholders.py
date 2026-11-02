@@ -39,10 +39,10 @@ def placeholder_plan():
         ],
         "criteria": [
             {"id": "c1", "label": "melhoria de planejamento", "required": True,
-             "applies_to": ["e1", "e2"]},
+             "applies_to": ["e1", "e2"], "description": "Eixo melhoria de planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c2", "label": "compatibilidade", "required": True,
-             "applies_to": ["e1", "e6"]},
-            {"id": "c3", "label": "síntese", "required": True},
+             "applies_to": ["e1", "e6"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
+            {"id": "c3", "label": "síntese", "required": True, "description": "Eixo síntese: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["~/.config/opencode", "opencode plugins"],
     }
@@ -67,7 +67,7 @@ class PlaceholderPlanTest(unittest.TestCase):
             "entities": [{"id": "e1", "label": "candidato 1 (a descobrir)",
                           "required": True}],
             "criteria": [{"id": "c1", "label": "x", "required": True,
-                          "applies_to": ["e1"]}],
+                          "applies_to": ["e1"], "description": "Eixo x: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"],
         }
         meta = {"repairs": 0, "repair_log": []}

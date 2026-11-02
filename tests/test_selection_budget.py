@@ -36,9 +36,9 @@ def plan():
         ],
         "criteria": [
             {"id": "c0", "label": "custo de licenca",
-             "required": True, "applies_to": ["e0", "e1"]},
+             "required": True, "applies_to": ["e0", "e1"], "description": "Eixo custo de licenca: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c1", "label": "revisao de codigo",
-             "required": True, "applies_to": ["e0", "e1"]},
+             "required": True, "applies_to": ["e0", "e1"], "description": "Eixo revisao de codigo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": [],
     }

@@ -33,7 +33,7 @@ def state():
             ],
             "criteria": [{"id": "c1", "label": "roteamento",
                           "required": True,
-                          "applies_to": ["e1", "e2", "e3"]}],
+                          "applies_to": ["e1", "e2", "e3"], "description": "Eixo roteamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         },
         "evidence": {},
         "attempts": {},
@@ -78,7 +78,7 @@ def pc_state(evals=None):
     st = state()
     st["plan"]["criteria"] = [{"id": "c1", "label": "roteamento",
                                "required": True, "per_candidate": True,
-                               "applies_to": ["e1", "e2", "e3"]}]
+                               "applies_to": ["e1", "e2", "e3"], "description": "Eixo roteamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]
     st["evaluations"] = list(evals or [])
     return st
 
@@ -148,10 +148,10 @@ def _rr_state():
             "criteria": [
                 {"id": "c1", "label": "roteamento",
                  "required": True, "per_candidate": True,
-                 "applies_to": ["e1", "e2"]},
+                 "applies_to": ["e1", "e2"], "description": "Eixo roteamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                 {"id": "c2", "label": "orm",
                  "required": True, "per_candidate": True,
-                 "applies_to": ["e1", "e2"]},
+                 "applies_to": ["e1", "e2"], "description": "Eixo orm: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             ],
         },
         "evidence": {},

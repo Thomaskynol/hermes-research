@@ -39,7 +39,7 @@ def plan(n=1):
         "plan_id": "independent-review", "version": 1,
         "entities": [{"id": f"e{i}", "required": True} for i in range(n)],
         "criteria": [{"id": f"c{i}", "label": f"criterion {i}",
-                      "required": True, "applies_to": [f"e{i}"]}
+                      "required": True, "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(n)],
         "initial_paths": ["initial review query"],
     }
@@ -69,7 +69,8 @@ def auditor(report, evidence):
 class ReviewRegressions(unittest.TestCase):
     def test_r01_one_entity_does_not_cover_shared_criterion_for_six(self):
         p = plan(6)
-        p["criteria"] = [{"id": "shared", "required": True,
+        p["criteria"] = [{"id": "shared", "label": "shared axis",
+                          "required": True, "description": "Eixo shared axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite.",
                           "applies_to": [f"e{i}" for i in range(6)]}]
         ledger = cl.Ledger(p)
         ledger.set_corpus({URL: "Evidence about entity e0 only"},

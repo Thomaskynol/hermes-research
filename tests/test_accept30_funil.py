@@ -46,7 +46,7 @@ def global_plan():
                           "required": False, "discovered": True,
                           "source_url": URL_S}],
             "criteria": [{"id": "c0", "label": "overview",
-                          "required": True}],
+                          "required": True, "description": "Eixo overview: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
 
 
@@ -57,7 +57,7 @@ def cell_plan():
                           "source_url": URL_S}],
             "criteria": [{"id": "c1", "label": "planning",
                           "required": True, "per_candidate": True,
-                          "applies_to": ["w1"]}],
+                          "applies_to": ["w1"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
 
 
@@ -141,7 +141,7 @@ class ResendCapPerCellTest(unittest.TestCase):
                               "required": True}],
                 "criteria": [{"id": "c1", "label": "planning",
                               "required": True, "per_candidate": True,
-                              "applies_to": ["w1"]}],
+                              "applies_to": ["w1"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["q"]}
         docs = {f"https://example.org/s{i}":
                 ("Widget Alpha planning helper guide. " * 12)
@@ -172,13 +172,13 @@ class EmptyDimensionRegressionTest(unittest.TestCase):
                               "source_url": URL_D}],
                 "criteria": [{"id": "c9", "label": "automated testing",
                               "required": True, "per_candidate": True,
-                              "applies_to": ["w1"]}],
+                              "applies_to": ["w1"], "description": "Eixo automated testing: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["q"]}
         assess = ac.make_model_assessor(lambda prompt: "[]")
         assess({"plan_id": "p", "version": 1, "question": "q",
                 "entities": [],
                 "criteria": [{"id": "c0", "label": "overview",
-                              "required": True}],
+                              "required": True, "description": "Eixo overview: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["q"]},
                {URL_D: doc}, {URL_D: qual(doc)})
         prior = [{"criterion_id": "c9", "entity_id": "w1",
@@ -220,12 +220,12 @@ class ResendServesNewlyOpenedCellTest(unittest.TestCase):
                 "initial_paths": ["q"]}
         plan1 = dict(base, criteria=[
             {"id": "c1", "label": "planning", "required": True,
-             "per_candidate": True, "applies_to": ["w1"]}])
+             "per_candidate": True, "applies_to": ["w1"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}])
         plan2 = dict(base, criteria=[
             {"id": "c1", "label": "planning", "required": True,
-             "per_candidate": True, "applies_to": ["w1"]},
+             "per_candidate": True, "applies_to": ["w1"], "description": "Eixo planning: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c2", "label": "testing", "required": True,
-             "per_candidate": True, "applies_to": ["w1"]}])
+             "per_candidate": True, "applies_to": ["w1"], "description": "Eixo testing: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}])
         assess = ac.make_model_assessor(lambda prompt: "[]")
         assess(plan1, {URL_D: doc}, {URL_D: qual(doc)})
         assess.set_previous_evaluations([
@@ -246,10 +246,10 @@ class ProportionalRoundsTest(unittest.TestCase):
     def _plan(self, n_ent, n_crit):
         return {"plan_id": "p55", "version": 1, "question": "q",
                 "entities": [{"id": f"w{i}", "label": f"Widget {i}",
-                              "required": True} for i in range(n_ent)],
+                              "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for i in range(n_ent)],
                 "criteria": [{"id": f"c{j}", "label": f"axis {j}",
                               "required": True, "per_candidate": True,
-                              "applies_to": [f"w{i}" for i in range(n_ent)]}
+                              "applies_to": [f"w{i}" for i in range(n_ent)], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                              for j in range(n_crit)],
                 "initial_paths": ["q"]}
 
@@ -322,7 +322,7 @@ class GapQueryRotationTest(unittest.TestCase):
                              {"id": "w2", "label": "Widget Beta"}],
                 "criteria": [{"id": "c1", "label": "Eixo",
                               "required": True, "per_candidate": True,
-                              "applies_to": ["w1", "w2"]}],
+                              "applies_to": ["w1", "w2"], "description": "Eixo Eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             },
             "attempts": {}, "rounds": [],
             "evaluations": [],

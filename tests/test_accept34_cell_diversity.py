@@ -94,9 +94,9 @@ def diversity_plan():
         ],
         "criteria": [
             {"id": "c3", "label": "planejamento",
-             "required": True, "applies_to": ["eA", "eB"]},
+             "required": True, "applies_to": ["eA", "eB"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c4", "label": "implementacao",
-             "required": True, "applies_to": ["eA", "eB"]},
+             "required": True, "applies_to": ["eA", "eB"], "description": "Eixo implementacao: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"],
     }
@@ -121,9 +121,9 @@ def cell_plan():
         ],
         "criteria": [
             {"id": "c3", "label": "planejamento",
-             "required": True, "applies_to": ["eA"]},
+             "required": True, "applies_to": ["eA"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c4", "label": "implementacao",
-             "required": True, "applies_to": ["eA"]},
+             "required": True, "applies_to": ["eA"], "description": "Eixo implementacao: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"],
     }
@@ -176,7 +176,7 @@ class ResendServesRequiredCellsFirstTest(unittest.TestCase):
             ],
             "criteria": [
                 {"id": "c3", "label": "planejamento",
-                 "required": True, "applies_to": applies},
+                 "required": True, "applies_to": applies, "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             ],
             "initial_paths": ["q"],
         }
@@ -231,9 +231,9 @@ class ResendServesRequiredCellsFirstTest(unittest.TestCase):
                 ],
                 "criteria": [
                     {"id": "cA", "label": "planejamento",
-                     "required": True, "applies_to": ["eR"]},
+                     "required": True, "applies_to": ["eR"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                     {"id": "cB", "label": "planejamento",
-                     "required": True, "applies_to": ["eR"]},
+                     "required": True, "applies_to": ["eR"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                 ],
                 "initial_paths": ["q"],
             }
@@ -247,9 +247,9 @@ class ResendServesRequiredCellsFirstTest(unittest.TestCase):
                 ],
                 "criteria": [
                     {"id": "cA", "label": "planejamento",
-                     "required": True, "applies_to": ["eR"]},
+                     "required": True, "applies_to": ["eR"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                     {"id": "cB", "label": "planejamento",
-                     "required": True, "applies_to": ["eR", "eO"]},
+                     "required": True, "applies_to": ["eR", "eO"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                 ],
                 "initial_paths": ["q"],
             }

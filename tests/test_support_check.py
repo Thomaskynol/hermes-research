@@ -30,7 +30,7 @@ PLAN = {"plan_id": "p", "version": 1,
         "entities": [{"id": "e0", "label": "Ferramenta Y",
                       "required": True}],
         "criteria": [{"id": "c0", "label": "feature", "required": True,
-                      "applies_to": ["e0"]}]}
+                      "applies_to": ["e0"], "description": "Eixo feature: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 PARAPHRASE_SENTENCE = "O projeto exige Node 18 e instala via npm [1]."
 PARAPHRASE_DOC = "Requirements: Node.js 18+; install with npm. License: MIT."
@@ -69,7 +69,7 @@ class CheckSupportTest(unittest.TestCase):
                 "entities": [{"id": "e0", "label": "Biblioteca Alfa",
                               "required": True}],
                 "criteria": [{"id": "c0", "label": "feature",
-                              "required": True, "applies_to": ["e0"]}]}
+                              "required": True, "applies_to": ["e0"], "description": "Eixo feature: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         result = verify.check_support(sentence, {URL: 1}, {URL: doc}, plan)
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["unsupported"][0]["reason"],

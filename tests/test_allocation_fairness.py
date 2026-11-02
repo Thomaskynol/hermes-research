@@ -42,7 +42,7 @@ def fairness_state(ncrit=5, entities=("e1", "e2")):
                          for e in entities],
             "criteria": [{"id": f"c{i}", "label": f"dimensao {i}",
                           "required": True, "per_candidate": True,
-                          "applies_to": list(entities)}
+                          "applies_to": list(entities), "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                          for i in range(1, ncrit + 1)],
         },
         "evidence": {},

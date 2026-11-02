@@ -32,7 +32,7 @@ PLAN_1 = {"plan_id": "p", "version": 1,
           "entities": [{"id": "e0", "label": "Widget Alpha",
                         "required": True}],
           "criteria": [{"id": "c0", "label": "compatibilidade",
-                        "required": True, "applies_to": ["e0"]}]}
+                        "required": True, "applies_to": ["e0"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 DOC_ALPHA = ("Widget Alpha gerencia planos com revisao e testes. "
              "Release 1.0.150 documentada.")
@@ -103,7 +103,7 @@ class InferenciaPorPremissasTest(unittest.TestCase):
                               "required": True}],
                 "criteria": [{"id": "c0", "label": "compatibilidade",
                               "required": True,
-                              "applies_to": ["e0", "e1"]}]}
+                              "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
     def test_combinacao_sem_interop_nao_sustenta(self):
         plan = self._plan2()

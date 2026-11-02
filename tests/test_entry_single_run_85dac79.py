@@ -41,9 +41,9 @@ def base_plan():
         "entities": [{"id": "e0", "required": True},
                      {"id": "e1", "required": True}],
         "criteria": [{"id": "c0", "label": "c0", "required": True,
-                      "applies_to": ["e0"]},
+                      "applies_to": ["e0"], "description": "Eixo c0: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                      {"id": "c1", "label": "c1", "required": True,
-                      "applies_to": ["e1"]}],
+                      "applies_to": ["e1"], "description": "Eixo c1: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["single query"],
     }
 

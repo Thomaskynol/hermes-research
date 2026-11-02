@@ -25,9 +25,9 @@ def plan():
                       "required": True}],
         "criteria": [
             {"id": "c1", "label": "melhoria de planejamento",
-             "required": True, "applies_to": ["e1"]},
+             "required": True, "applies_to": ["e1"], "description": "Eixo melhoria de planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c2", "label": "custos e licenca",
-             "required": True, "applies_to": ["e1"]},
+             "required": True, "applies_to": ["e1"], "description": "Eixo custos e licenca: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
     }
 

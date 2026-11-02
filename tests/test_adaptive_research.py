@@ -206,10 +206,10 @@ def fake_auditor_incomplete(report, evidence):
 # ---------------------------------------------------------------- plans
 
 def comparison_plan(n=6, open_disc=False, pid="cmp-harbor-1"):
-    entities = [{"id": f"e{i}", "label": f"harbor lamp tool {i}", "required": True}
+    entities = [{"id": f"e{i}", "label": f"harbor lamp tool {i}", "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                 for i in range(1, n + 1)]
     criteria = [{"id": f"c{i}", "label": f"rotation and power of tool {i}",
-                 "required": True, "applies_to": [f"e{i}"]}
+                 "required": True, "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                 for i in range(1, n + 1)]
     return {"plan_id": pid, "version": 1,
             "question": "Compare harbor lamp tools",
@@ -221,10 +221,10 @@ def comparison_plan(n=6, open_disc=False, pid="cmp-harbor-1"):
 
 
 def explanatory_plan(pid="exp-tide-1"):
-    entities = [{"id": e, "label": e, "required": True} for e in
+    entities = [{"id": e, "label": e, "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for e in
                 ["mechanism", "actors", "data", "alternatives"]]
     criteria = [{"id": f"c-{e}", "label": f"factor {e}", "required": True,
-                 "applies_to": [e]} for e in
+                 "applies_to": [e], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for e in
                 ["mechanism", "actors", "data", "alternatives"]]
     return {"plan_id": pid, "version": 1,
             "question": "Explain the estuary tide delay and its consequences",
@@ -311,12 +311,12 @@ class AdaptiveResearch(unittest.TestCase):
             "Explain the estuary tide delay and its consequences", profile="light",
             plan={"plan_id": "exp-tide-d", "version": 1,
                   "question": "Explain the estuary tide delay and its consequences",
-                  "entities": [{"id": "mechanism", "label": "mechanism", "required": True},
-                               {"id": "actors", "label": "actors", "required": True}],
+                  "entities": [{"id": "mechanism", "label": "mechanism", "required": True, "description": "Eixo mechanism: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
+                               {"id": "actors", "label": "actors", "required": True, "description": "Eixo actors: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "criteria": [{"id": "c-mechanism", "label": "mechanism", "required": True,
-                                "applies_to": ["mechanism"]},
+                                "applies_to": ["mechanism"], "description": "Eixo mechanism: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                                {"id": "c-actors", "label": "actors", "required": True,
-                                "applies_to": ["actors"]}],
+                                "applies_to": ["actors"], "description": "Eixo actors: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "initial_paths": ["Explain the estuary tide delay and its consequences"]},
             search_fn=corp.search, fetch_fn=corp.fetch,
             assess_fn=marker_assessor(), writer_fn=fake_writer,
@@ -369,7 +369,7 @@ class AdaptiveResearch(unittest.TestCase):
             fetch_fn=corp.fetch,
             assess_fn=marker_assessor(
                 discoveries=[("e7", {"id": "c-e7", "label": "tool 7 evidence",
-                                     "required": True})]),
+                                     "required": True, "description": "Eixo tool 7 evidence: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."})]),
             writer_fn=fake_writer, auditor_fn=fake_auditor_off, clock=FakeClock())
         self.assertEqual(len(res["plan_versions"]), 2)
         ids = [e["id"] for e in res["plan"]["entities"]]
@@ -389,9 +389,9 @@ class AdaptiveResearch(unittest.TestCase):
             "Explain the estuary tide delay and its consequences", profile="light",
             plan={"plan_id": "exp-tide-g", "version": 1,
                   "question": "Explain the estuary tide delay and its consequences",
-                  "entities": [{"id": "mechanism", "label": "mechanism", "required": True}],
+                  "entities": [{"id": "mechanism", "label": "mechanism", "required": True, "description": "Eixo mechanism: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "criteria": [{"id": "c-mechanism", "label": "mechanism", "required": True,
-                                "applies_to": ["mechanism"]}],
+                                "applies_to": ["mechanism"], "description": "Eixo mechanism: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                   "initial_paths": ["Explain the estuary tide delay and its consequences"]},
             search_fn=corp.search, fetch_fn=corp.fetch,
             assess_fn=marker_assessor(), writer_fn=fake_writer,

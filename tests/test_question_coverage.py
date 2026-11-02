@@ -30,9 +30,9 @@ sys.addaudithook(offline_guard)
 
 def make_plan(n=6, plan_id="plan-harbor-1"):
     entities = [{"id": f"e{i}", "label": f"harbor section {i}",
-                 "required": True} for i in range(1, n + 1)]
+                 "required": True, "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for i in range(1, n + 1)]
     criteria = [{"id": f"c{i}", "label": f"criterion {i}", "required": True,
-                 "applies_to": [f"e{i}"]} for i in range(1, n + 1)]
+                 "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."} for i in range(1, n + 1)]
     return {"plan_id": plan_id, "version": 1,
             "entities": entities, "criteria": criteria}
 

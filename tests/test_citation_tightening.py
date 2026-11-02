@@ -27,7 +27,7 @@ PLAN = {"plan_id": "p", "version": 1,
         "entities": [{"id": "e0", "label": "AlphaWidget", "required": True},
                      {"id": "e1", "label": "BetaGadget", "required": True}],
         "criteria": [{"id": "c0", "label": "planejamento", "required": True,
-                      "applies_to": ["e0", "e1"]}]}
+                      "applies_to": ["e0", "e1"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 DOC_ALPHA = "AlphaWidget planner: comandos de planejamento e revisão."
 DOC_GENERIC = "OpenCode plugins review: produtividade e testes em geral."

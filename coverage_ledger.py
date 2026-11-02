@@ -125,6 +125,15 @@ def validate_plan(plan: dict) -> dict:
         if cid in seen_c:
             raise ValueError(f"[COVERAGE] duplicate criterion id {cid!r}")
         seen_c.add(cid)
+        if c.get("required", True):
+            _desc = c.get("description", c.get("definition", ""))
+            if not isinstance(_desc, str) or not _desc.strip():
+                raise ValueError(
+                    f"[COVERAGE] criterion {cid!r} requires a non-empty "
+                    f"'description' (or 'definition'): 1-2 operational "
+                    f"sentences stating what counts as evidence for the "
+                    f"axis; the planner must provide it, label-only is "
+                    f"rejected fail-closed")
         applies = c.get("applies_to", None)
         if applies is not None:
             if not isinstance(applies, list) or not applies:

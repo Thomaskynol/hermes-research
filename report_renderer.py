@@ -367,7 +367,7 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
         if not justification:
             justification = labels["not_investigated"]
         if not verbose and len(justification) > 600:
-            justification = justification[:600].rstrip() + " […]"
+            justification = _cut_at_sentence(justification, 600)
         lines.append(justification)
         refs = _refs(crit, numbers, labels, cited)
         if refs:
@@ -406,7 +406,42 @@ _DEBUG_NOTE_PREFIXES = (
     "tighten citations", "discovery", "substitution", "promotion",
     "truncado", "teto de seleção", "janela de relevancia",
     "ordem semântica", "render: síntese citou",
+    "downgrade", "not_applicable", "not-applicable",
+    "identity-mismatch", "identity mismatch",
+    "veto fora-do-corpus", "partial declarado",
+    "boilerplate ignorado", "lote por diversidade",
+    "reenvio de quarentena", "proporcional:",
+    "per_candidate bound", "resume:",
 )
+
+
+def _cut_at_sentence(text: str, limit: int = 600) -> str:
+    """Cut at a sentence boundary, never mid-word (generic).
+
+    Returns text unchanged when short; otherwise cuts at the last
+    sentence terminator (`.`, `!`, `?`) within the limit, falling back
+    to the last space wherever it is. A hard cut happens only when the
+    window has no space at all, marked explicitly with [[truncado]].
+    """
+    try:
+        s = str(text or "")
+        if len(s) <= limit:
+            return s
+        window = s[:limit]
+        import re as _re3
+        marks = [m.end() for m in _re3.finditer(r"[.!?…][\s\"”’)]*",
+                                                window)]
+        if marks:
+            return window[:marks[-1]].rstrip() + " […]"
+        sp = window.rfind(" ")
+        if sp > 0:
+            return window[:sp].rstrip() + " […]"
+        return window.rstrip() + " [[truncado]]"
+    except Exception:
+        try:
+            return str(text or "")[:limit].rstrip() + " […]"
+        except Exception:
+            return ""
 
 
 def _is_debug_note(note: str) -> bool:
@@ -470,6 +505,22 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
             lines.append(f"- {url}")
     notes = [n for n in (state.get("notes") or []) if isinstance(n, str)]
     shown_user = [n for n in notes if not _is_debug_note(n)]
+    # Dedup exato: notas de usuário idênticas (string completa) aparecem
+    # 1×. Entradas discovery:/alcance que diferem por critério/entidade
+    # são preservadas — o detalhe vive no state, o anexo não colapsa por
+    # prefixo-contagem.
+    try:
+        _deduped: list[str] = []
+        _seen_notes: set[str] = set()
+        for _n in shown_user:
+            _k = str(_n or "").strip()
+            if _k in _seen_notes:
+                continue
+            _seen_notes.add(_k)
+            _deduped.append(_n)
+        shown_user = _deduped
+    except Exception:
+        pass
     if shown_user:
         shown = shown_user if verbose else shown_user[-5:]
         lines.append("")
@@ -567,6 +618,18 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
         lines.append("**Leitura:** não medida")
     _debug = [n for n in (state.get("notes") or [])
               if isinstance(n, str) and _is_debug_note(n)]
+    try:
+        _dd: list[str] = []
+        _seen_d: set[str] = set()
+        for _n in _debug:
+            _k = str(_n or "").strip()
+            if _k in _seen_d:
+                continue
+            _seen_d.add(_k)
+            _dd.append(_n)
+        _debug = _dd
+    except Exception:
+        pass
     if _debug:
         lines.append("")
         lines.append("### Notas técnicas (diagnóstico interno)")
@@ -597,6 +660,113 @@ def _closure_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     return lines
 
 
+def _veto_outside_corpus(state: dict, synthesis: str) -> str:
+    """Veto a 'fora do corpus' quando há doc da entidade no corpus.
+
+    Genérico (sem literais): se a síntese afirma ausência no corpus mas
+    alguma entidade exigida tem documento utilizável que a nomeia no corpo
+    (identidade estrita, sem contar slug de URL), a afirmação é sobre a
+    janela do writer, nunca sobre o corpus integral — reescreve SOMENTE
+    as frases que dispararam o veto para 'fora da seleção do writer
+    (LACUNA de análise; ler a seguir)' e registra nota. Frases de outras
+    entidades seguem intactas.
+    """
+    try:
+        low = str(synthesis or "").lower()
+        if "fora do corpus" not in low:
+            return synthesis
+        try:
+            import verification_report as _vr
+            _mentioned = _vr._entity_mentioned
+        except Exception:
+            _mentioned = None
+        plan = state.get("plan") or {}
+        evidence = state.get("evidence") or {}
+        qualification = state.get("qualification") or {}
+        entities = [e for e in (plan.get("entities") or [])
+                    if isinstance(e, dict)]
+        if not entities:
+            return synthesis
+
+        def _has_doc(_ent: dict) -> str:
+            _label = str(_ent.get("label") or "")
+            _eid = _ent.get("id")
+            for url, text in (evidence or {}).items():
+                if not isinstance(url, str) or url.startswith("user://"):
+                    continue
+                try:
+                    _q = (qualification.get(url) or {})
+                    if _q.get("excluded"):
+                        continue
+                    body = str(_q.get("usable_text") or text or "")
+                except Exception:
+                    body = str(text or "")
+                if not body.strip():
+                    continue
+                try:
+                    if _mentioned is not None:
+                        _hit = bool(_mentioned(_label, _eid, body))
+                    else:
+                        _hit = bool(_label and _label.lower()
+                                    in body.lower())
+                except Exception:
+                    _hit = False
+                if _hit:
+                    return str(_ent.get("source_url") or url)
+            return ""
+
+        import re as _re0
+        import re as _re2
+        sentences = _re0.split(r"(?<=[.!?])\s+|\n+", str(synthesis or ""))
+        out = str(synthesis or "")
+        rewrote = 0
+        for sent in sentences:
+            if "fora do corpus" not in sent.lower():
+                continue
+            _hint = ""
+            for _ent in entities:
+                try:
+                    if _mentioned is not None:
+                        _named = bool(_mentioned(
+                            str(_ent.get("label") or ""), _ent.get("id"),
+                            sent))
+                    else:
+                        _lb = str(_ent.get("label") or "").strip().lower()
+                        _named = bool(_lb and _lb in sent.lower())
+                except Exception:
+                    _named = False
+                if not _named:
+                    continue
+                _hint = _has_doc(_ent)
+                if _hint:
+                    break
+                # Entidade citada sem doc: esta frase não dispara veto.
+                _hint = ""
+            if not _hint:
+                continue
+            repl = ("fora da seleção do writer (LACUNA de análise; ler a "
+                    "seguir" + (f": {_hint}" if _hint else "") + ")")
+            try:
+                _fixed = _re2.sub(r"fora do corpus", repl, sent,
+                                  flags=_re2.IGNORECASE)
+            except Exception:
+                continue
+            if _fixed != sent and sent and sent in out:
+                out = out.replace(sent, _fixed, 1)
+                rewrote += 1
+        if not rewrote:
+            return synthesis
+        try:
+            state.setdefault("notes", []).append(
+                "veto fora-do-corpus: afirmação de ausência reescrita para "
+                "fora da seleção (há doc da entidade no corpus)")
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return synthesis
+
+
 def render_report(state: dict, *, synthesis_text: str,
                   verifications: dict | None = None,
                   quantitative: list | None = None,
@@ -607,6 +777,10 @@ def render_report(state: dict, *, synthesis_text: str,
     numbers = _numbers(state)
     cited: set = set()
     synthesis = synthesis_text or ""
+    try:
+        synthesis = _veto_outside_corpus(state, synthesis)
+    except Exception:
+        pass
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
     # Citação x entidade: remove citação conjuntiva frouxa (só um dos docs
     # trata da entidade) quando resta citação que sustenta; sem máscara

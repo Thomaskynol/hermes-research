@@ -48,9 +48,9 @@ def cell_plan():
         ],
         "criteria": [
             {"id": "c3", "label": "planejamento",
-             "required": True, "applies_to": ["eA"]},
+             "required": True, "applies_to": ["eA"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
             {"id": "c4", "label": "implementacao",
-             "required": True, "applies_to": ["eA"]},
+             "required": True, "applies_to": ["eA"], "description": "Eixo implementacao: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"],
     }
@@ -163,7 +163,7 @@ class SelectionSummaryWordingTest(unittest.TestCase):
                 "entities": entities,
                 "criteria": [{"id": "c1", "label": "axis", "required": True,
                               "per_candidate": True,
-                              "applies_to": [e["id"] for e in entities]}],
+                              "applies_to": [e["id"] for e in entities], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": ["q"]}
         view = {"question": "q", "plan": plan,
                 "evidence": dict(evidence), "user_context": {},

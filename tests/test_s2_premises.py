@@ -35,7 +35,7 @@ PLAN = {"plan_id": "p", "version": 1,
         "entities": [{"id": "e0", "label": "OpenCode Eclipse Plugin",
                       "required": True}],
         "criteria": [{"id": "c0", "label": "planejamento", "required": True,
-                      "applies_to": ["e0"]}]}
+                      "applies_to": ["e0"], "description": "Eixo planejamento: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
 
 DOC_PLUGIN = ("OpenCode Plugin: gerencia planos de implementação com "
               "revisão e testes automatizados.")

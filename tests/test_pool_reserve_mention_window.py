@@ -37,7 +37,7 @@ def b3_plan():
         ],
         "criteria": [
             {"id": "c0", "label": "custo de licenca", "required": True,
-             "per_candidate": True, "applies_to": ["e1", "e2"]},
+             "per_candidate": True, "applies_to": ["e1", "e2"], "description": "Eixo custo de licenca: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["q"],
     }
@@ -147,7 +147,7 @@ class EntityMentionWindowTest(unittest.TestCase):
                           "required": True}],
             "criteria": [
                 {"id": f"c{i}", "label": f"dimensao {i} recursos offline",
-                 "required": True, "applies_to": ["e2"]}
+                 "required": True, "applies_to": ["e2"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                 for i in range(4)],
             "initial_paths": [],
         }
@@ -173,7 +173,7 @@ class EntityMentionWindowTest(unittest.TestCase):
         doc = ("Install with npm install betagadget-tool. " * 60 + "\n"
                + "BetaGadget review offline caching. " * 40)
         groups = ac._criterion_groups({
-            "criteria": [{"id": "c0", "label": "recursos offline"}],
+            "criteria": [{"id": "c0", "label": "recursos offline", "description": "Eixo recursos offline: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "entities": [{"id": "e2", "label": "BetaGadget"}]})
         # chamada legada continua valida e dentro do limite
         exc, _, _ = ac._relevant_excerpt(doc, 1200, ["offline"], groups=groups)

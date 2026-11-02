@@ -1,0 +1,1131 @@
+{
+ "plan": {
+  "candidate_target": 5,
+  "criteria": [
+   {
+    "id": "c1",
+    "label": "Descobrir e comparar cinco plugins para OpenCode",
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c2",
+    "label": "Melhoria de planejamento",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c3",
+    "label": "Melhoria de implementação",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c4",
+    "label": "Melhoria de testes",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c5",
+    "label": "Melhoria de revisão de código",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c6",
+    "label": "Compatibilidade com a versão instalada neste computador",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c7",
+    "label": "Funcionalidades demonstradas",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c8",
+    "label": "Dependências",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c9",
+    "label": "Custos",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c10",
+    "label": "Manutenção",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "applies_to": [
+     "pwf",
+     "oplanner",
+     "ocreview",
+     "bandonker",
+     "mktplace",
+     "planner-everything-opencode",
+     "opencode-plugin-peers",
+     "memory-opencode-marketplace",
+     "plannotator-opencode",
+     "opencode-review-sun-praise",
+     "alibaba-open-code-review",
+     "opencode-agent-memory",
+     "opencode-memory",
+     "opencode-mem",
+     "opencode-supermemory",
+     "oh-my-opencode",
+     "opencode-workspace"
+    ],
+    "id": "c11",
+    "label": "Limitações",
+    "per_candidate": true,
+    "required": true
+   },
+   {
+    "id": "c12",
+    "label": "Justificar quais plugins combinam entre si",
+    "required": true
+   },
+   {
+    "id": "c13",
+    "label": "Justificar quais plugins têm funções sobrepostas",
+    "required": true
+   },
+   {
+    "id": "c14",
+    "label": "Usar fontes atuais",
+    "required": true
+   },
+   {
+    "id": "c15",
+    "label": "Diferenciar funcionalidades documentadas de inferências",
+    "required": true,
+    "synthesis": true
+   }
+  ],
+  "entities": [
+   {
+    "id": "e1",
+    "label": "OpenCode",
+    "required": true
+   },
+   {
+    "discovered": true,
+    "id": "pwf",
+    "label": "planning-with-files",
+    "required": true,
+    "source_url": "https://www.opendock.net/plugins/opencode-planning-with-files/"
+   },
+   {
+    "discovered": true,
+    "id": "oplanner",
+    "label": "opencode-planner",
+    "required": true,
+    "source_url": "https://github.com/timrichardson/opencode-planner"
+   },
+   {
+    "discovered": true,
+    "id": "ocreview",
+    "label": "opencode-code-review",
+    "required": true,
+    "source_url": "https://github.com/erskingardner/opencode-code-review"
+   },
+   {
+    "discovered": true,
+    "id": "bandonker",
+    "label": "bandonker opencode suite (code-review)",
+    "required": false,
+    "source_url": "https://www.opendock.net/plugins/bandonker--opencode-code-review/"
+   },
+   {
+    "discovered": true,
+    "id": "mktplace",
+    "label": "opencode-marketplace installer",
+    "required": false,
+    "source_url": "https://github.com/nikiforovall/opencode-marketplace"
+   },
+   {
+    "discovered": true,
+    "id": "planner-everything-opencode",
+    "label": "planner (everything-opencode)",
+    "required": false,
+    "source_url": "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-plugin-peers",
+    "label": "opencode-plugin-peers",
+    "required": true,
+    "source_url": "https://opencode.im/plugins?category=tools"
+   },
+   {
+    "discovered": true,
+    "id": "memory-opencode-marketplace",
+    "label": "memory@opencode-marketplace",
+    "note": "substituída por opencode-review-sun-praise: memory-opencode-marketplace sem evidência referenciada após 2 rounds; opencode-review-sun-praise com fonte própria coletada e mencionada",
+    "required": false,
+    "source_url": "https://allansantos-dv.github.io/opencode-marketplace/"
+   },
+   {
+    "discovered": true,
+    "id": "plannotator-opencode",
+    "label": "Plannotator for OpenCode",
+    "required": false,
+    "source_url": "https://docs.plannotator.ai/open-source/agents/opencode"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-review-sun-praise",
+    "label": "opencode-review",
+    "required": true,
+    "source_url": "https://github.com/sun-praise/opencode-review"
+   },
+   {
+    "discovered": true,
+    "id": "alibaba-open-code-review",
+    "label": "open-code-review",
+    "required": false,
+    "source_url": "https://github.com/alibaba/open-code-review"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-agent-memory",
+    "label": "opencode-agent-memory",
+    "required": false,
+    "source_url": "https://github.com/joshuadavidthomas/opencode-agent-memory"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-memory",
+    "label": "opencode-memory",
+    "required": false,
+    "source_url": "https://github.com/chriswritescode-dev/opencode-memory"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-mem",
+    "label": "opencode-mem",
+    "required": false,
+    "source_url": "https://kd05.com/p/opencode-mem-memory-plugin-guide/"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-supermemory",
+    "label": "opencode-supermemory",
+    "required": false,
+    "source_url": "https://opencode.im/categories/memory-context"
+   },
+   {
+    "discovered": true,
+    "id": "oh-my-opencode",
+    "label": "oh-my-opencode",
+    "required": false,
+    "source_url": "https://opencode.im/"
+   },
+   {
+    "discovered": true,
+    "id": "opencode-workspace",
+    "label": "opencode-workspace",
+    "required": false,
+    "source_url": "https://dev.opencode.ai/docs/pt-br/ecosystem/"
+   }
+  ],
+  "initial_paths": [
+   "OpenCode plugins marketplace",
+   "OpenCode planning plugins",
+   "OpenCode code review plugins",
+   "OpenCode testing plugins",
+   "OpenCode implementation plugins"
+  ],
+  "open_discovery": {
+   "need": "Descobrir cinco plugins de OpenCode para planejamento, implementação, testes e revisão de código, sem nomes pré-definidos",
+   "needed": true
+  },
+  "plan_id": "opencode-plugins-compare",
+  "premises": [],
+  "purpose": "answer the question with verifiable evidence",
+  "question": "Descubra e compare cinco plugins para melhorar planejamento, implementação, testes e revisão de código no OpenCode. Considere a versão instalada neste computador. Investigue compatibilidade, funcionalidades demonstradas, dependências, custos, manutenção e limitações. Justifique quais combinam entre si e quais têm funções sobrepostas. Use fontes atuais e diferencie funcionalidades documentadas de inferências.",
+  "restrictions": "Considerar a versão do OpenCode instalada neste computador; usar fontes atuais; diferenciar funcionalidades documentadas de inferências",
+  "schema_version": 1,
+  "version": 19
+ },
+ "report_numbers": {
+  "1": "https://opencode.ai/docs/plugins/",
+  "10": "https://www.opendock.net/plugins/opencode-planning-with-files/",
+  "11": "https://github.com/erskingardner/opencode-code-review",
+  "12": "https://github.com/sun-praise/opencode-review",
+  "13": "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+  "14": "https://composio.dev/content/best-opencode-plugins",
+  "15": "https://github.com/vichhka-git/opencode-shannon-plugin",
+  "16": "https://www.opencode.asia/plugins/",
+  "17": "https://github.com/jadmadi/opencode-plugins",
+  "18": "https://opencode.ai/docs/pt-br/plugins/",
+  "19": "https://opencode.ai/docs/pt-br/ecosystem/",
+  "2": "https://opencode.ai/v2/docs/plugins",
+  "20": "https://opencode.im/plugins?category=tools",
+  "21": "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+  "22": "https://allansantos-dv.github.io/opencode-marketplace/",
+  "23": "https://github.com/anomalyco/opencode",
+  "24": "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md",
+  "25": "https://npm.io/package/opencode-planner",
+  "26": "https://github.com/OthmanAdi/planning-with-files",
+  "27": "https://github.com/alibaba/open-code-review",
+  "28": "https://opencode.ai/docs/pt-br/agents/",
+  "29": "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+  "3": "https://github.com/nikiforovall/opencode-marketplace",
+  "30": "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb",
+  "31": "https://opencode.ai/docs/pt-br/cli/",
+  "32": "https://blog.cloudflare.com/ai-code-review/",
+  "33": "https://github.com/chriswritescode-dev/opencode-memory",
+  "34": "https://github.com/joshuadavidthomas/opencode-agent-memory",
+  "35": "https://opencode.im/categories/memory-context",
+  "36": "https://kd05.com/p/opencode-mem-memory-plugin-guide/",
+  "37": "https://www.agent-memory.dev/docs/integrations/opencode",
+  "38": "https://www.opencode.asia/ecosystem/plugins/agent-memory/",
+  "39": "https://dev.opencode.ai/docs/pt-br/ecosystem/",
+  "4": "https://opencode.im/",
+  "40": "https://www.opendock.net/",
+  "5": "https://github.com/awesome-opencode/awesome-opencode",
+  "6": "https://www.opencode.cafe/",
+  "7": "https://opencode.im/plugins",
+  "8": "https://github.com/timrichardson/opencode-planner",
+  "9": "https://docs.plannotator.ai/open-source/agents/opencode"
+ },
+ "report_selection": {
+  "chars": 12000,
+  "cuts": "ordem semântica no restante (refs/piso intactos); janela de relevancia https://www.opendock.net/plugins/opencode-planning-with-files/: relevancia (@69000+@11750+@53875+@81500+@83750+@81750+@750+@52625); truncado https://www.opendock.net/plugins/opencode-planning-with-files/ 236721->2014 chars (corte por documento 2000); janela de relevancia https://github.com/OthmanAdi/planning-with-files: relevancia (@74250+@14500+@58250+@88250+@0+@53750+@85375+@57000); truncado https://github.com/OthmanAdi/planning-with-files 111242->2014 chars (corte por documento 2000); janela de relevancia https://github.com/timrichardson/opencode-planner: relevancia (@8125+@3000+@12750+@15250+@1750+@1125+@2750+@1375); truncado https://github.com/timrichardson/opencode-planner 15428->1976 chars (corte por documento 2000); janela de relevancia https://github.com/erskingardner/opencode-code-review: relevancia (@125+@625+@1125+@3750+@2500+@375+@875+@1375); truncado https://github.com/erskingardner/opencode-code-review 4044->2014 chars (corte por documento 2000); janela de relevancia https://www.opendock.net/plugins/bandonker--opencode-code-review/: relevancia (@26875+@6750+@53625+@55000+@57000+@55250+@51875+@625); truncado https://www.opendock.net/plugins/bandonker--opencode-code-review/ 173849->2014 chars (corte por documento 2000); janela de relevancia https://github.com/awesome-opencode/awesome-opencode: relevancia (@19500+@78250+@10250+@5375+@18375+@0+@250+@1125); truncado https://github.com/awesome-opencode/awesome-opencode 143071->2014 chars (corte por documento 2000); truncado https://github.com/awesome-opencode/awesome-opencode ao teto 12000 chars (cabeçalho+separador contam); teto de seleção 12000 chars atingido; 34 fontes fora",
+  "fallback": false,
+  "included_urls": [
+   "https://www.opendock.net/plugins/opencode-planning-with-files/",
+   "https://github.com/OthmanAdi/planning-with-files",
+   "https://github.com/timrichardson/opencode-planner",
+   "https://github.com/erskingardner/opencode-code-review",
+   "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+   "https://github.com/awesome-opencode/awesome-opencode"
+  ]
+ },
+ "counters": {
+  "counts": {
+   "analyzed": 40,
+   "cited": 12,
+   "discovered": 46,
+   "obtained": 40,
+   "usable": 40,
+   "used_in_synthesis": 6
+  },
+  "documents": {
+   "analyzed": [
+    "https://opencode.im/plugins",
+    "https://opencode.im/",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://www.opendock.net/plugins/opencode-planning-with-files/",
+    "https://opencode.ai/docs/plugins/",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://www.opencode.asia/plugins/",
+    "https://github.com/nikiforovall/opencode-marketplace",
+    "https://opencode.im/plugins?category=tools",
+    "https://opencode.ai/docs/pt-br/plugins/",
+    "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+    "https://allansantos-dv.github.io/opencode-marketplace/",
+    "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md",
+    "https://opencode.ai/docs/pt-br/ecosystem/",
+    "https://docs.plannotator.ai/open-source/agents/opencode",
+    "https://github.com/sun-praise/opencode-review",
+    "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+    "https://github.com/OthmanAdi/planning-with-files",
+    "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb",
+    "https://opencode.ai/docs/pt-br/agents/",
+    "https://opencode.ai/docs/pt-br/cli/",
+    "https://github.com/awesome-opencode/awesome-opencode",
+    "https://github.com/anomalyco/opencode",
+    "https://github.com/jadmadi/opencode-plugins",
+    "https://github.com/vichhka-git/opencode-shannon-plugin",
+    "https://github.com/alibaba/open-code-review",
+    "https://opencode.ai/v2/docs/plugins",
+    "https://composio.dev/content/best-opencode-plugins",
+    "https://www.opencode.cafe/",
+    "https://npm.io/package/opencode-planner",
+    "https://blog.cloudflare.com/ai-code-review/",
+    "https://opencode.im/categories/memory-context",
+    "https://kd05.com/p/opencode-mem-memory-plugin-guide/",
+    "https://github.com/chriswritescode-dev/opencode-memory",
+    "https://github.com/joshuadavidthomas/opencode-agent-memory",
+    "https://www.opencode.asia/ecosystem/plugins/agent-memory/",
+    "https://www.agent-memory.dev/docs/integrations/opencode",
+    "https://www.opendock.net/",
+    "https://dev.opencode.ai/docs/pt-br/ecosystem/"
+   ],
+   "cited": [
+    "https://github.com/OthmanAdi/planning-with-files",
+    "https://github.com/awesome-opencode/awesome-opencode",
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://github.com/nikiforovall/opencode-marketplace",
+    "https://github.com/sun-praise/opencode-review",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://opencode.ai/docs/plugins/",
+    "https://opencode.im/",
+    "https://opencode.im/plugins",
+    "https://opencode.im/plugins?category=tools",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://www.opendock.net/plugins/opencode-planning-with-files/"
+   ],
+   "discovered": [
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://github.com/sun-praise/opencode-review",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://opencode.im/",
+    "https://opencode.ai/docs/plugins/",
+    "https://composio.dev/content/best-opencode-plugins",
+    "https://opencode.ai/v2/docs/plugins",
+    "https://github.com/awesome-opencode/awesome-opencode",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://docs.plannotator.ai/open-source/agents/opencode",
+    "https://opencode.im/plugins",
+    "https://www.opendock.net/plugins/opencode-planning-with-files/",
+    "https://github.com/vichhka-git/opencode-shannon-plugin",
+    "https://github.com/nikiforovall/opencode-marketplace",
+    "https://www.opencode.cafe/",
+    "https://www.opencode.asia/plugins/",
+    "https://github.com/jadmadi/opencode-plugins",
+    "https://opencode.ai/docs/pt-br/agents/",
+    "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb",
+    "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md",
+    "https://opencode.ai/br",
+    "https://www.glukhov.org/pt/ai-devtools/opencode/oh-my-opencode-agents/",
+    "https://npm.io/package/opencode-planner",
+    "https://opencode.ai/docs/pt-br/plugins/",
+    "https://opencode.ai/docs/pt-br/ecosystem/",
+    "https://opencode.im/plugins?category=tools",
+    "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+    "https://allansantos-dv.github.io/opencode-marketplace/",
+    "https://github.com/alibaba/open-code-review",
+    "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+    "https://open-codereview.ai/",
+    "https://opencode.ai/docs/pt-br/cli/",
+    "https://blog.cloudflare.com/ai-code-review/",
+    "https://github.com/AllanSantos-DV/opencode-marketplace",
+    "https://zumkai.com/post/pillar-opencode-guia-completo",
+    "https://github.com/chriswritescode-dev/opencode-memory",
+    "https://github.com/joshuadavidthomas/opencode-agent-memory",
+    "https://opencode.im/categories/memory-context",
+    "https://kd05.com/p/opencode-mem-memory-plugin-guide/",
+    "https://opencode.ai/docs/agents/",
+    "https://horadecodar.com.br/memoria-no-opencode/",
+    "https://www.agent-memory.dev/docs/integrations/opencode",
+    "https://www.opencode.asia/ecosystem/plugins/agent-memory/",
+    "https://dev.opencode.ai/docs/pt-br/ecosystem/",
+    "https://www.opendock.net/",
+    "http://www.opencode.im/plugins"
+   ],
+   "obtained": [
+    "https://opencode.ai/docs/plugins/",
+    "https://opencode.ai/v2/docs/plugins",
+    "https://github.com/nikiforovall/opencode-marketplace",
+    "https://opencode.im/",
+    "https://github.com/awesome-opencode/awesome-opencode",
+    "https://www.opencode.cafe/",
+    "https://opencode.im/plugins",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://docs.plannotator.ai/open-source/agents/opencode",
+    "https://www.opendock.net/plugins/opencode-planning-with-files/",
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://github.com/sun-praise/opencode-review",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://composio.dev/content/best-opencode-plugins",
+    "https://github.com/vichhka-git/opencode-shannon-plugin",
+    "https://www.opencode.asia/plugins/",
+    "https://github.com/jadmadi/opencode-plugins",
+    "https://opencode.ai/docs/pt-br/plugins/",
+    "https://opencode.ai/docs/pt-br/ecosystem/",
+    "https://opencode.im/plugins?category=tools",
+    "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+    "https://allansantos-dv.github.io/opencode-marketplace/",
+    "https://github.com/anomalyco/opencode",
+    "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md",
+    "https://npm.io/package/opencode-planner",
+    "https://github.com/OthmanAdi/planning-with-files",
+    "https://github.com/alibaba/open-code-review",
+    "https://opencode.ai/docs/pt-br/agents/",
+    "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+    "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb",
+    "https://opencode.ai/docs/pt-br/cli/",
+    "https://blog.cloudflare.com/ai-code-review/",
+    "https://github.com/chriswritescode-dev/opencode-memory",
+    "https://github.com/joshuadavidthomas/opencode-agent-memory",
+    "https://opencode.im/categories/memory-context",
+    "https://kd05.com/p/opencode-mem-memory-plugin-guide/",
+    "https://www.agent-memory.dev/docs/integrations/opencode",
+    "https://www.opencode.asia/ecosystem/plugins/agent-memory/",
+    "https://dev.opencode.ai/docs/pt-br/ecosystem/",
+    "https://www.opendock.net/"
+   ],
+   "usable": [
+    "https://opencode.ai/docs/plugins/",
+    "https://opencode.ai/v2/docs/plugins",
+    "https://github.com/nikiforovall/opencode-marketplace",
+    "https://opencode.im/",
+    "https://github.com/awesome-opencode/awesome-opencode",
+    "https://www.opencode.cafe/",
+    "https://opencode.im/plugins",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://docs.plannotator.ai/open-source/agents/opencode",
+    "https://www.opendock.net/plugins/opencode-planning-with-files/",
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://github.com/sun-praise/opencode-review",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://composio.dev/content/best-opencode-plugins",
+    "https://github.com/vichhka-git/opencode-shannon-plugin",
+    "https://www.opencode.asia/plugins/",
+    "https://github.com/jadmadi/opencode-plugins",
+    "https://opencode.ai/docs/pt-br/plugins/",
+    "https://opencode.ai/docs/pt-br/ecosystem/",
+    "https://opencode.im/plugins?category=tools",
+    "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+    "https://allansantos-dv.github.io/opencode-marketplace/",
+    "https://github.com/anomalyco/opencode",
+    "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md",
+    "https://npm.io/package/opencode-planner",
+    "https://github.com/OthmanAdi/planning-with-files",
+    "https://github.com/alibaba/open-code-review",
+    "https://opencode.ai/docs/pt-br/agents/",
+    "https://dicastech.com.br/revisao-de-codigo-com-ia/",
+    "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb",
+    "https://opencode.ai/docs/pt-br/cli/",
+    "https://blog.cloudflare.com/ai-code-review/",
+    "https://github.com/chriswritescode-dev/opencode-memory",
+    "https://github.com/joshuadavidthomas/opencode-agent-memory",
+    "https://opencode.im/categories/memory-context",
+    "https://kd05.com/p/opencode-mem-memory-plugin-guide/",
+    "https://www.agent-memory.dev/docs/integrations/opencode",
+    "https://www.opencode.asia/ecosystem/plugins/agent-memory/",
+    "https://dev.opencode.ai/docs/pt-br/ecosystem/",
+    "https://www.opendock.net/"
+   ],
+   "used_in_synthesis": [
+    "https://www.opendock.net/plugins/opencode-planning-with-files/",
+    "https://github.com/OthmanAdi/planning-with-files",
+    "https://github.com/timrichardson/opencode-planner",
+    "https://github.com/erskingardner/opencode-code-review",
+    "https://www.opendock.net/plugins/bandonker--opencode-code-review/",
+    "https://github.com/awesome-opencode/awesome-opencode"
+   ]
+  },
+  "meta": {
+   "https://allansantos-dv.github.io/opencode-marketplace/": {
+    "obtained_at": "2026-11-02T05:43:00Z",
+    "raw_chars": 10681,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 10681
+   },
+   "https://blog.cloudflare.com/ai-code-review/": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 306973,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 306973
+   },
+   "https://composio.dev/content/best-opencode-plugins": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 306887,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 306887
+   },
+   "https://dev.opencode.ai/docs/pt-br/ecosystem/": {
+    "obtained_at": "2026-11-02T05:49:27Z",
+    "raw_chars": 53179,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 53179
+   },
+   "https://dev.to/he4rt/sistema-de-planejamento-estruturado-no-opencode-16pb": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 187490,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 187490
+   },
+   "https://dicastech.com.br/revisao-de-codigo-com-ia/": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 151937,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 151937
+   },
+   "https://docs.plannotator.ai/open-source/agents/opencode": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 179470,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 179470
+   },
+   "https://github.com/Nsomnia/everything-opencode/blob/main/docs/pt-BR/agents/planner.md": {
+    "obtained_at": "2026-11-02T05:43:00Z",
+    "raw_chars": 2296,
+    "status": "usable",
+    "title": "Nsomnia/everything-opencode",
+    "type": "repository",
+    "usable_chars": 2296
+   },
+   "https://github.com/OthmanAdi/planning-with-files": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 111242,
+    "status": "usable",
+    "title": "OthmanAdi/planning-with-files",
+    "type": "repository",
+    "usable_chars": 111242
+   },
+   "https://github.com/alibaba/open-code-review": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 13323,
+    "status": "usable",
+    "title": "alibaba/open-code-review",
+    "type": "repository",
+    "usable_chars": 13323
+   },
+   "https://github.com/anomalyco/opencode": {
+    "obtained_at": "2026-11-02T05:43:00Z",
+    "raw_chars": 4583,
+    "status": "usable",
+    "title": "anomalyco/opencode",
+    "type": "repository",
+    "usable_chars": 4583
+   },
+   "https://github.com/awesome-opencode/awesome-opencode": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 143071,
+    "status": "usable",
+    "title": "awesome-opencode/awesome-opencode",
+    "type": "repository",
+    "usable_chars": 143071
+   },
+   "https://github.com/chriswritescode-dev/opencode-memory": {
+    "obtained_at": "2026-11-02T05:46:19Z",
+    "raw_chars": 29226,
+    "status": "usable",
+    "title": "chriswritescode-dev/opencode-memory",
+    "type": "repository",
+    "usable_chars": 29226
+   },
+   "https://github.com/erskingardner/opencode-code-review": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 4044,
+    "status": "usable",
+    "title": "erskingardner/opencode-code-review",
+    "type": "repository",
+    "usable_chars": 4044
+   },
+   "https://github.com/jadmadi/opencode-plugins": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 8028,
+    "status": "usable",
+    "title": "jadmadi/opencode-plugins",
+    "type": "repository",
+    "usable_chars": 8028
+   },
+   "https://github.com/joshuadavidthomas/opencode-agent-memory": {
+    "obtained_at": "2026-11-02T05:46:19Z",
+    "raw_chars": 9467,
+    "status": "usable",
+    "title": "joshuadavidthomas/opencode-agent-memory",
+    "type": "repository",
+    "usable_chars": 9467
+   },
+   "https://github.com/nikiforovall/opencode-marketplace": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 2794,
+    "status": "usable",
+    "title": "NikiforovAll/opencode-marketplace",
+    "type": "repository",
+    "usable_chars": 2794
+   },
+   "https://github.com/sun-praise/opencode-review": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 2914,
+    "status": "usable",
+    "title": "sun-praise/opencode-review",
+    "type": "repository",
+    "usable_chars": 2914
+   },
+   "https://github.com/timrichardson/opencode-planner": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 15428,
+    "status": "usable",
+    "title": "timrichardson/opencode-planner",
+    "type": "repository",
+    "usable_chars": 15428
+   },
+   "https://github.com/vichhka-git/opencode-shannon-plugin": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 12043,
+    "status": "usable",
+    "title": "vichhka-git/opencode-shannon-plugin",
+    "type": "repository",
+    "usable_chars": 12043
+   },
+   "https://kd05.com/p/opencode-mem-memory-plugin-guide/": {
+    "obtained_at": "2026-11-02T05:46:19Z",
+    "raw_chars": 48849,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 48849
+   },
+   "https://npm.io/package/opencode-planner": {
+    "obtained_at": "2026-11-02T05:43:00Z",
+    "raw_chars": 118038,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 118038
+   },
+   "https://opencode.ai/docs/plugins/": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 102552,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 102552
+   },
+   "https://opencode.ai/docs/pt-br/agents/": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 157545,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 157545
+   },
+   "https://opencode.ai/docs/pt-br/cli/": {
+    "obtained_at": "2026-11-02T05:44:03Z",
+    "raw_chars": 103355,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 103355
+   },
+   "https://opencode.ai/docs/pt-br/ecosystem/": {
+    "obtained_at": "2026-11-02T05:42:59Z",
+    "raw_chars": 53095,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 53095
+   },
+   "https://opencode.ai/docs/pt-br/plugins/": {
+    "obtained_at": "2026-11-02T05:42:59Z",
+    "raw_chars": 104167,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 104167
+   },
+   "https://opencode.ai/v2/docs/plugins": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 28257,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 28257
+   },
+   "https://opencode.im/": {
+    "obtained_at": "2026-11-02T05:49:27Z",
+    "raw_chars": 235961,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 235961
+   },
+   "https://opencode.im/categories/memory-context": {
+    "obtained_at": "2026-11-02T05:46:19Z",
+    "raw_chars": 117177,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 117177
+   },
+   "https://opencode.im/plugins": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 301637,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 301637
+   },
+   "https://opencode.im/plugins?category=tools": {
+    "obtained_at": "2026-11-02T05:43:00Z",
+    "raw_chars": 282397,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 282397
+   },
+   "https://www.agent-memory.dev/docs/integrations/opencode": {
+    "obtained_at": "2026-11-02T05:47:50Z",
+    "raw_chars": 307178,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 307178
+   },
+   "https://www.opencode.asia/ecosystem/plugins/agent-memory/": {
+    "obtained_at": "2026-11-02T05:47:50Z",
+    "raw_chars": 79342,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 79342
+   },
+   "https://www.opencode.asia/plugins/": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 118899,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 118899
+   },
+   "https://www.opencode.cafe/": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 31052,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 31052
+   },
+   "https://www.opendock.net/": {
+    "obtained_at": "2026-11-02T05:49:28Z",
+    "raw_chars": 195180,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 195180
+   },
+   "https://www.opendock.net/plugins/bandonker--opencode-code-review/": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 173849,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 173849
+   },
+   "https://www.opendock.net/plugins/opencode-planning-with-files/": {
+    "obtained_at": "2026-11-02T05:41:03Z",
+    "raw_chars": 236721,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 236721
+   },
+   "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR": {
+    "obtained_at": "2026-11-02T05:49:27Z",
+    "raw_chars": 49724,
+    "status": "usable",
+    "title": null,
+    "type": "page",
+    "usable_chars": 49724
+   }
+  },
+  "note": "contadores de eventos observados; metadado/vídeo sem transcrição não conta como obtido",
+  "outside_corpus_citations": [],
+  "relations": [
+   {
+    "at": "2026-11-02T05:43:00Z",
+    "detail": "trecho distinto da mesma URL (1 anterior(es))",
+    "kind": "version",
+    "related_to": "https://opencode.im/",
+    "url": "https://opencode.im/"
+   },
+   {
+    "at": "2026-11-02T05:44:02Z",
+    "detail": "trecho distinto da mesma URL (1 anterior(es))",
+    "kind": "version",
+    "related_to": "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR",
+    "url": "https://www.yodev.dev/t/tu-opencode-esta-vacio-10-plugins-y-agentes-que-vale-la-pena-instalar/3369?tl=pt_BR"
+   },
+   {
+    "at": "2026-11-02T05:49:28Z",
+    "detail": "bytes idênticos em outra URL (republicação; independência desconhecida)",
+    "kind": "duplicate",
+    "related_to": "https://opencode.im/plugins",
+    "url": "http://www.opencode.im/plugins"
+   }
+  ]
+ },
+ "evaluations_c12_c13": [
+  {
+   "criterion_id": "c12",
+   "entity_id": null,
+   "examined": {
+    "collected_chars": 1903599,
+    "excerpt_chars": 10188,
+    "round": 0,
+    "selection_docs": 9
+   },
+   "justification": "Nenhuma fonte selecionada justifica combinacoes entre plugins; sem matriz de interoperabilidade.",
+   "origin": "selected-material",
+   "references": [
+    {
+     "url": "https://opencode.im/plugins"
+    },
+    {
+     "url": "https://opencode.im/"
+    },
+    {
+     "url": "https://opencode.ai/docs/plugins/"
+    }
+   ],
+   "state": "insufficient"
+  },
+  {
+   "criterion_id": "c13",
+   "entity_id": null,
+   "examined": {
+    "collected_chars": 1903599,
+    "excerpt_chars": 10188,
+    "round": 0,
+    "selection_docs": 9
+   },
+   "justification": "Nenhuma fonte compara sobreposicao de funcoes; apenas descricoes isoladas por plugin.",
+   "origin": "selected-material",
+   "references": [
+    {
+     "url": "https://www.opendock.net/plugins/opencode-planning-with-files/"
+    },
+    {
+     "url": "https://github.com/timrichardson/opencode-planner"
+    },
+    {
+     "url": "https://github.com/erskingardner/opencode-code-review"
+    }
+   ],
+   "state": "insufficient"
+  }
+ ],
+ "substitutions": [
+  {
+   "new": "opencode-review-sun-praise",
+   "old": "memory-opencode-marketplace",
+   "reason": "memory-opencode-marketplace sem evidência referenciada após 2 rounds; opencode-review-sun-praise com fonte própria coletada e mencionada",
+   "round": 2
+  }
+ ],
+ "unexplored_alternatives": [
+  {
+   "entity": "opencode-plugin-peers",
+   "entity_id": "opencode-plugin-peers",
+   "urls": []
+  },
+  {
+   "entity": "opencode-plugin-peers",
+   "entity_id": "opencode-plugin-peers",
+   "urls": []
+  },
+  {
+   "entity": "opencode-plugin-peers",
+   "entity_id": "opencode-plugin-peers",
+   "urls": []
+  },
+  {
+   "entity": "opencode-plugin-peers",
+   "entity_id": "opencode-plugin-peers",
+   "urls": []
+  },
+  {
+   "entity": "opencode-plugin-peers",
+   "entity_id": "opencode-plugin-peers",
+   "urls": []
+  }
+ ],
+ "sun_evidence_len": 2914,
+ "sun_qual": {
+  "excluded": false,
+  "reason": "",
+  "status": "usable",
+  "title": "sun-praise/opencode-review"
+ },
+ "sun_usable_head": "# opencode-review\n\nAn automatic code review plugin for [OpenCode](https://opencode.ai) CLI. Automatically reviews staged changes when a session goes idle, with configurable cooldown, multi-dimension analysis, and auto-fix support.\n\n## Features\n\n- **Auto-review on idle** — automatically triggers code"
+}

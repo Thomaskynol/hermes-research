@@ -54,7 +54,7 @@ def plan1():
         "question": "How to install Widget Alfa?",
         "entities": [{"id": "e1", "label": "Widget Alfa", "required": True}],
         "criteria": [{"id": "c1", "label": "installation", "required": True,
-                      "per_candidate": True, "applies_to": ["e1"]}],
+                      "per_candidate": True, "applies_to": ["e1"], "description": "Eixo installation: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         "initial_paths": ["consulta"],
     }
 

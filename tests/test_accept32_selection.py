@@ -49,7 +49,7 @@ def global_plan():
                           "required": False, "discovered": True,
                           "source_url": URL_S}],
             "criteria": [{"id": "c0", "label": "overview",
-                          "required": True}],
+                          "required": True, "description": "Eixo overview: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
 
 
@@ -60,7 +60,7 @@ def cell_plan():
                           "source_url": URL_S}],
             "criteria": [{"id": "c1", "label": "failure modes",
                           "required": True, "per_candidate": True,
-                          "applies_to": ["w1"]}],
+                          "applies_to": ["w1"], "description": "Eixo failure modes: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "initial_paths": ["q"]}
 
 

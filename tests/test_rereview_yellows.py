@@ -31,7 +31,7 @@ class PromotionDiscardNotesTest(unittest.TestCase):
                           "required": False, "discovered": True,
                           "source_url": URL_A}],
             "criteria": [{"id": "c1", "label": "axis", "required": True,
-                          "per_candidate": True, "applies_to": ["w1"]}],
+                          "per_candidate": True, "applies_to": ["w1"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
             "candidate_target": 2,
         })
         st = {"plan": plan, "question": "q",
@@ -70,7 +70,7 @@ class GapDedupTest(unittest.TestCase):
                           "source_url": URL_C}],
             "criteria": [{"id": "c1", "label": "Eixo", "required": True,
                           "per_candidate": True,
-                          "applies_to": ["w1"]}],
+                          "applies_to": ["w1"], "description": "Eixo Eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
         led = ledger_mod.Ledger(plan, run_id="t")
         led.set_corpus({}, {})
@@ -89,7 +89,7 @@ class NaCellLabelTest(unittest.TestCase):
                 "entities": [{"id": "w1", "label": "Widget Alpha",
                               "required": True}],
                 "criteria": [{"id": "c1", "label": "Eixo Um",
-                              "required": True, "applies_to": ["w1"]}]}
+                              "required": True, "applies_to": ["w1"], "description": "Eixo Eixo Um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         block = {"status": "partial", "proportion": 0.0, "numerator": 0,
                  "denominator": 1, "na": 1,
                  "na_cells": [{"criterion_id": "c1", "entity_id": "w1",
@@ -104,7 +104,7 @@ class NaCellLabelTest(unittest.TestCase):
                                "na_cells": [{"criterion_id": "c1",
                                              "entity_id": "w1",
                                              "justification":
-                                             "fora de escopo"}]}],
+                                             "fora de escopo"}], "description": "Eixo Eixo Um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                  "gaps": [], "references": [], "observed_counts": {}}
         state = {"question": "q", "plan": plan,
                  "question_coverage": block,
@@ -126,7 +126,7 @@ class DeclaredInferencePartialStatusTest(unittest.TestCase):
                               "required": True}],
                 "criteria": [{"id": "c0", "label": "compatibilidade",
                               "required": True,
-                              "applies_to": ["e0", "e1"]}]}
+                              "applies_to": ["e0", "e1"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         sent = ("Widget Alpha gerencia planos [1] \u2014 INFER\u00caNCIA: "
                 "uso complementar com Widget Beta para fluxo combinado [2].")
         res = verify.check_support(

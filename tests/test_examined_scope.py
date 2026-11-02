@@ -41,7 +41,7 @@ def scope_state():
         ],
         "criteria": [{"id": "c0", "label": "custo de licenca",
                        "required": True,
-                       "applies_to": ["e0", "e1", "e2"]}],
+                       "applies_to": ["e0", "e1", "e2"], "description": "Eixo custo de licenca: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
     }
     st["evidence"] = {
         "https://example.org/alpha/0": "AlphaWidget custo de licenca MIT",
@@ -97,7 +97,7 @@ class ScopeWordingTest(unittest.TestCase):
         block = {"criteria": [{"id": "c0", "label": "custo de licenca",
                                "state": "insufficient",
                                "justification": "j", "origin": "stub",
-                               "references": []}]}
+                               "references": [], "description": "Eixo custo de licenca: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]}
         ac._annotate_examined_scope(st, block)
         self.assertIn("alcance examinado", block["criteria"][0][
             "examined_scope"])

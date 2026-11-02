@@ -73,7 +73,7 @@ class EntityFirstSelectionTest(unittest.TestCase):
                 "entities": [{"id": "e0", "label": "Alpha", "required": True,
                               "discovered": True, "source_url": entity_url}],
                 "criteria": [{"id": "c0", "label": "feature",
-                              "required": True, "applies_to": ["e0"]}],
+                              "required": True, "applies_to": ["e0"], "description": "Eixo feature: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": []}
         assess = ac.make_model_assessor(lambda prompt: "[]", max_docs=5)
         assess(plan, evidence, {}, {})
@@ -88,9 +88,9 @@ class AssessRoundStatsTest(unittest.TestCase):
         plan = {"plan_id": "p", "version": 1,
                 "entities": [{"id": "e0", "label": "Alpha", "required": True}],
                 "criteria": [{"id": "c0", "label": "feature one",
-                              "required": True, "applies_to": ["e0"]},
+                              "required": True, "applies_to": ["e0"], "description": "Eixo feature one: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
                              {"id": "c1", "label": "feature two",
-                              "required": True, "applies_to": ["e0"]}],
+                              "required": True, "applies_to": ["e0"], "description": "Eixo feature two: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
                 "initial_paths": []}
 
         def client(prompt):

@@ -28,8 +28,7 @@ def make_state() -> dict:
                 "id": "c1",
                 "label": "Compatibilidade com a versão instalada",
                 "required": True,
-                "applies_to": ["e1", "e2"],
-            }],
+                "applies_to": ["e1", "e2"], "description": "Eixo Compatibilidade com a versão instalada: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         },
         "evidence": {
             DOC1: ("Widget Alpha is compatible with the installed version and "

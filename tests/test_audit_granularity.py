@@ -23,7 +23,7 @@ def _plan():
         "entities": [{"id": "e0", "label": "Widget Alpha",
                       "required": True}],
         "criteria": [{"id": "c0", "label": "compatibilidade",
-                      "required": True, "applies_to": ["e0"]}],
+                      "required": True, "applies_to": ["e0"], "description": "Eixo compatibilidade: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
     }
 
 

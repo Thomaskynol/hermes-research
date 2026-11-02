@@ -39,7 +39,7 @@ def plan(n=1):
         "plan_id": "second-review", "version": 1,
         "entities": [{"id": f"e{i}", "required": True} for i in range(n)],
         "criteria": [{"id": f"c{i}", "label": f"criterion {i}",
-                      "required": True, "applies_to": [f"e{i}"]}
+                      "required": True, "applies_to": [f"e{i}"], "description": "Eixo eixo: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}
                      for i in range(n)],
         "initial_paths": ["query"],
     }
@@ -104,7 +104,8 @@ class SecondReview(unittest.TestCase):
         proposed = ev()
         proposed["propose_entity"] = {
             "entity": {"id": "new-candidate", "label": "New candidate"},
-            "criteria": [{"id": "new-criterion", "required": True,
+            "criteria": [{"id": "new-criterion", "label": "new axis",
+                          "required": True, "description": "Eixo new axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite.",
                           "applies_to": ["new-candidate"]}],
         }
         assessor = ac.make_model_assessor(lambda prompt: json.dumps([proposed]))

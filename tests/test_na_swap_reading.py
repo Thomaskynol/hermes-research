@@ -39,7 +39,7 @@ def plan2():
         ],
         "criteria": [
             {"id": "c1", "label": "eixo um", "required": True,
-             "per_candidate": True, "applies_to": ["e1", "e2"]},
+             "per_candidate": True, "applies_to": ["e1", "e2"], "description": "Eixo eixo um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."},
         ],
         "initial_paths": ["consulta"],
     }
@@ -74,7 +74,7 @@ class TestNALedger(unittest.TestCase):
     def test_na_global_rejected(self):
         p = {"plan_id": "g", "version": 1, "question": "q",
              "entities": [{"id": "e1", "label": "um", "required": True}],
-             "criteria": [{"id": "c1", "label": "global", "required": True}],
+             "criteria": [{"id": "c1", "label": "global", "required": True, "description": "Eixo global: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
              "initial_paths": ["x"]}
         lg = cl.Ledger(p, run_id="r1")
         lg.set_corpus({A: "x" * 500}, qual([A]))
@@ -85,7 +85,7 @@ class TestNALedger(unittest.TestCase):
     def test_na_single_entity_rejected(self):
         p = plan2()
         p["criteria"] = [{"id": "c1", "label": "eixo um", "required": True,
-                          "applies_to": ["e1"]}]
+                          "applies_to": ["e1"], "description": "Eixo eixo um: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}]
         lg = cl.Ledger(p, run_id="r1")
         lg.set_corpus({A: "x" * 500}, qual([A]))
         with self.assertRaises(ValueError):
@@ -193,7 +193,13 @@ class TestSubstitution(unittest.TestCase):
         st["rounds"] = [{"round": 0}, {"round": 1}]
         return st
 
-    def test_swap_to_more_evidence(self):
+    def test_supported_without_dominance_keeps_and_records(self):
+        # Contrato 3 (fase F fix-lane): troca exige dominância estrita em
+        # _comparative_pairs. e3 tem fonte própria coletada+mencionada mas
+        # nenhuma avaliação covered/partial com ref própria — suportado sem
+        # dominância — logo não há troca; registra unexplored em vez de
+        # sumir silenciosamente. (Antes afirmava a troca; requisito mudou
+        # pelo contrato 3 — ver NOTAS.txt da lane; sem commit.)
         st = self._state()
         lg = cl.Ledger(st["plan"], run_id=st["run_id"])
         lg.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
@@ -202,19 +208,15 @@ class TestSubstitution(unittest.TestCase):
                         ev["justification"], ev["origin"],
                         ev["references"], ev["entity_id"])
         # e2 has no referenced evaluation at all; e3 explored with
-        # collected+mentioned source. e1 cannot swap (B never collected
-        # for e2... e2 is the swap candidate here).
-        self.assertTrue(ac._maybe_substitute(st, lg))
+        # collected+mentioned source but no own-ref covered/partial, so
+        # no dominance pair exists (e2 is the weak candidate here).
+        self.assertFalse(ac._maybe_substitute(st, lg))
         emap = {e["id"]: e for e in st["plan"]["entities"]}
-        self.assertFalse(emap["e2"]["required"])
-        self.assertIn("substituída por e3", emap["e2"].get("note", ""))
-        self.assertTrue(emap["e3"]["required"])
-        rec = st["plan_versions"][-1]
-        self.assertEqual(rec.get("type"), "substitution")
-        self.assertEqual((rec.get("old"), rec.get("new")), ("e2", "e3"))
-        self.assertTrue(rec.get("reason"))
-        self.assertEqual(st["substitutions"][-1]["old"], "e2")
-        # Old stays tracked (explored, out of selection).
+        self.assertTrue(emap["e2"]["required"])
+        self.assertFalse(emap["e3"]["required"])
+        recs = st.get("unexplored_alternatives") or []
+        self.assertTrue(recs, "sem troca deve registrar unexplored")
+        # Old stays tracked (explored, in selection).
         self.assertIn("e2", emap)
 
     def test_no_swap_without_better_evidence(self):
