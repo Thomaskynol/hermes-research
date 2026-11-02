@@ -3840,7 +3840,12 @@ def _writer_complementarity_guidance() -> str:
     tested integration/functional compatibility/absence of conflicts.
     Absence of interop evidence stays LACUNA for the integration claim
     but must not delete the recorded complementarity inference.
-    Generic wording only — no product/version literals.
+    Anti-false-absence: a 'no attributable functionality' claim for a
+    candidate in the combination/overlap section must first check the
+    accumulated functional status (partial/covered evaluations with
+    resolved refs); when present, claim only absent combination basis,
+    never absent functionality. Generic wording only — no
+    product/version literals.
     """
     return (
         "conclusão prudente de combinação ou sobreposição "
@@ -3850,7 +3855,14 @@ def _writer_complementarity_guidance() -> str:
         "limites, e nunca afirmar integração testada, compatibilidade "
         "funcional ou ausência de conflitos; ausência de prova de "
         "integração continua LACUNA para a afirmação de integração, "
-        "sem apagar a inferência de complementaridade registrada.")
+        "sem apagar a inferência de complementaridade registrada; antes "
+        "de redigir 'sem funcionalidade/documentação atribuível' para um "
+        "candidato na seção de combinação/sobreposição, confira o estado "
+        "funcional acumulado (evaluations partial/covered com referências "
+        "resolvidas no eixo funcional); havendo, afirme apenas ausência "
+        "de base de combinação/sobreposição, nunca de funcionalidade; "
+        "sem evaluations que sustentem funcionalidade, a LACUNA de "
+        "ausência fica preservada, sem forçar covered.")
 
 
 def make_model_writer(model_client, max_chars: int = 12000):
@@ -7735,7 +7747,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             _ev["sentence_claims"] = _check["claims"]
             _ev["sentence_supported"] = _check["supported"]
             _ev["sentence_uncited"] = _check["uncited"]
-            _ev["sentence_unsupported"] = _check["unsupported"]
+            _ev["sentence_unsupported"] = list(
+                _ev.get("sentence_unsupported") or []) + list(
+                _check["unsupported"] or [])
             _ev["sentence_support"] = _check
             _rank = {"not_run": 0, "unknown": 0, "ok": 1,
                      "partial": 2, "failed": 3}

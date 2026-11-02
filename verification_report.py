@@ -1814,6 +1814,30 @@ def verify_support(state: dict, report_text: str,
     if _contra:
         notes.append(_contra)
         return _result("support", "failed", evidence, notes)
+    try:
+        _fa_flags = _false_absence_flags(report_text or "", state=state)
+    except Exception:
+        _fa_flags = []
+    if _fa_flags:
+        evidence["false_absence_flags"] = [
+            {"entity": str(f.get("label") or f.get("entity_id")),
+             "sentence": str(f.get("sentence") or "")[:300],
+             "evaluations": f.get("evaluations")}
+            for f in _fa_flags[:8]]
+        evidence["sentence_unsupported"] = list(
+            evidence.get("sentence_unsupported") or []) + [
+            {"sentence": str(f.get("sentence") or "")[:300],
+             "citations": [int(n) for n in
+                           re.findall(r"\[(\d+)\]",
+                                      str(f.get("sentence") or ""))],
+             "reason": "ausência contradiz evaluations com refs"}
+            for f in _fa_flags[:8]]
+        notes.append(
+            "ausência contradiz evaluations com refs: "
+            f"{len(_fa_flags)} afirmação(ões) de 'sem funcionalidade/"
+            "documentação atribuível' com evaluations partial/covered "
+            "e refs resolvidas")
+        return _result("support", "failed", evidence, notes)
     # Oráculo externo (diagnose pós-hoc, quando fornecido em
     # state["diagnose_audit"]): misses que este auditor não ponderou
     # impedem ok SOMENTE com pergunta parcial (gaps abertos) — sem
@@ -1862,6 +1886,173 @@ def verify_support(state: dict, report_text: str,
                      "foram integralmente revisadas")
         return _result("support", "partial", evidence, notes)
     return _result("support", "ok", evidence, notes)
+
+
+#: Ausência global de funcionalidade atribuível (genérico, sem literais):
+#: formas normalizadas (sem acento, minúsculas, via _norm_mention) de 'sem
+#: funcionalidade/documentação atribuível' + 'sem funcionalidade
+#: documentada (atribuível)'. Só o claim global casa; LACUNA window-scoped
+#: ('nenhum excerto afirma X') e 'sem X demonstrado' ficam de fora.
+_FALSE_ABSENCE_PATTERNS = (
+    "sem funcionalidade atribu",
+    "sem funcionalidades atribu",
+    "sem documentacao atribu",
+    "sem documentacoes atribu",
+    "sem funcionalidade documentada",
+    "sem funcionalidades documentadas",
+)
+
+
+def _false_absence_ref_usable(url, evidence, qualification) -> bool:
+    """Uma ref sustenta presença só resolvendo p/ usable_text não-excluído.
+
+    Mesmos gates do Ledger._resolves (url no corpus + qualificação
+    presente, não-excluída, sem status de erro, com usable_text): refs
+    fora do corpus/excluídas/vazias e partial_declared fraco (anchor_ok
+    sem refs resolvidas) nunca sustentam presença — falsa-presença
+    inversa proibida.
+    """
+    try:
+        if not isinstance(url, str) or not url:
+            return False
+        if url not in (evidence or {}):
+            return False
+        qual = (qualification or {}).get(url)
+        if not isinstance(qual, dict):
+            return False
+        if qual.get("excluded"):
+            return False
+        status = str(qual.get("status") or "").strip().lower()
+        if status in ("error", "failed", "fetch_error", "timeout",
+                      "access_failure", "access-failure"):
+            return False
+        if not str(qual.get("usable_text") or "").strip():
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _false_absence_flags(synthesis_text, evaluations=None, *, plan=None,
+                         evidence=None, qualification=None,
+                         state=None) -> list[dict]:
+    """Flags de ausência-falsa: 'sem funcionalidade atribuível' × evals.
+
+    Detecta frases que afirmam ausência GLOBAL de funcionalidade/
+    documentação atribuível a entidade rotulada (padrões acima + menção
+    estrita via _entity_mentioned, nunca substring) e verifica contra
+    evaluations partial/covered dessa entidade com refs resolvidas.
+    Retorna [{entity_id, label, sentence, evaluations}]. NUNCA força
+    covered: sem evaluations que sustentem, retorna [] (LACUNA genuína
+    passa). Mira o claim, não a seção: dispara em qualquer linha de
+    afirmação fora de tabela/nota própria.
+    """
+    try:
+        if isinstance(state, dict):
+            if plan is None:
+                plan = state.get("plan") or {}
+            if evaluations is None:
+                evaluations = state.get("evaluations")
+            if evidence is None:
+                evidence = state.get("evidence") or {}
+            if qualification is None:
+                qualification = state.get("qualification") or {}
+        plan = plan if isinstance(plan, dict) else {}
+        evidence = evidence if isinstance(evidence, dict) else {}
+        qualification = (qualification if isinstance(qualification, dict)
+                         else {})
+        entities = [e for e in plan.get("entities") or []
+                    if isinstance(e, dict)
+                    and str(e.get("label") or "").strip()]
+        if not entities:
+            return []
+        # evaluations: lista do ledger OU bloco question_coverage (dict).
+        items: list[dict] = []
+        if isinstance(evaluations, dict):
+            for crit in evaluations.get("criteria") or []:
+                if not isinstance(crit, dict):
+                    continue
+                refs = crit.get("references") or []
+                by_ent: dict = {}
+                if isinstance(crit.get("entity_states"), dict):
+                    by_ent.update(crit["entity_states"])
+                if crit.get("entity_id") is not None:
+                    by_ent.setdefault(crit.get("entity_id"),
+                                      crit.get("state"))
+                for eid, stt in by_ent.items():
+                    items.append({"criterion_id": crit.get("id"),
+                                  "entity_id": eid, "state": stt,
+                                  "references": refs})
+        elif isinstance(evaluations, (list, tuple)):
+            items = [e for e in evaluations if isinstance(e, dict)]
+        if not items:
+            return []
+        sustaining: dict[str, list] = {}
+        for ev in items:
+            try:
+                if ev.get("state") not in ("partial", "covered"):
+                    continue
+                eid = ev.get("entity_id")
+                if eid is None:
+                    continue
+                refs = ev.get("references") or []
+                ok = False
+                for ref in refs:
+                    url = ""
+                    if isinstance(ref, dict):
+                        url = ref.get("url", ref.get("doc_id", ""))
+                    if _false_absence_ref_usable(url, evidence,
+                                                 qualification):
+                        ok = True
+                        break
+                if ok:
+                    sustaining.setdefault(str(eid), []).append(ev)
+            except Exception:
+                continue
+        if not sustaining:
+            return []
+        flags: list[dict] = []
+        for line in str(synthesis_text or "").splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(("|", "#", ">", "```")):
+                continue
+            if _is_own_note_line(s):
+                continue
+            for sent in re.split(r"(?<=[.!?])\s+", s):
+                sent = sent.strip()
+                if not sent:
+                    continue
+                try:
+                    norm = _norm_mention(sent)
+                except Exception:
+                    continue
+                if not any(p in norm for p in _FALSE_ABSENCE_PATTERNS):
+                    continue
+                for ent in entities:
+                    try:
+                        named = bool(_entity_mentioned(
+                            str(ent.get("label") or ""), ent.get("id"),
+                            sent))
+                    except Exception:
+                        named = False
+                    if not named:
+                        continue
+                    sup = sustaining.get(str(ent.get("id")))
+                    if not sup:
+                        continue
+                    flags.append({
+                        "entity_id": ent.get("id"),
+                        "label": ent.get("label"),
+                        "sentence": sent,
+                        "evaluations": [
+                            {"criterion_id": e.get("criterion_id"),
+                             "state": e.get("state")} for e in sup],
+                    })
+        return flags
+    except Exception:
+        return []
 
 
 def _contradictory_absence(report_text: str, state: dict) -> str:

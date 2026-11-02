@@ -15,3 +15,8 @@
 ## 2026-11-02 — higiene do renderer + revisão + accept38
 - Lane hygiene (G1/G2) + revisão independente (5🟡1❓ triados: idem+chave normalizada aplicados; demais documentados).
 - Suite 695 OK/10 skips. Commit 5b7e973. accept37 preservado (report com vazamentos = pré-higiene).
+
+## 2026-11-02 — fixes accept38 + aceite accept39 lançado
+- 3 fixes (placeholder [(fonte)], lookup barra-final, detector hifen-consciente) TDD 11 testes; revisão 2🔴+1🟡 triada (bare-trail corrigido direto; compound-refutado revertido; fail-open aceito).
+- Suite 708 OK/10 skips EXIT 0. Commit 29a44b6. Congelamento accept39 (HEAD 29a44b6, 13 módulos, 8082 pré 200419/3994).
+- Run accept39 em background (sh_19b7b771b001mVg2qzqQaUt3ED): mesma pergunta + premissa 2.1.4. Aguardar notificação.
