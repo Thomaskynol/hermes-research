@@ -20,3 +20,21 @@
 - 3 fixes (placeholder [(fonte)], lookup barra-final, detector hifen-consciente) TDD 11 testes; revisão 2🔴+1🟡 triada (bare-trail corrigido direto; compound-refutado revertido; fail-open aceito).
 - Suite 708 OK/10 skips EXIT 0. Commit 29a44b6. Congelamento accept39 (HEAD 29a44b6, 13 módulos, 8082 pré 200419/3994).
 - Run accept39 em background (sh_19b7b771b001mVg2qzqQaUt3ED): mesma pergunta + premissa 2.1.4. Aguardar notificação.
+
+## 2026-11-02 — higiene + 4 achados + C3, aceite accept41
+- Revisão ses_e64568cab (0🔴 4🟡, todos confirmados) → lane fixer (RED 7→GREEN 8, suite 733 OK/10 skips).
+- Diff próprio verificado (genérico, sem literais); suite re-executada pelo controlador: 733 OK EXIT 0.
+- Demo C3 honesta: reais inertes + par mínimo até Markdown real (valid-fase-f/c3-substitution/).
+- Commit 934f373. accept36/37/38/39/40 preservados.
+
+## 2026-11-02 — demo C3 + revisão + fixes + accept41 lançado
+- Demo C3 honesta (offline, valid-fase-f/c3-substitution/): reais accept40 NÃO disparam troca (política inerte, correto); par mínimo Alpha/Beta dispara _maybe_substitute→_do_substitute+render reais com triple no Markdown (plan_version type=substitution + substitutions + motivo §8). Originais intactos (sha).
+- Revisão ses_e64568cab (0🔴 4🟡); lane ses_e6455c641 corrigiu os 4 (RED 7→GREEN 8); suite 733 OK/10 skips.
+- Commit 934f373; congelamento accept41 (HEAD 934f373, 8082 pré 235087/4368, opencode v2.2.5); run accept41 em background (sh_19bacf859001d5IZlbKQtXPpQB), mesma pergunta + premissa 2.1.4.
+- Não tocar produto até o run concluir.
+
+## 2026-11-02 — aceite accept41 + entrega
+- accept41 EXIT=0 sobre 934f373 (hashes iguais, 8082 com efeito). 2/41 partial; support ok; 15 lacunas; stop rounds=6.
+- Relatório lido como usuário (792 linhas); corpo limpo; URLs ok (unknown=[]).
+- Técnico em docs/RELATORIO_TECNICO_MISSAO_FASE_F.md; CONTINUIDADE atualizada.
+- [x] Aceite sobre código congelado. [x] Relatório técnico + CONTINUIDADE + commits.

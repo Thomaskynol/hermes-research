@@ -612,3 +612,19 @@ segue pendente.
 - Entrega parcial: `docs/RELATORIO_TECNICO_MISSAO_FASE_E.md`;
   `/home/thomaskyn/hermes-runs/accept35/adaptive_accept35/report.md`.
   Fila: stop default com lacunas; churn auto-plan; recall do overlap; leitura 1,5%.
+
+## Fase F contratos+aceite (2026-11-02) — 4 contratos demonstrados, aceite accept41 parcial
+- Fixes: prompt preserva per_candidate + aviso de colapso; veto fora-do-corpus por
+  frase; detector de contradição com identidade estrita; guarda anti-ausência-falsa
+  (prompt + verifier `_false_absence_flags`); higiene user-facing (ids→rótulos,
+  jargão→PT, N/A com escopo, corpo sanitizado, swap curado no corpo). Suite 733 OK.
+- Demo C3 offline (valid-fase-f/c3-substitution/): reais inertes (correto) + par
+  mínimo dispara troca real até o Markdown. Revisão 0🔴/4🟡, tudo corrigido (TDD).
+- Aceite accept41 sobre 934f373 congelado (hashes iguais, 8082 +21249/+172):
+  EXIT=0; q16/e88/m8/rounds7; stop rounds=6 default, 15 lacunas, folga total.
+  Cobertura 2/41 (10 N/A fora do denominador); support ok; overall partial.
+  Corpus 50/43/43/43/6/8; leitura 1,2%. Contrato 2 com veto disparado no run.
+- Residual: §1-vs-§3 defasado p/ globais (assessor inicial vs síntese; fila);
+  overlap com recall baixo (informativo); `ponytail:` ecoado na síntese; notas
+  repetidas no anexo. Detalhe em `docs/RELATORIO_TECNICO_MISSAO_FASE_F.md`;
+  entrega em `/home/thomaskyn/hermes-runs/accept41/adaptive_accept41/report.md`.
