@@ -4184,6 +4184,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
             "coloque a citação [n]/URL na mesma linha da afirmação que ela "
             "sustenta (nunca só em linha 'Fontes:' separada); "
+            "nunca emita o marcador [(fonte)]: cite com número/URL real do "
+            "corpus na mesma linha ou deixe a frase sem citação; "
             "cite APENAS o(s) documento(s) que contêm a entidade e o fato "
             "afirmado: cada número citado na mesma frase deve resolver para "
             "um documento que menciona a entidade nomeada na frase; nunca "

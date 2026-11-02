@@ -160,6 +160,49 @@ def _norm(url) -> str | None:
     return ca.normalize_url(url)
 
 
+def _lookup_number(url, numbers: dict) -> tuple:
+    """Corpus (key, number) tolerating a trailing-slash variant.
+
+    Generic, no product literals: writers often emit the same document
+    URL with/without a trailing slash while the corpus holds one form.
+    Try the normalized URL first, then the slash-toggled alternate, so
+    an in-corpus citation never reads as out-of-corpus over a slash.
+    Returns (key, number) or (None, None). Global URL identity is
+    untouched — the tolerance lives only in this lookup.
+    """
+    norm = _norm(url)
+    if norm is None:
+        return None, None
+    try:
+        if norm in numbers:
+            return norm, numbers[norm]
+        if norm.endswith("/"):
+            alt = norm.rstrip("/")
+        else:
+            alt = norm + "/"
+        if alt in numbers:
+            return alt, numbers[alt]
+    except Exception:
+        pass
+    return None, None
+
+
+def _strip_fonte_placeholder(text: str) -> str:
+    """Remove a residual [(fonte)] citation placeholder, keeping the rest.
+
+    Generic, no product literals: the writer must never emit the token
+    (its prompt forbids it), but model text may still carry it next to a
+    real [N] (``[(fonte)][8]`` -> ``[8]``) or an outside-corpus marker.
+    Only the token is removed; numbers and markers stay.
+    """
+    import re as _re
+    try:
+        return _re.sub(r"\[\(\s*fonte\s*\)\]", "",
+                       str(text or ""), flags=_re.IGNORECASE)
+    except Exception:
+        return str(text or "")
+
+
 def _corpus(state: dict) -> list[str]:
     """Obtained corpus in insertion order (URLs, never chunk ids).
 
@@ -198,20 +241,23 @@ def _rewrite_refs(text: str, numbers: dict[str, int],
 
     def md(match):
         label, url = match.group(1), match.group(2)
-        norm = _norm(url)
-        if norm in numbers:
-            cited.add(norm)
-            return f"[{label}][{numbers[norm]}]"
+        key, num = _lookup_number(url, numbers)
+        # Placeholder [(fonte)] never survives: keep only the number or
+        # the outside marker (other labels are preserved as written).
+        bare_label = (label or "").strip().lower() in ("(fonte)", "fonte")
+        if num is not None:
+            cited.add(key)
+            return f"[{num}]" if bare_label else f"[{label}][{num}]"
         outside.append(url)
-        return f"[{label}] (fora do corpus)"
+        return "(fora do corpus)" if bare_label else f"[{label}] (fora do corpus)"
 
     def bare(match):
         raw = match.group(0)
         url = raw.rstrip(".,;:\"'”’“‘")
-        norm = _norm(url)
-        if norm in numbers:
-            cited.add(norm)
-            return f"[{numbers[norm]}]"
+        key, num = _lookup_number(url, numbers)
+        if num is not None:
+            cited.add(key)
+            return f"[{num}]{raw[len(url):]}"
         # URL dentro de literal citado ("plugin": ["x@git+https://..."]) é
         # texto documentado, não citação: preservar em vez de corromper a
         # citação (accept9: 'superpowers@git+[fora do corpus]'). Preservada
@@ -246,10 +292,10 @@ def _refs(crit: dict, numbers: dict[str, int], labels: dict,
     out = []
     for ref in crit.get("references", []) or []:
         url = (ref or {}).get("url", (ref or {}).get("doc_id", ""))
-        norm = _norm(url)
-        if norm in numbers:
-            cited.add(norm)
-            out.append(f"[{numbers[norm]}]")
+        key, num = _lookup_number(url, numbers)
+        if num is not None:
+            cited.add(key)
+            out.append(f"[{num}]")
         elif url:
             out.append(f"({labels['not_investigated']}: {url})")
     return ", ".join(out)
@@ -892,6 +938,7 @@ def render_report(state: dict, *, synthesis_text: str,
     except Exception:
         pass
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
+    synthesis = _strip_fonte_placeholder(synthesis)
     # Citação x entidade: remove citação conjuntiva frouxa (só um dos docs
     # trata da entidade) quando resta citação que sustenta; sem máscara
     # (frase só com citação frouxa segue para a auditoria sinalizar).
@@ -901,6 +948,7 @@ def render_report(state: dict, *, synthesis_text: str,
         synthesis, _tight_notes = _verify._tighten_citations(
             synthesis, _n_to_url, dict(state.get("evidence") or {}),
             state.get("plan") or {})
+        synthesis = _strip_fonte_placeholder(synthesis)
         _recorded_tight = set(n for n in (state.get("notes") or [])
                               if isinstance(n, str))
         for _note in _tight_notes:

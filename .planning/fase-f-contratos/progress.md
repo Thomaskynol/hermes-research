@@ -11,3 +11,7 @@
 - Causa: v1 com 1/15 per_candidate (accept34/35 v1: 10/15); descoberta estendeu só c2 → 5 células → hook nunca adotou. C1/descriptions OK (15/15).
 - Fix: exemplo com 2 formas + regra anti-rebaixamento; `_collapsed_per_candidate_warning` observável. Testes novos 3/3; suite 690 OK/10 skips. Commit f09e4ed.
 - accept36 preservado como parcial honesto, invalidado p/ aceite (defeito de plano).
+
+## 2026-11-02 — higiene do renderer + revisão + accept38
+- Lane hygiene (G1/G2) + revisão independente (5🟡1❓ triados: idem+chave normalizada aplicados; demais documentados).
+- Suite 695 OK/10 skips. Commit 5b7e973. accept37 preservado (report com vazamentos = pré-higiene).

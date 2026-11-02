@@ -326,6 +326,69 @@ def _is_derived_eid(eid) -> bool:
     return bool(_re.match(r"^e([-_].*)?$", s) or _re.match(r"^e\d+$", s))
 
 
+def _raw_glued(raw: str, idx: int, direction: int) -> bool:
+    """True when raw[idx] glues a match to extra alphanumerics.
+
+    Generic, no product literals: an adjacent alnum always glues; a
+    compound joiner (``-``, ``_``, ``.``, ``/``) glues only when an
+    alnum sits beyond it (``alpha-beta``, ``name.host``) — trailing
+    punctuation (``BetaGadget.``) or spaced dashes stay boundaries.
+    """
+    try:
+        if idx < 0 or idx >= len(raw):
+            return False
+        c = raw[idx]
+    except Exception:
+        return False
+    try:
+        if c.isalnum():
+            return True
+        if c in "-_./":
+            try:
+                return bool(raw[idx + direction].isalnum())
+            except IndexError:
+                return False
+    except Exception:
+        return False
+    return False
+
+
+def _raw_compound_ok(label, doc_text: str) -> bool:
+    """True when the label occurs with compound-aware boundaries.
+
+    Generic, no product literals: accent/case-insensitive, tokens joined
+    by any separator, but the occurrence must not be glued to extra
+    alphanumerics in the raw text — so a short label inside a longer
+    hyphenated compound is not a mention of the short entity, while the
+    full hyphen form still matches either separator variant and trailing
+    punctuation keeps counting as a boundary.
+    """
+    import re as _re
+    import unicodedata as _ud
+    try:
+        raw = "".join(c for c in _ud.normalize(
+            "NFKD", str(doc_text or "").lower()) if not _ud.combining(c))
+        lab = "".join(c for c in _ud.normalize(
+            "NFKD", str(label or "").lower()) if not _ud.combining(c))
+    except Exception:
+        return True
+    toks = [t for t in _re.split(r"[^a-z0-9]+", lab) if t]
+    if not toks:
+        return False
+    try:
+        core = r"[^a-z0-9]+".join(_re.escape(t) for t in toks)
+        for _m in _re.finditer(core, raw):
+            _s, _e = _m.start(), _m.end()
+            if _raw_glued(raw, _s - 1, -1):
+                continue
+            if _raw_glued(raw, _e, 1):
+                continue
+            return True
+        return False
+    except Exception:
+        return True
+
+
 def _entity_mentioned(label, eid, doc_text: str) -> bool:
     """The cell entity is named in the cited doc (label or id, full form).
 
@@ -335,7 +398,11 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
     must share at least two longer content tokens with the label (a doc
     about "OpenCode Plugin" is about the "OpenCode Eclipse Plugin"
     cell; a doc sharing only "opencode" is not). Short ids ("e1") e
-    derivados ("e-*") são ignorados, o label decide.
+    derivados ("e-*") são ignorados, o label decide. A fronteira é
+    hifen-consciente: o rótulo curto dentro de um composto hifenado
+    ("alpha" em "alpha-beta") não é menção da entidade curta, mas a
+    forma cheia casa insensível a separador ("alpha-beta" casa
+    "alpha beta").
     """
     doc = _norm_mention(doc_text)
     if not doc:
@@ -356,10 +423,17 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
         try:
             import re as _re2
             if _re2.search(r"(^| )" + _re2.escape(ent) + r"($| )", doc):
-                return True
+                if _raw_compound_ok(cand, doc_text):
+                    return True
+                continue
         except Exception:
             if f" {ent} " in padded:
-                return True
+                try:
+                    if _raw_compound_ok(cand, doc_text):
+                        return True
+                except Exception:
+                    pass
+                continue
     try:
         label_toks = {w for w in _content_tokens(label) if len(w) >= 4}
         doc_toks = {w for w in _content_tokens(doc_text) if len(w) >= 4}
