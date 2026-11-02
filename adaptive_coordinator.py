@@ -1817,7 +1817,7 @@ def _criterion_scope(state: dict, crit: dict) -> str:
     """Examined scope of one criterion: doc/trecho vs corpus (observed).
 
     Distinguishes "não examinado por orçamento" (material exists in the
-    corpus but no selection examined it) from "desconhecido-legítimo"
+    corpus but no selection examined it) from "sem fonte no corpus"
     (nothing in the corpus about the entity). A missing_dimension-style
     verdict only ever speaks about the examined excerpts, never the
     unexamined corpus.
@@ -1862,7 +1862,7 @@ def _criterion_scope(state: dict, crit: dict) -> str:
             if not eid or not ent:
                 parts.append(f"global: excertos examinados ({e}/{n} docs)")
             elif n == 0:
-                parts.append(f"{label}: desconhecido-legítimo "
+                parts.append(f"{label}: sem fonte no corpus "
                              f"(nada no corpus sobre a entidade)")
             elif e == 0:
                 parts.append(f"{label}: não examinado por orçamento "
@@ -3572,6 +3572,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "not_applicable), "
             "justification, origin, references:[{url}], "
             "propose_entity?: {entity:{id,label?}, criteria?}}. "
+            "Nas justificativas, refira entidades pelo rótulo/nome do "
+            "plano, nunca pelo id interno (e1, e2...). "
             "Sem evidência utilizável -> insufficient/blocked; "
             "divergência real -> contradictory; nunca invente cobertura. "
             "not_applicable SOMENTE para célula per_candidate cujo "
@@ -4212,6 +4214,12 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "(premissa + corpus); compatibilidade funcional ou "
             "integração afirmada com essa versão sem fonte que a "
             "mencione é LACUNA, nunca afirmação sustentada; "
+            "refira entidades pelo rótulo/nome do plano, nunca pelo id "
+            "interno (e1, e2...); nunca emita linha-legenda standalone de "
+            "fontes ('Legenda de fontes...: [1][2]...' ou 'Fontes:' "
+            "separada): cada afirmação traz sua citação inline na mesma "
+            "linha; marque material não verificado como 'Não verificado:' "
+            "em português, nunca 'Skipped:'; "
             "não invente fatos.\n"
             f"{_writer_gate_guidance()}\n"
             f"{_writer_complementarity_guidance()}\n"
@@ -4542,12 +4550,39 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         }
     except Exception:
         _examined = {}
+    try:
+        _persist_labels = {
+            str(e.get("id")): str(e.get("label") or e.get("id"))
+            for e in (state.get("plan") or {}).get("entities", [])
+            if isinstance(e, dict) and e.get("id")}
+    except Exception:
+        _persist_labels = {}
     applied = []
     for ev in evals:
         if not isinstance(ev, dict) or "criterion_id" not in ev:
             state["notes"].append(
                 f"assessor evaluation malformed (not a dict/criterion): kept")
             continue
+        # Persistência legível: ids internos viram rótulos na
+        # justificativa (fallback mantém o original; sem literais).
+        # Só prosa: spans de URL são mascarados antes da substituição
+        # para ".../e5" nunca virar ".../rótulo" na evaluation.
+        try:
+            if _persist_labels and isinstance(
+                    ev.get("justification"), str):
+                ev = dict(ev)
+                _parts = re.split(
+                    r"([a-zA-Z][a-zA-Z0-9+.-]*://\S+)",
+                    ev["justification"])
+                for _i in range(0, len(_parts), 2):
+                    _parts[_i] = re.sub(
+                        r"\b(e\d{1,4})\b",
+                        lambda m: _persist_labels.get(
+                            m.group(1), m.group(1)),
+                        _parts[_i])
+                ev["justification"] = "".join(_parts)
+        except Exception:
+            pass
         st = ev.get("state", "insufficient")
         if st not in ("uninvestigated", "insufficient", "partial", "covered",
                       "contradictory", "blocked", "not_applicable"):
@@ -7509,7 +7544,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                     stop=dict(state.get("stop") or {}))
     # Alcance examinado por critério (doc/trecho vs corpus): vereditos
     # de ausência falam do material examinado, nunca do corpus integral;
-    # "não investigado por orçamento" não é "desconhecido-legítimo".
+    # "não investigado por orçamento" não é "sem fonte no corpus".
     _annotate_examined_scope(state, block)
     # Reconciliação final: nada stale chega ao writer como "alternativa
     # não investigada" (estados concordantes até a entrega).

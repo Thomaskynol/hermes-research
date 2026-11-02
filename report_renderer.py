@@ -47,6 +47,7 @@ _PT = {
     "no_plan": "Sem plano de cobertura: a pergunta não foi avaliada.",
     "no_calculations": "Nenhum cálculo reproduzível foi registrado.",
     "gaps": "Lacunas obrigatórias pendentes",
+    "substitutions": "Substituições de candidatos",
     "contradictions": "Contradições identificadas",
     "uncertainties": "Incertezas e material não verificado",
     "notes": "Notas da execução",
@@ -109,6 +110,7 @@ _EN = {
     "no_plan": "No coverage plan: the question was not evaluated.",
     "no_calculations": "No reproducible calculation was recorded.",
     "gaps": "Pending mandatory gaps",
+    "substitutions": "Candidate substitutions",
     "contradictions": "Identified contradictions",
     "uncertainties": "Uncertainties and unverified material",
     "notes": "Run notes",
@@ -201,6 +203,120 @@ def _strip_fonte_placeholder(text: str) -> str:
                        str(text or ""), flags=_re.IGNORECASE)
     except Exception:
         return str(text or "")
+
+
+def _entity_labels(state: dict) -> dict[str, str]:
+    """Internal id -> user-facing label (generic, no product literals).
+
+    The model emits bare ids (e1, e2...) in justifications; the visible
+    body must show labels. Unknown ids fall back to the original token.
+    """
+    try:
+        return {str(e.get("id")): str(e.get("label") or e.get("id"))
+                for e in (state.get("plan") or {}).get("entities", [])
+                if isinstance(e, dict) and e.get("id")}
+    except Exception:
+        return {}
+
+
+def _replace_entity_ids(text: str, labels: dict) -> str:
+    """Map bare entity ids to labels, keeping unknown tokens verbatim.
+
+    Prose only: URL spans (``scheme://...``) are never rewritten, so a
+    document path ending in an id (``.../e5``) survives intact.
+    """
+    import re as _re2
+    if not labels:
+        return str(text or "")
+    try:
+        def _sub(m):
+            return labels.get(m.group(1), m.group(1))
+        _parts = _re2.split(r"([a-zA-Z][a-zA-Z0-9+.-]*://\S+)",
+                            str(text or ""))
+        for _i in range(0, len(_parts), 2):
+            _parts[_i] = _re2.sub(r"\b(e\d{1,4})\b", _sub, _parts[_i])
+        return "".join(_parts)
+    except Exception:
+        return str(text or "")
+
+
+def _strip_source_legend(text: str) -> str:
+    """Drop a standalone source-numbers legend line (no prose value).
+
+    Generic, no product literals: only a legend-like line drops — one
+    whose stripped form starts with the marker ("legenda de fontes" /
+    "source legend", after blockquote/list prefixes) AND carries a
+    citation list ([N]). A line that merely mentions the legend is
+    legitimate prose and is preserved. Inline [N] stay.
+    """
+    import re as _re_leg
+    try:
+        kept = []
+        for ln in str(text or "").split("\n"):
+            _s = ln.strip().lstrip(">#-*•\"' ").strip()
+            _low = _s.lower()
+            _legend_like = (
+                _low.startswith("legenda de fontes")
+                or _low.startswith("source legend"))
+            if _legend_like and _re_leg.search(r"\[\d+\]", _s):
+                continue
+            kept.append(ln)
+        return "\n".join(kept)
+    except Exception:
+        return str(text or "")
+
+
+def _normalize_skipped_prefix(text: str, language: str = "pt-BR") -> str:
+    """Rewrite a residual English 'Skipped:' lead to the PT user label.
+
+    Generic: the writer prompt requires 'Não verificado:'; old syntheses
+    may still carry 'Skipped:' at a line start. Only the prefix is
+    replaced; the rest of the line is preserved.
+    """
+    import re as _re4
+    try:
+        repl = "Não verificado:" if not str(
+            language or "").lower().startswith("en") else "Not verified:"
+        return _re4.sub(r"(?m)^Skipped:", repl, str(text or ""))
+    except Exception:
+        return str(text or "")
+
+
+def _user_facing_scope(text: str) -> str:
+    """Paraphrase residual internal scope jargon for the visible body.
+
+    Generic: old states persist 'desconhecido-legítimo'; the body must
+    show 'sem fonte no corpus'. Stored state is never rewritten here —
+    only the rendered line.
+    """
+    try:
+        return str(text or "").replace("desconhecido-legítimo",
+                                       "sem fonte no corpus")
+    except Exception:
+        return str(text or "")
+
+
+def _sanitize_body_text(text: str, entity_labels: dict | None = None,
+                        language: str = "pt-BR") -> str:
+    """Shared user-facing hygiene for any prose in the visible body.
+
+    Generic, no product literals: ids->labels (prose only, URLs kept),
+    residual EN 'Skipped:' lead -> PT label, internal scope jargon ->
+    user paraphrase. Stored state is never rewritten — only the line.
+    """
+    try:
+        out = _replace_entity_ids(str(text or ""), entity_labels or {})
+    except Exception:
+        out = str(text or "")
+    try:
+        out = _normalize_skipped_prefix(out, language)
+    except Exception:
+        pass
+    try:
+        out = _user_facing_scope(out)
+    except Exception:
+        pass
+    return out
 
 
 def _corpus(state: dict) -> list[str]:
@@ -426,6 +542,12 @@ def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
         if body.lower().startswith("alcance examinado:"):
             body = body.split(":", 1)[1].strip()
         body = body[:1].upper() + body[1:] if body else body
+        try:
+            body = _sanitize_body_text(
+                body, _entity_labels(state),
+                "en" if labels is _EN else "pt-BR")
+        except Exception:
+            pass
         lines.append(f"- **{labels['common_scope']} ({common_n} "
                      f"{labels['criteria'].lower()}):** {body}")
         lines.append("")
@@ -465,6 +587,12 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             justification = labels["not_investigated"]
         if not verbose and len(justification) > 600:
             justification = _cut_at_sentence(justification, 600)
+        try:
+            justification = _sanitize_body_text(
+                justification, _entity_labels(state),
+                "en" if labels is _EN else "pt-BR")
+        except Exception:
+            pass
         lines.append(justification)
         refs = _refs(crit, numbers, labels, cited)
         if refs:
@@ -494,6 +622,12 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             _key = _scope_key(_scope)
             if _key and _key not in seen_scopes:
                 seen_scopes.add(_key)
+                try:
+                    _scope = _sanitize_body_text(
+                        _scope, _entity_labels(state),
+                        "en" if labels is _EN else "pt-BR")
+                except Exception:
+                    pass
                 lines.append(_scope[:1].upper() + _scope[1:]
                              if _scope else _scope)
             elif _key and common_scope and _key == _scope_key(common_scope):
@@ -501,9 +635,15 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
         for nc in crit.get("na_cells", []) or []:
             _nc_label = _labels_by_id.get(nc.get("entity_id"),
                                           nc.get("entity_id"))
-            lines.append(
-                f"- **N/A** {_nc_label}: "
-                f"{(nc.get('justification') or '').strip() or labels['not_investigated']}")
+            _nc_just = ((nc.get('justification') or '').strip()
+                        or labels['not_investigated'])
+            try:
+                _nc_just = _sanitize_body_text(
+                    _nc_just, _labels_by_id,
+                    "en" if labels is _EN else "pt-BR")
+            except Exception:
+                pass
+            lines.append(f"- **N/A** {_nc_label}: {_nc_just}")
         lines.append("")
     return lines
 
@@ -623,22 +763,64 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
         if gap.get("criterion_id") not in {g.get("criterion_id") for g in gaps}:
             gaps.append(gap)
     lines = [f"## {labels['limits']}", ""]
+    try:
+        _lim_labels = _entity_labels(state)
+    except Exception:
+        _lim_labels = {}
+    _lim_lang = "en" if labels is _EN else "pt-BR"
     if gaps:
         lines.append(f"### {labels['gaps']}")
         for gap in gaps:
+            try:
+                _gj = _sanitize_body_text(
+                    str(gap.get('justification', '')), _lim_labels,
+                    _lim_lang)
+            except Exception:
+                _gj = str(gap.get('justification', ''))
             lines.append(f"- **{gap.get('label', gap.get('criterion_id'))}** "
                          f"({_state_label(labels, gap.get('state', '?'))}): "
-                         f"{gap.get('justification', '')}")
+                         f"{_gj}")
             if gap.get("next"):
-                lines.append(f"  - {labels['next']}: {gap['next']}")
+                try:
+                    _nx = _sanitize_body_text(
+                        str(gap["next"]), _lim_labels, _lim_lang)
+                except Exception:
+                    _nx = str(gap["next"])
+                lines.append(f"  - {labels['next']}: {_nx}")
+    _subs = [s for s in (state.get("substitutions") or [])
+             if isinstance(s, dict)]
+    if _subs:
+        # Swap de finalista visível no corpo (1 linha PT curada por
+        # entrada, ids->rótulos): a nota raw segue só no anexo §8.
+        lines.append("")
+        lines.append(f"### {labels['substitutions']}")
+        for _s in _subs:
+            _old = _lim_labels.get(str(_s.get("old") or ""),
+                                   str(_s.get("old") or "?"))
+            _new = _lim_labels.get(str(_s.get("new") or ""),
+                                   str(_s.get("new") or "?"))
+            try:
+                _rs = _sanitize_body_text(
+                    str(_s.get("reason") or ""), _lim_labels, _lim_lang)
+            except Exception:
+                _rs = str(_s.get("reason") or "")
+            _line = f"- {_old} → {_new}"
+            if _rs.strip():
+                _line += f": {_rs.strip()}"
+            lines.append(_line)
     contradictions = [c for c in (block.get("criteria") or [])
                       if c.get("state") == "contradictory"]
     if contradictions:
         lines.append("")
         lines.append(f"### {labels['contradictions']}")
         for crit in contradictions:
-            lines.append(f"- {crit.get('label', crit.get('id'))}: "
-                         f"{crit.get('justification', '')}")
+            try:
+                _cj = _sanitize_body_text(
+                    str(crit.get('justification', '')), _lim_labels,
+                    _lim_lang)
+            except Exception:
+                _cj = str(crit.get('justification', ''))
+            lines.append(f"- {crit.get('label', crit.get('id'))}: {_cj}")
     unverified = [c for c in (block.get("criteria") or [])
                   if c.get("state") in ("insufficient", "blocked",
                                         "uninvestigated")]
@@ -646,9 +828,17 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     lines.append(f"### {labels['uncertainties']}")
     if unverified:
         for crit in unverified:
+            try:
+                _uj = _sanitize_body_text(
+                    str(crit.get('justification')
+                        or labels['not_investigated']), _lim_labels,
+                    _lim_lang)
+            except Exception:
+                _uj = str(crit.get('justification')
+                          or labels['not_investigated'])
             lines.append(f"- {crit.get('label', crit.get('id'))}: "
                          f"{_state_label(labels, crit.get('state'))} — "
-                         f"{crit.get('justification') or labels['not_investigated']}")
+                         f"{_uj}")
     else:
         lines.append("- Nenhum critério obrigatório ficou sem verificação "
                      "declarada; incertezas residuais seguem nas notas.")
@@ -682,6 +872,11 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
         lines.append("")
         lines.append(f"### {labels['notes']}")
         for note in shown:
+            try:
+                note = _sanitize_body_text(
+                    str(note), _lim_labels, _lim_lang)
+            except Exception:
+                pass
             lines.append(f"- {note}")
     return lines
 
@@ -939,6 +1134,15 @@ def render_report(state: dict, *, synthesis_text: str,
         pass
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
     synthesis = _strip_fonte_placeholder(synthesis)
+    try:
+        synthesis = _strip_source_legend(synthesis)
+    except Exception:
+        pass
+    try:
+        synthesis = _sanitize_body_text(
+            synthesis, _entity_labels(state), language)
+    except Exception:
+        pass
     # Citação x entidade: remove citação conjuntiva frouxa (só um dos docs
     # trata da entidade) quando resta citação que sustenta; sem máscara
     # (frase só com citação frouxa segue para a auditoria sinalizar).
@@ -1037,8 +1241,14 @@ def render_report(state: dict, *, synthesis_text: str,
                      f"com fonte própria indicada.")
         _pri = [g for g in gaps if g.get("entity_id")][:3]
         for gap in _pri:
+            try:
+                _cnx = _sanitize_body_text(
+                    str(gap.get('next', 'investigar com nova evidência')),
+                    _entity_labels(state), language)
+            except Exception:
+                _cnx = str(gap.get('next', 'investigar com nova evidência'))
             lines.append(f"- {gap.get('entity_label', gap.get('label'))}: "
-                         f"{gap.get('next', 'investigar com nova evidência')}")
+                         f"{_cnx}")
     lines.append("")
     lines.extend(_sources_section(state, labels))
     lines.append("")

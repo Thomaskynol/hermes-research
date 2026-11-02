@@ -7,7 +7,7 @@ acumulada, com repetições entre chamadas) sem reconciliação.
 
 Contratos: cada avaliação carrega o alcance examinado da chamada que a
 produziu; o relatório distingue "não examinado por orçamento" de
-"desconhecido-legítimo (nada no corpus)"; a linha de Leitura separa
+"sem fonte no corpus (nada no corpus)"; a linha de Leitura separa
 batches (com repetição) de docs únicos.
 """
 import sys
@@ -89,7 +89,8 @@ class ScopeWordingTest(unittest.TestCase):
         scope = ac._criterion_scope(scope_state(),
                                     scope_state()["plan"]["criteria"][0])
         self.assertIn("orçamento", scope)
-        self.assertIn("legítimo", scope)
+        self.assertIn("sem fonte no corpus", scope)
+        self.assertNotIn("desconhecido-legítimo", scope)
 
     def test_scope_survives_s1_rebuild(self):
         import copy
