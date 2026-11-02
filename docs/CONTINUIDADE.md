@@ -584,3 +584,31 @@ segue pendente.
 - Relatórios: `/home/thomaskyn/hermes-runs/accept19/DIAGNOSIS_accept18.md`,
   `/home/thomaskyn/hermes-runs/accept20/RELATORIO_ACCEPT20.md`
 - Contrato reach: `docs/AGENT_REACH.md`
+
+## Fase E controle+aceite (2026-11-02) — 5 itens demonstrados, aceite accept35 parcial
+- Autorização: corrigir seleção/ranking, dimensionamento e demonstração (defaults/
+  heurísticas internas, tetos globais intactos); validação controlada antes, sem
+  nova pesquisa completa.
+- Fixes em `adaptive_coordinator.py` (commit a492bdd): F1 cuts do assessor
+  persistidos no registro de assessments; F2 `_writer_complementarity_guidance`
+  (INFERÊNCIA marcada+citada, nunca integração testada); F3
+  `_candidate_corpus_status` 3-vias com fallback neutro pós-revisão. Testes
+  `tests/test_fase_e_controle.py` (7). Suite 655 OK skipped=10 EXIT 0.
+- Revisão independente dos fixes (diff inline): 1🔴 corrigido (fallback neutro +
+  teste RED-primeiro), 1🟡 documentado (teste 4 é caracterização), 2❓ resolvidos.
+- Aceite accept35 sobre a492bdd congelado (HEAD/hashes pré==pós, 8082 +20746/+692
+  cached, pergunta accept34 + premissa 2.1.4): EXIT=0; q19/e85/m12/rounds8; stop
+  rounds 7 default, 15 lacunas, folga total. Cobertura 2/55 (c2/c10 pwf; era 0/55).
+  Diagnose: sel_ctx 20, missing 12, partial 15, ok 2, assessor_error 6. Síntese
+  35/9/104, declared 15. Support ok, overall partial.
+- Produção confirma: nota "lote por diversidade: 3 célula(s)" em state.json (F1);
+  3 INFERÊNCIAs marcadas+citadas §10 (F2); "fonte própria" ×31 + status fora do
+  corpus neutro §0 (F3); isenções de versão; URLs §5 integrais, 40 números ok,
+  unknown=[].
+- Triagem: 6× [11] "unsupported" são falso-negativo do overlap PT→EN (fonte contém
+  os literais — conferido); `assessor_error` ×6 é rotulagem do diagnose (c8/c9/c10
+  sem description no plano); cosméticos sem efeito (repetição linha 24, [26][26]).
+  Churn auto-plan repetido: delta entre runs não é causal.
+- Entrega parcial: `docs/RELATORIO_TECNICO_MISSAO_FASE_E.md`;
+  `/home/thomaskyn/hermes-runs/accept35/adaptive_accept35/report.md`.
+  Fila: stop default com lacunas; churn auto-plan; recall do overlap; leitura 1,5%.
