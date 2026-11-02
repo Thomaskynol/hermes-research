@@ -5767,6 +5767,28 @@ def _finalize_for_control(state: dict, command: str, resolved: dict, budget,
                      t_start, now, run_dir, control=control)
 
 
+def _collapsed_per_candidate_warning(plan: dict) -> str | None:
+    """Warn when open discovery has no per_candidate axis to bind.
+
+    Generic observability (no product names): with candidates still to be
+    discovered and none of the required criteria marked per_candidate,
+    coverage can never become entity x criterion and the proportional
+    hook will not scale rounds. Returns the warning text or None.
+    """
+    try:
+        disc = plan.get("open_discovery") or {}
+        target = plan.get("candidate_target") or 0
+        crits = [c for c in plan.get("criteria", []) or []
+                 if isinstance(c, dict) and c.get("required", True)]
+        has_pc = any(c.get("per_candidate") for c in crits)
+    except Exception:
+        return None
+    if disc.get("needed", False) and target and target > 1 and not has_pc:
+        return ("plan keeps every required criterion global while discovery "
+                "is open: no per_candidate axis, coverage stays global-only")
+    return None
+
+
 def _bind_per_candidate(plan: dict, state: dict) -> None:
     """Bind per_candidate criteria with empty applies_to when no discovery
     is expected (genus2: predefined entities, open_discovery.needed=False
@@ -5996,6 +6018,9 @@ def run_adaptive(question: str, *, profile: str = "light",
     # model_calls already counted per-transport via the wrapper (repairs and
     # failures included); plan_meta is record-only, never double-counted.
     _bind_per_candidate(plan, state)
+    _collapse_warn = _collapsed_per_candidate_warning(plan)
+    if _collapse_warn:
+        state["notes"].append(_collapse_warn)
     _record_plan_version(state, plan, plan_meta.get("repair_log", [""])[0]
                          if plan_meta.get("repair_log") else "plan adopted")
     # Hook proporcional (accept30 M3): o plano real só existe aqui

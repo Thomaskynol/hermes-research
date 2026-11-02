@@ -85,7 +85,10 @@ def build_plan_prompt(question: str, purpose: str = "",
         '"entities": [{"id": "e1", "label": "...", "required": true}], '
         '"criteria": [{"id": "c1", "label": "...", "required": true, '
         '"description": "1-2 frases operacionais: o que conta como evidencia '
-        'do eixo", "applies_to": ["e1"]}], '
+        'do eixo", "applies_to": ["e1"]}, '
+        '{"id": "c2", "label": "...", "required": true, "per_candidate": true, '
+        '"description": "1-2 frases operacionais: o que conta como evidencia '
+        'do eixo"}], '
         '"open_discovery": {"needed": true/false, "need": "..."}, '
         '"candidate_target": 5, '
         '"initial_paths": ["..."], "restrictions": "...", "premises": ["..."]}\n'
@@ -96,7 +99,12 @@ def build_plan_prompt(question: str, purpose: str = "",
         "are rejected; named entities are tracked "
         "individually; open-ended requests set open_discovery.needed=true and "
         "must NOT invent candidate names; criteria that apply only to some "
-        "entities list them in applies_to (omit applies_to when global).\n"
+        "entities list them in applies_to (omit applies_to when global). "
+        "Copy BOTH criterion shapes from the example above: the discovery "
+        "criterion stays global, every functional axis holds per candidate "
+        "and MUST carry \"per_candidate\": true (never downgrade a functional "
+        "axis to global just because candidates are not known yet: "
+        "applies_to is bound automatically after discovery).\n"
         "candidate_target is how many candidates the question asks to compare "
         "(integer, e.g. 'five plugins' -> 5; 5 when the question names no "
         "count): discovery beyond it stays tracked but out of coverage.\n"
