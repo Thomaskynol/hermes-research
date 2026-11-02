@@ -3683,6 +3683,41 @@ def make_model_assessor(model_client, max_docs: int = 24,
     return assess
 
 
+def _candidate_corpus_status(evidence: dict, entity: dict,
+                             generic=None) -> tuple[str, list[str]]:
+    """Own-source vs listing-mention vs unnamed for one candidate (F3).
+
+    Three-way status over the corpus the writer sees (raw strings; the
+    writer view carries no qualification): "fonte própria" when the
+    entity's own source_url names it in-body; "apenas menções em
+    lista/catálogo" when some corpus doc names it but no own-source
+    does; "sem documento que o nomeie" when no corpus doc names it.
+    Identity via _identity_matches (+ rarity), never URL substrings or
+    product literals. Returns (status, mention_urls up to 3).
+    Unverifiable input (no bodies, invalid entity, internal error)
+    returns "estado não verificado no corpus" — never the strong
+    absence claim, which requires an examined non-empty corpus.
+    """
+    try:
+        bodies = {u: str(t or "") for u, t in (evidence or {}).items()
+                  if isinstance(u, str) and not u.startswith("user://")
+                  and str(t or "").strip()}
+        if not isinstance(entity, dict) or not bodies:
+            return ("estado não verificado no corpus", [])
+        single_ok = _singleton_rare(entity, list(bodies.values()), generic)
+        mentioning = [u for u, b in bodies.items()
+                      if _identity_matches(entity, b, single_ok=single_ok,
+                                           generic=generic)]
+        src = str((entity or {}).get("source_url") or "")
+        if src and src in mentioning:
+            return ("fonte própria", [src])
+        if mentioning:
+            return ("apenas menções em lista/catálogo", mentioning[:3])
+        return ("sem documento que o nomeie", [])
+    except Exception:
+        return ("estado não verificado no corpus", [])
+
+
 def _writer_gate_guidance() -> str:
     """Writer template rule for version/quote gates (accept34 M-B).
 
@@ -3704,6 +3739,28 @@ def _writer_gate_guidance() -> str:
         "deve referi-las como \"fora do corpus\", nunca como fonte "
         "lida; rótulo LACUNA sozinho não isenta versão/literal do gate "
         "de citação.")
+
+
+def _writer_complementarity_guidance() -> str:
+    """Writer template rule for prudent combination inferences (F2).
+
+    A prudent complementarity/overlap conclusion from premises in
+    distinct sources must be marked INFERÊNCIA, cite >=2 premise
+    documents from distinct sources, state its limits, and never claim
+    tested integration/functional compatibility/absence of conflicts.
+    Absence of interop evidence stays LACUNA for the integration claim
+    but must not delete the recorded complementarity inference.
+    Generic wording only — no product/version literals.
+    """
+    return (
+        "conclusão prudente de combinação ou sobreposição "
+        "(complementaridade) a partir de premissas em documentos de "
+        "fontes distintas deve ser marcada como INFERÊNCIA, citar ao "
+        "menos 2 documentos-premissa de fontes distintas, declarar os "
+        "limites, e nunca afirmar integração testada, compatibilidade "
+        "funcional ou ausência de conflitos; ausência de prova de "
+        "integração continua LACUNA para a afirmação de integração, "
+        "sem apagar a inferência de complementaridade registrada.")
 
 
 def make_model_writer(model_client, max_chars: int = 12000):
@@ -3906,14 +3963,43 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         for e in (plan.get("entities") or [])
                         if isinstance(e, dict) and e.get("discovered")
                         and e.get("required", True)]
+        # F3: estado por candidato verificado no corpus (fonte própria /
+        # apenas menções em lista/catálogo / sem documento que o nomeie):
+        # o writer usa exatamente o estado informado — nunca a forma
+        # forte ("sem documento...") para quem tem "apenas menções".
+        _cand_items = list(_cand_labels)
+        try:
+            _st_generic = _plan_shared_tokens(plan, question)
+        except Exception:
+            _st_generic = frozenset()
+        try:
+            _cand_ents = [e for e in (plan.get("entities") or [])
+                          if isinstance(e, dict) and e.get("discovered")
+                          and e.get("required", True)]
+            if _cand_ents:
+                _cand_items = []
+                for _ce in _cand_ents:
+                    _st, _st_urls = _candidate_corpus_status(
+                        evidence, _ce, _st_generic)
+                    _tag = str(_ce.get("label") or _ce.get("id"))
+                    if _st_urls:
+                        _cand_items.append(
+                            f"{_tag}: {_st} ({'; '.join(_st_urls)})")
+                    else:
+                        _cand_items.append(f"{_tag}: {_st}")
+        except Exception:
+            pass
         _cand_s = ("Candidatos exigidos pelo plano (use exatamente estes "
                    "como conjunto de comparação; descoberta — menção em "
                    "listagem — não é seleção: seleção exige fonte própria "
                    "com identidade + célula investigada; item sem fonte "
                    "própria/célula = LACUNA com a causa, nunca apresentado "
                    "como parte do conjunto exigido sem a ressalva; "
-                   "não substitua por outro): "
-                   + "; ".join(_cand_labels) + "\n") if _cand_labels else ""
+                   "não substitua por outro; estado por candidato "
+                   "verificado no corpus — use exatamente o estado "
+                   "informado para cada candidato; 'estado não "
+                   "verificado' = não afirme presença nem ausência): "
+                   + "; ".join(_cand_items) + "\n") if _cand_labels else ""
         # M8: substituídos seguem no relatório como explorados-fora-da-
         # seleção (nunca somem, nunca contam na comparação).
         _sub_s = ""
@@ -3975,6 +4061,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "mencione é LACUNA, nunca afirmação sustentada; "
             "não invente fatos.\n"
             f"{_writer_gate_guidance()}\n"
+            f"{_writer_complementarity_guidance()}\n"
             f"Pergunta: {question}\n"
             f"{_cand_s}{_sub_s}{_unexp_s}"
             f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
@@ -4240,6 +4327,15 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                               if isinstance(_last_sel, dict) else []),
                 "cells_requested": 0, "cells_returned": 0,
                 "missing_cells": []}
+        # F1: cortes da seleção (inclui a nota "lote por diversidade"
+        # quando o reorder engaja) saem do atributo volátil para o
+        # registro persistido — Grep futuro no state.json encontra.
+        try:
+            _sel_cuts = getattr(assess_fn, "last_selection", None)
+            _cuts = (str((_sel_cuts or {}).get("cuts") or "")
+                     if isinstance(_sel_cuts, dict) else "")
+        except Exception:
+            _cuts = ""
         state.setdefault("assessments", []).append({
             "round": len(state.get("rounds", []) or []),
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -4247,6 +4343,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             "cells_requested": int(_stats.get("cells_requested") or 0),
             "cells_returned": int(_stats.get("cells_returned") or 0),
             "missing_cells": list(_stats.get("missing_cells") or []),
+            "cuts": _cuts,
         })
     except Exception:
         pass
