@@ -74,6 +74,7 @@ _PT = {
     "state_not_applicable": "não aplicável",
     "state_uninvestigated": "não investigado",
     "state_unevaluated": "não avaliado",
+    "common_scope": "Alcance examinado comum",
 }
 
 _EN = {
@@ -135,6 +136,7 @@ _EN = {
     "state_not_applicable": "not applicable",
     "state_uninvestigated": "not investigated",
     "state_unevaluated": "not evaluated",
+    "common_scope": "Common examined scope",
 }
 
 _STATE_KEY = {"covered": "state_covered", "partial": "state_partial",
@@ -305,6 +307,43 @@ def _channel_line(state: dict, labels: dict) -> str:
     return "- **Coleta por canal:** " + "; ".join(parts)
 
 
+def _scope_key(scope: str) -> str:
+    """Chave de comparação de escopo: sem acento, caixa e espaços extras."""
+    try:
+        key = _strip_accents(scope)
+    except Exception:
+        key = str(scope or "").lower()
+    return " ".join(key.split())
+
+
+def _common_examined_scope(state: dict) -> tuple[str | None, int]:
+    """Escopo examinado mais frequente entre os critérios (colapso G2).
+
+    Retorna (escopo, nº de critérios idênticos) quando algum texto se
+    repete (≥2×); caso contrário (None, 0) e cada critério mostra o seu.
+    Comparação por chave normalizada; exibe o texto original.
+    """
+    try:
+        criteria = ((state.get("question_coverage") or {}).get("criteria")
+                    or [])
+        counts: dict[str, int] = {}
+        original: dict[str, str] = {}
+        for crit in criteria:
+            scope = str((crit or {}).get("examined_scope") or "").strip()
+            if scope:
+                key = _scope_key(scope)
+                counts[key] = counts.get(key, 0) + 1
+                original.setdefault(key, scope)
+        if not counts:
+            return None, 0
+        top = max(counts, key=lambda s: counts[s])
+        if counts[top] < 2:
+            return None, 0
+        return original[top], counts[top]
+    except Exception:
+        return None, 0
+
+
 def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     config = dict(state.get("config_applied") or {})
     resolved = dict(state.get("resolved") or {})
@@ -335,6 +374,15 @@ def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
              f"- **{labels['criteria']}:** {len(criteria)} | "
              f"**{labels['entities']}:** {len(entities)}",
              _channel_line(state, labels), ""]
+    common_scope, common_n = _common_examined_scope(state)
+    if common_scope:
+        body = common_scope.strip()
+        if body.lower().startswith("alcance examinado:"):
+            body = body.split(":", 1)[1].strip()
+        body = body[:1].upper() + body[1:] if body else body
+        lines.append(f"- **{labels['common_scope']} ({common_n} "
+                     f"{labels['criteria'].lower()}):** {body}")
+        lines.append("")
     if verbose:
         if criteria:
             lines.append("")
@@ -359,6 +407,9 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
     if not criteria:
         lines.append(labels["no_plan"])
         return lines
+    common_scope, _common_n = _common_examined_scope(state)
+    seen_scopes: set[str] = {_scope_key(common_scope)} if common_scope \
+        else set()
     for crit in criteria:
         state_of = crit.get("state", "uninvestigated")
         lines.append(f"### {crit.get('label', crit.get('id'))} — "
@@ -389,7 +440,18 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
                              f"{_state_label(labels, est)} |")
         if crit.get("examined_scope"):
             _scope = str(crit["examined_scope"])
-            lines.append(_scope[:1].upper() + _scope[1:] if _scope else _scope)
+            # G2: texto idêntico colapsa — o comum vive no bloco de
+            # método (1×); aqui só o delta (1ª ocorrência de cada texto
+            # distinto; estados por entidade seguem na tabela acima).
+            # Escopo igual ao comum ganha marcador idem (nunca some
+            # silenciosamente); comparação por chave normalizada.
+            _key = _scope_key(_scope)
+            if _key and _key not in seen_scopes:
+                seen_scopes.add(_key)
+                lines.append(_scope[:1].upper() + _scope[1:]
+                             if _scope else _scope)
+            elif _key and common_scope and _key == _scope_key(common_scope):
+                lines.append("- Idem ao escopo comum do método (§2).")
         for nc in crit.get("na_cells", []) or []:
             _nc_label = _labels_by_id.get(nc.get("entity_id"),
                                           nc.get("entity_id"))
@@ -412,6 +474,34 @@ _DEBUG_NOTE_PREFIXES = (
     "boilerplate ignorado", "lote por diversidade",
     "reenvio de quarentena", "proporcional:",
     "per_candidate bound", "resume:",
+    "transport failure", "pool reserve", "assessor",
+    "fetch failure", "repo minerado", "link-following",
+    "rodízio", "op ",
+)
+
+_DEBUG_NOTE_SUBSTRINGS = (
+    # Jargão interno de estabilização/transporte/semântica (genérico,
+    # sem literais de produto): diagnóstico vai ao anexo §8, nunca ao
+    # corpo visível (§5). Comparação sem acento e por conteúdo, pois
+    # linhas de operação ("op r6-c3-0 ...") trazem o marcador no meio.
+    "transport failure", "fetch failure", "fetch failed", "read_source",
+    "transient failure", "retrying", "budget counted",
+    "pool reserve", "repo minerado", "link-following", "minerad",
+    "candidato minerado", "assessor",
+    "downgrade", "without new evidence", "rejected for", "kept partial",
+    "kept as", "said insuffici",
+    "identity mismatch", "sem mencao a entidade", "hit ignorado",
+    "ignorado",
+    "quarentena", "semantic boost", "vetorizad",
+    "per_candidate", "discovery", "proporcional",
+    "rodizio", "gap_query", "entidades com gaps",
+    "reconciliad", "synthesis criterion", "evaluation revised",
+    "tighten",
+    "retriever_unavailable", "gateway failed", "fallback failed",
+    "searxng", "timeout", "urlerror",
+    "html_without_content", "not_a_github",
+    "unavailable", "failure", "failed",
+    "fora da cobertura", "alem do teto", "cheio (",
 )
 
 
@@ -444,18 +534,38 @@ def _cut_at_sentence(text: str, limit: int = 600) -> str:
             return ""
 
 
+def _strip_accents(text: str) -> str:
+    """Minúsculas sem acento para comparar nota interna (EN/PT)."""
+    import unicodedata
+    try:
+        return "".join(
+            ch for ch in unicodedata.normalize(
+                "NFKD", str(text or "")) if not unicodedata.combining(ch)
+        ).lower()
+    except Exception:
+        return str(text or "").lower()
+
+
 def _is_debug_note(note: str) -> bool:
     """Resíduo interno (diagnóstico/auditoria) vs nota ao usuário.
 
     Diagnóstico e auditoria vivem em state['notes'] + verification.json;
     só notas voltadas ao usuário vão ao corpo (§5). O anexo técnico
     (§8) lista os resíduos classificados — nada é apagado do state.
-    shortcut: classificação por prefixo; se novo emissor surgir sem
-    prefixo listado, ele aparece no corpo até ser classificado.
+    Corpo visível só carrega PT com valor de decisão; EN e jargão de
+    estabilização/transporte/semântica vão ao anexo. Comparação sem
+    acento, por prefixo ou por marcador interno de conteúdo (linhas
+    de operação trazem o marcador no meio, ex. "op r6-c3-0 ...").
+    shortcut: classificação por prefixo/marcador; se novo emissor
+    surgir sem marcador listado, ele aparece no corpo até ser
+    classificado.
     """
     try:
-        low = str(note or "").strip().lower()
-        return any(low.startswith(p) for p in _DEBUG_NOTE_PREFIXES)
+        low = _strip_accents(note).strip()
+        if any(low.startswith(_strip_accents(p).strip())
+               for p in _DEBUG_NOTE_PREFIXES):
+            return True
+        return any(marker in low for marker in _DEBUG_NOTE_SUBSTRINGS)
     except Exception:
         return False
 
