@@ -253,7 +253,7 @@ Run final analisado: `accept11` (`/tmp/hermes-real-run/accept11/adaptive_accept1
 | RA5 | Entrada Hermes isolada demonstrada ponta a ponta | CLI única + `--control-dir` + `run_control.py status` + pause/resume | accept11 status ao vivo + accept12: pause limpo entre rodadas e `--resume` com contadores preservados (§10) | REAL |
 | RA6 | Generalização em outro assunto | mesmos mecanismos, outra pergunta | genus1 (httpx×requests×aiohttp): 10/16=0.625 partial, SATURATION, support `ok` 37/37 + acadrun5 FAIR-RAG (§5) | REAL |
 | RA7 | Relatório responde à pergunta: 5 plugins, comparação, combinações/sobreposições, documentado vs inferência | `report_renderer.py` + writer sobre corpus real | `accept11/report.md` §1, §3 e "Combinações e sobreposições" | REAL |
-| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 parcial; accept22 (2026-10-31): 11/54 = 0.2037 parcial, verification overall `failed` honesto (5 URLs nuas + 3 inferências de combinação + 17 LACUNA sem overlap); accept24 (2026-10-31, Missão 3): 9/56 = 0.1607 `partial`, support `ok` (primeira vez), 3 contratos provados (citations 68, evidence 51, resolved 5; versão numérica sustentada + funcional=LACUNA; combinação recusada), denominador nunca reduzido | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
+| RA8 | Cobertura completa da pergunta de aceite | denominador estável (células obrigatórias do plano final, §M6); sem redução de requisitos | accept16 (2026-10-30): 11/51 parcial; accept22 (2026-10-31): 11/54 = 0.2037 parcial, verification overall `failed` honesto (5 URLs nuas + 3 inferências de combinação + 17 LACUNA sem overlap); accept24 (2026-10-31, Missão 3): 9/56 = 0.1607 `partial`, support `ok` (primeira vez), 3 contratos provados (citations 68, evidence 51, resolved 5; versão numérica sustentada + funcional=LACUNA; combinação recusada), denominador nunca reduzido; accept41 (2026-11-02, Fase F): 2/41 `partial`, 18 selection_context + 13 missing_dimension, parada default max-rounds=6 com folga; accept42 (2026-11-03, Fase G, `38141b1`): 12/55 `partial`, todos os 15 critérios avaliados, support `ok`, 8 selection_context + 7 missing_dimension + 7 assessor_error (auditoria: resíduos são rigor do assessor + ruído heurístico do diagnose, não inanição de seleção) | PENDENTE (cobertura parcial persistente, retrieval-bound; mecanismos validados, denominador nunca reduzido) |
 
 Pendências declaradas: gate de citação literal por avaliação (justificativa do
 assessor não é verificada contra o excerto); conector de inspeção local;
@@ -308,6 +308,30 @@ com check — sem novo run real.
 
 Detalhes em `docs/CONTINUIDADE.md` (§§ Resultado accept21–accept24) e
 evidências em `/home/thomaskyn/hermes-runs/accept21|22|23|24/` (fora do Git).
+
+## Entrega atual — accept41 (Fase F) + accept42 (Fase G, 2026-11-02/03)
+
+HEAD de execução congelado do accept42: `38141b1` (Fase G; suíte
+746 OK / 10 skips; hashes/diff em
+`/home/thomaskyn/hermes-runs/accept42/`). `main` remota publicada no
+mesmo `38141b1`; branch `feat/product-v1` adiante só com docs.
+
+| Run | Config | Cobertura | Verification | RA8 |
+|---|---|---|---|---|
+| accept41 | pergunta do aceite, medium/auto-plan, contexto 2.1.4, EXIT=0, 1299s | 2/41 `partial` + 10 N/A (ok 2, partial_legit 8, missing_dimension 13, selection_context 18; leitura 1,2%) | overall `partial` (question `partial`, c2 não investigado; review `partial`; support `ok`); parada `max_rounds=6` default com folga nos demais tetos — injustificada por comparabilidade | PENDENTE |
+| accept42 | idem, `max-rounds 12` explícito (harness), EXIT=0, 1782s | 12/55 `partial` + 0 N/A (ok 12, partial_legit 21, missing_dimension 7, selection_context 8, assessor_error 7; 15/15 critérios avaliados; leitura 138.373/5.928.645 chars ≈ 2,3%) | overall `partial` (question `partial`; review `partial` 25/25 revisados, 0 unsupported, accepted=false; support `ok`); parada `max_rounds=12` explícito + extrações 120/120 — justificada por config, não default | PENDENTE |
+
+O que o accept42 demonstrou (causa geral, sem regra por nome): a
+inanição de seleção do accept41 (`_shown` marcava todas as células do
+plano p/ cada doc enviado; reenvio focalizado nunca disparava) foi
+eliminada — nenhuma célula com suporte em corpus ficou com `refs`
+vazias; os resíduos (8 selection_context + 7 assessor_error) são
+divergência de rigor: assessor estrito correto em amostra auditada
+(custos-Plannotator, review-pwf, implementação-planner) vs heurística
+solta do diagnose (substring, sem sentido de palavra, overlap diluído
+em HTML). 2 "unsupported" da síntese do diagnose são falsos positivos
+(números presentes em `[38]`). Sem mudança de produto após o run;
+sem repetição sem hipótese nova.
 
 ## Escopo: o que é REAL vs o que segue PENDENTE (limitações — sem fechar aceite)
 

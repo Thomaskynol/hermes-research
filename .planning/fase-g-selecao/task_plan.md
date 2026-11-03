@@ -18,8 +18,8 @@ Corrigir causas gerais que impedem fontes pertinentes de chegarem ao assessor e 
 ## Fases
 1. TDD e fix inicial (concluído; commit 64e0a3c; suite 738 OK).
 2. Revisão independente (cavecrew-reviewer) e correções (concluído; 3 tentativas; commit 38141b1; suite 746 OK).
-3. Run real accept42 em HEAD congelado 38141b1; 8082 up; SearXNG DOWN documentado; fallback direto permitido (em execução).
-4. Reconciliação report/matriz/verificação; CONTINUIDADE; commit local.
+3. Run real accept42 em HEAD congelado 38141b1 (encerrado EXIT=0, 1782s, max-rounds 12 explícito; 8082 up; SearXNG/gateway DOWN; fallback com timeout).
+4. Reconciliação report/matriz/verificação; CONTINUIDADE; commit local (concluído: ACEITE §17, MATRIX RA8+tabela, 12/55 partial, support ok).
 
 ## Evidência
 - `/home/thomaskyn/hermes-runs/accept41/` (baseline)

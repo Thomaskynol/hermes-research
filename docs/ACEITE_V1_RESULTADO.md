@@ -287,3 +287,55 @@ sustentada (premissa+corpus); compat funcional/integração sem fonte que
 mencione a versão = LACUNA) no prompt (`cc0f3ff`); entidade fraca registra pool não explorado (`b81e8f6`).
 Relatórios: `/home/thomaskyn/hermes-runs/accept19/DIAGNOSIS_accept18.md`,
 `/home/thomaskyn/hermes-runs/accept20/RELATORIO_ACCEPT20.md`.
+
+## 17. accept41 (Fase F) + accept42 (Fase G) — seleção de evidência (2026-11-02/03, HEADs `934f373`→`38141b1`)
+
+`accept41` (frozen `934f373`, medium/auto-plan, contexto 2.1.4, EXIT=0,
+1299s): **2/41, `partial`**, 10 N/A fora do denominador; diagnose 51
+células = `missing_dimension_evidence 13, selection_context 18, na_bare
+7, na_scoped 3, ok 2, partial_legit 8`; leitura 1,2% do corpus.
+Parada `max_rounds=6` default (source=default) com folga em queries,
+extrações, modelo e tempo — injustificada por comparabilidade. Causa
+geral investigada: `_shown` do assessor marcava **todas** as células
+obrigatórias para cada doc enviado, de modo que `_resend_for_open_cells`
+nunca encontrava par em aberto e o reenvio focalizado nunca disparava;
+somado à ausência de ponte PT→EN (ex.: `review` nunca associado a
+critério `revisão de código`), o assessor inicial via só o head do doc.
+Correção geral Fase G (TDD, 13 testes, sem nome de plugin no código):
+`_excerpt_shown_cells` (só marca pares entidade×dimensão visíveis no
+excerto), `_PT_EN_RESEARCH` com dimensões de software, `_span_norm` +
+`_term_positions` (palavra inteira, plural, sem termo dentro do rótulo
+da entidade), `_criterion_terms` (retira `melhoria` compartilhada),
+foco de reenvio centrado no orçamento restante, rotação de entidades
+por `_eid_shown`, `selection.windows` após o corte de orçamento.
+Suíte **746 OK** / 10 skips / EXIT 0; revisão independente em 3
+tentativas (1 red + 4 yellow → remediação; resíduos aceitos: foco
+limitado a 600 chars, sem teste multi-entidade do sort de reenvio,
+sem re-review após ajustes de acento/plural cobertos pela suíte).
+
+`accept42` (frozen `38141b1`, mesma pergunta/config, `max-rounds 12`
+explícito via harness, EXIT=0, 1782s; produto intacto, só docs diferem
+pós-run): **12/55, `partial`**, 0 N/A; diagnose 55 células = `ok 12,
+partial_legit 21, selection_context 8, missing_dimension_evidence 7,
+assessor_error 7`; **15/15 critérios avaliados** (accept41 tinha c2 não
+investigado); `support ok`, `review partial` (25/25 revisados, 0
+unsupported, accepted=false), overall `partial` honesto. Parada
+`max_rounds=12` explícito + extrações 120/120 — justificada por config.
+Web: 25 ok / 13 falhas / 2 outros (gateway + SearXNG indisponíveis,
+fallback com timeout; YouTube 0/8). Nenhuma célula com suporte em
+corpus ficou com `refs` vazias — a assinatura de inanição do accept41
+sumiu. Auditoria amostral dos resíduos (janelas reais no corpus):
+`assessor_error`/`selection_context` restantes são divergência de
+rigor — assessor estrito correto (custos-Plannotator: `custo` vem de
+`custom` em JS embutido; review-pwf: `review` em sentido alheio a
+revisão de código; implementação-planner: "planejar a implementação"
+≠ implementar) vs heurística solta do diagnose (substring, sem
+sentido de palavra, overlap <0,35 diluído em HTML — os 2
+"unsupported" da síntese têm os números presentes em `[38]`).
+Relatório útil e parcial: §6 distingue versão numérica (2.1.4≥2.1.2
+sustentada) de compatibilidade funcional (LACUNA); §12 traz 3
+INFERÊNCIA com premissas de fontes distintas + limites; §13 riscos.
+**RA8 segue PENDENTE.** Sem mudança de produto após o run; sem novo
+run sem hipótese nova. Evidências:
+`/home/thomaskyn/hermes-runs/accept42/` (report.md, verification.json,
+counters.json, state.json, diagnose_accept42.json, NOTA_CONGELAMENTO.md).

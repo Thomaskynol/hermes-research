@@ -1,33 +1,26 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual (2026-11-03):** HEAD `38141b1`, branch `feat/product-v1`,
-> primeiro push feito em 2026-11-03 (ver §Push). Fase G (seleção de
-> evidência) fechada em duas etapas:
-> `64e0a3c` (ponte PT→EN + `_shown` por excerto) e `38141b1`
-> (remediação da revisão: nome da entidade não é dimensão, spans
-> normalizados/acentos, plurais, termos compartilhados, janela de
-> reenvio por orçamento, rotação de entidades, `selection.windows`).
-> Suíte **746 OK** / 10 skips / EXIT 0; foco 13 OK. Run real
-> **accept42 encerrado** em `38141b1` (EXIT=0, dir exclusivo,
-> `max_rounds=12`, 8082 do usuário UP; SearXNG/gateway DOWN
-> documentados) — reconciliação pendente. Baseline accept41: 2/41
-> partial, 18 selection_context, 13 missing_dimension, parada
-> default=6 com folga.
+> **Estado atual (2026-11-03):** HEAD `747ed29` (docs; produto congelado
+> e validado em `38141b1`), branch `feat/product-v1`, push em dia
+> (`feat/product-v1`=`747ed29`, `main`=`38141b1`). accept42
+> **reconciliado**: 12/55 `partial`, 15/15 critérios avaliados,
+> support `ok`, overall `partial` honesto; causa da inanição (Fase G)
+> eliminada — resíduos são rigor do assessor + ruído do diagnose
+> (amostra auditada), sem mudança de produto. RA8 segue PENDENTE.
 > Plano ativo: `.planning/fase-g-selecao/task_plan.md`; deepwork:
 > `.slim/deepwork/missao-accept42-selecao/progress.md`.
 >
-> Atenção: não declarar aceite antes de reconciliar relatório, matriz
-> e verificadores contra os artefatos do accept42. A versão 2.1.4 é
+> Não declarar aceite: RA8 exige cobertura completa. A versão 2.1.4 é
 > premissa de entrada do experimento; a versão observada do OpenCode
 > deve ser lida do ambiente/artefatos.
 
 
 ## Pendências reais
 
-1. **accept42 encerrado (aguarda reconciliação)** — run real congelado
-   em `38141b1`, EXIT=0; reconciliar `report.md`, matriz e verificadores
-   e atualizar `docs/ACEITE_V1_RESULTADO.md`/`REQUIREMENTS_MATRIX.md`
-   com o resultado efetivo, sem forçar aprovação.
+1. **accept42 reconciliado (2026-11-03)** — 12/55 `partial`, 15/15
+   critérios avaliados, support `ok`, overall `partial` honesto; ACEITE
+   §17 + MATRIX (RA8, tabela accept41/42) atualizados. RA8 segue
+   PENDENTE; sem mudança de produto; sem novo run sem hipótese nova.
 2. **RA8** — cobertura da pergunta continua aberta; accept41 ficou
    `2/41 partial` com 18 selection_context e 13 missing_dimension. O
    accept42 deve mostrar se as correções aumentam a cobertura útil.
