@@ -792,17 +792,16 @@ _PT_EN_RESEARCH: dict[str, tuple[str, ...]] = {
     "compatibilidade": ("compatibility", "compatible"),
     "dependencia": ("dependency",), "dependencias": ("dependencies",),
     "custos": ("costs", "pricing"),
-    "manutencao": ("maintenance", "maintainers"),
-    "funcionalidade": ("functionality", "feature"),
+    "manutencao": ("maintenance",),
+    "funcionalidade": ("functionality",),
     "funcionalidades": ("functionality", "features"),
     "documentacao": ("documentation", "docs"),
-    "versao": ("version", "release"),
+    "versao": ("version",),
     "instalacao": ("installation", "install"),
     "configuracao": ("configuration", "config"),
     "integracao": ("integration", "integrated"),
     "seguranca": ("security",),
     "qualidade": ("quality",),
-    "suporte": ("support",),
     "licenca": ("license",),
     "preco": ("price", "pricing"),
     "gratuito": ("free",), "gratis": ("free",), "pago": ("paid",),
@@ -964,6 +963,41 @@ def _criterion_groups(plan) -> dict[str, list[str]]:
     return groups
 
 
+def _criterion_terms(plan) -> dict[str, list[str]]:
+    """Per-criterion terms that can discriminate one dimension.
+
+    A token shared by two or more criterion labels ("melhoria" in
+    "Melhoria de planejamento/implementação/...") is not evidence for any
+    one of them; keeping it marked every cell from a generic word. Known
+    dimension vocabulary (PT keys and EN bridge values) survives sharing
+    because it names the dimension itself. Deterministic, no candidate
+    names.
+    """
+    crits = [c for c in (plan or {}).get("criteria", []) or []
+             if isinstance(c, dict) and c.get("id")]
+    raw: dict[str, list[str]] = {}
+    counts: dict[str, int] = {}
+    for c in crits:
+        try:
+            toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
+            toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
+        except Exception:
+            toks = []
+        seen: set[str] = set()
+        toks = [t for t in toks if not (t in seen or seen.add(t))]
+        raw[str(c["id"])] = toks
+        for t in toks:
+            counts[t] = counts.get(t, 0) + 1
+    known = set(_PT_EN_RESEARCH)
+    for vals in _PT_EN_RESEARCH.values():
+        known.update(vals)
+    out: dict[str, list[str]] = {}
+    for cid, toks in raw.items():
+        out[cid] = [t for t in toks
+                    if counts.get(t, 0) < 2 or t in known]
+    return out
+
+
 def _mention_positions(haystack: str, needle: str) -> list[int]:
     """Offsets of every non-overlapping occurrence (stdlib, deterministic).
 
@@ -1069,7 +1103,7 @@ def _relevant_excerpt(text: str, limit: int,
     # (its leftover-fill output is covered by existing regression tests).
     strict_dedupe = bool(norm_groups)
 
-    def take(start: int, size: int = WSIZE) -> bool:
+    def take(start: int, size: int = WSIZE, force: bool = False) -> bool:
         """Append the window at `start` if it fits the remaining budget."""
         nonlocal total
         end = min(len(body), start + size)
@@ -1083,9 +1117,11 @@ def _relevant_excerpt(text: str, limit: int,
         sep_cost = 5 if parts else 0
         if total + len(chunk) + sep_cost > limit:
             # Fill leftover budget with a truncated tail window (>=200
-            # chars of new material) instead of leaving it empty.
+            # chars of new material) instead of leaving it empty. The
+            # resend focus is the exception: it is the reason the doc was
+            # selected again, so a small remaining budget still shows it.
             room = limit - total - sep_cost
-            if room < 200:
+            if room < (1 if force else 200):
                 return False
             chunk = chunk[:room]
             end = start + room
@@ -1109,24 +1145,37 @@ def _relevant_excerpt(text: str, limit: int,
             _f_anc = sorted({str(t).strip().lower()
                              for t in (resend_focus[1] or [])
                              if str(t).strip() and len(str(t).strip()) >= 2})
+            _f_low = _span_norm(body)
+            _f_spans: list[tuple[int, int]] = []
+            for _t in _f_anc:
+                _tn = _span_norm(_t).strip()
+                if not _tn:
+                    continue
+                _p = 0
+                while True:
+                    _j = _f_low.find(_tn, _p)
+                    if _j < 0:
+                        break
+                    _f_spans.append((_j, _j + len(_tn)))
+                    _p = _j + max(1, len(_tn))
             _f_hits: list[tuple[int, int]] = []
             for _t in _f_dim:
-                _p = 0
-                while True:
-                    _j = low.find(_t, _p)
-                    if _j < 0:
-                        break
-                    _f_hits.append((_j, len(_t)))
-                    _p = _j + max(1, len(_t))
+                _tn = _span_norm(_t).strip()
+                if not _tn:
+                    continue
+                for _j in _term_positions(_f_low, _tn):
+                    # O nome da entidade é identidade, não a dimensão: não
+                    # ancora a janela de reenvio (opencode-review).
+                    if any(s <= _j < e for s, e in _f_spans):
+                        continue
+                    _f_hits.append((_j, len(_tn)))
             _f_pos: list[tuple[int, int]] = []
             for _t in _f_anc:
-                _p = 0
-                while True:
-                    _j = low.find(_t, _p)
-                    if _j < 0:
-                        break
-                    _f_pos.append((_j, len(_t)))
-                    _p = _j + max(1, len(_t))
+                _tn = _span_norm(_t).strip()
+                if not _tn:
+                    continue
+                for _j in _term_positions(_f_low, _tn):
+                    _f_pos.append((_j, len(_tn)))
             _best = None
             for _h, _hl in _f_hits:
                 for _a, _al in _f_pos:
@@ -1138,11 +1187,13 @@ def _relevant_excerpt(text: str, limit: int,
                 _, _h, _hl, _a, _al = _best
                 _lo = min(_h, _a)
                 _hi = max(_h + _hl, _a + _al)
-                if _hi - _lo <= 600:
-                    _fstart = max(0, _lo - (600 - (_hi - _lo)) // 2)
-                else:
-                    _fstart = max(0, (_h - 500) if _a < _h else (_h - 50))
-                if take(_fstart, 600):
+                _room = max(1, limit - total)
+                _span = max(1, min(600, _room))
+                # Centra o par no espaço realmente disponível; com
+                # excerpt pequeno, o início fixo em _h-500 deixava o termo
+                # fora do recorte truncado.
+                _fstart = max(0, _lo - max(0, (_span - (_hi - _lo)) // 2))
+                if take(_fstart, _span, force=True):
                     winlog[-1] += " (resend-foco)"
         except Exception:
             pass
@@ -2804,6 +2855,70 @@ def _open_priority(plan, prior_states) -> tuple[list[str], list[str]]:
                        if not (t in seen or seen.add(t))]
 
 
+def _span_norm(text) -> str:
+    """Lowercase, accent-folded, separators as spaces, offsets preserved.
+
+    Identity and locality must use the same normalization: the plan label
+    ``opencode-review`` and the body ``OpenCode Review`` are the same
+    entity, and ``revisão`` must match the accent-stripped term
+    ``revisao``. Folding is per character so span offsets apply to the
+    original body. Deterministic.
+    """
+    import unicodedata as _ud
+    out: list[str] = []
+    for ch in str(text or ""):
+        low = ch.lower()
+        if low.isalnum() and ord(low) < 128:
+            out.append(low)
+            continue
+        base = "".join(c for c in _ud.normalize("NFKD", low)
+                       if not _ud.combining(c))
+        out.append(base[0] if base and base[0].isalnum() else " ")
+    return "".join(out)
+
+
+def _term_variants(term: str) -> list[str]:
+    """Whole-word variants for English inflection (review/reviews, test/tests)."""
+    out = {term}
+    if term.isalpha():
+        out.add(term + "s")
+        out.add(term + "es")
+        if term.endswith("s") and len(term) > 3:
+            out.add(term[:-1])
+        if term.endswith("ies") and len(term) > 3:
+            out.add(term[:-3] + "y")
+        if term.endswith("es") and len(term) > 2:
+            out.add(term[:-2])
+    return [t for t in out if t]
+
+
+def _term_positions(low: str, term: str) -> list[int]:
+    """Offsets of a dimension term in already-lowercased text.
+
+    Alphabetic terms match as whole words: ``feature`` must not fire on
+    ``featured`` and ``support`` must not fire on ``supportive``. The
+    PT->EN bridge added short English words, so substring matching would
+    let a tangential mention suppress the focused resend. Deterministic.
+    """
+    if not term:
+        return []
+    if term.isalpha():
+        out: set[int] = set()
+        for variant in _term_variants(term):
+            pat = re.compile(r"(?<![a-z0-9])" + re.escape(variant)
+                             + r"(?![a-z0-9])")
+            out.update(m.start() for m in pat.finditer(low))
+        return sorted(out)
+    out: list[int] = []
+    p = 0
+    while True:
+        i = low.find(term, p)
+        if i < 0:
+            return out
+        out.append(i)
+        p = i + max(1, len(term))
+
+
 def _cell_locality_hit(text: str, ent: dict, terms: list,
                          generic=frozenset(), rare_ok: bool = True) -> bool:
     """Full-text identity + dimension term near an entity mention.
@@ -2811,7 +2926,10 @@ def _cell_locality_hit(text: str, ent: dict, terms: list,
     Shared gate for the resend and the diversity order (accept34): the
     doc is about the entity (same aboutness the gates enforce) and a
     dimension term occurs within 1500 chars of a mention (same locality
-    the diagnose uses). Deterministic, stdlib.
+    the diagnose uses). Occurrences inside the entity label are identity,
+    not evidence of the dimension: ``opencode-review`` names the product
+    and must not by itself prove the review criterion. Deterministic,
+    stdlib.
     """
     try:
         if not _identity_matches(ent, text, single_ok=rare_ok,
@@ -2819,23 +2937,25 @@ def _cell_locality_hit(text: str, ent: dict, terms: list,
             return False
     except Exception:
         return False
-    low = str(text or "").lower()
+    low = _span_norm(text)
     anchors: list[int] = []
+    label_spans: list[tuple[int, int]] = []
     try:
-        lbl = str((ent or {}).get("label") or "").lower()
-        if lbl.strip():
+        lbl = _span_norm((ent or {}).get("label")).strip()
+        if lbl:
             p = 0
             while True:
                 i = low.find(lbl, p)
                 if i < 0:
                     break
                 anchors.append(i)
+                label_spans.append((i, i + len(lbl)))
                 p = i + max(1, len(lbl))
         dist = _entity_distinctive_tokens(ent or {}, generic)
         if len(dist) == 1 and dist[0]:
             p = 0
             while True:
-                i = low.find(dist[0], p)
+                i = low.find(_span_norm(dist[0]).strip(), p)
                 if i < 0:
                     break
                 anchors.append(i)
@@ -2845,18 +2965,15 @@ def _cell_locality_hit(text: str, ent: dict, terms: list,
     if not anchors:
         return False
     for t in terms or []:
-        p = 0
-        while True:
-            j = low.find(t, p)
-            if j < 0:
-                break
+        for j in _term_positions(low, _span_norm(t).strip()):
+            if any(s <= j < e for s, e in label_spans):
+                continue
             if any(abs(j - a) <= 1500 for a in anchors):
                 return True
-            p = j + max(1, len(t))
     return False
 
 
-def _excerpt_shown_cells(excerpt, plan, rare_ok=None,
+def _excerpt_shown_cells(excerpt, plan, rare_by_eid=None,
                          generic=None) -> set:
     """Required cells whose entity+dimension are visible in the excerpt.
 
@@ -2864,7 +2981,10 @@ def _excerpt_shown_cells(excerpt, plan, rare_ok=None,
     saw, not every cell requested in the call. A source can be in the
     corpus and even in the batch while the section that answers a cell
     fell outside the excerpt window; marking that pair as shown killed
-    the focused resend (accept32) forever. Deterministic, stdlib.
+    the focused resend (accept32) forever. ``rare_by_eid`` is the
+    entity-id -> bool rarity map (a bool is a caller bug, not a map:
+    treating it as one silently returned an empty set and resent every
+    round). Deterministic, stdlib.
     """
     out: set = set()
     try:
@@ -2881,16 +3001,8 @@ def _excerpt_shown_cells(excerpt, plan, rare_ok=None,
                     plan, (plan or {}).get("question"))
             except Exception:
                 generic = frozenset()
-        terms_by_c: dict[str, list[str]] = {}
-        for c in (plan or {}).get("criteria", []) or []:
-            if not isinstance(c, dict) or not c.get("id"):
-                continue
-            toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
-            toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
-            seen: set[str] = set()
-            terms_by_c[c["id"]] = [
-                t for t in toks if not (t in seen or seen.add(t))]
-        rare_map = rare_ok or {}
+        terms_by_c = _criterion_terms(plan)
+        rare_map = rare_by_eid if isinstance(rare_by_eid, dict) else {}
         for cid, eid in _plan_cells(plan):
             ent = emap.get(eid)
             terms = terms_by_c.get(cid) or []
@@ -2945,17 +3057,7 @@ def _open_cell_coverage(urls, plan, evidence, qualification,
                     open_cells.append((c["id"], eid))
         if not open_cells:
             return cov
-        crit_terms: dict[str, list[str]] = {}
-        for c in criteria:
-            try:
-                toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
-                toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
-                seen_terms: set[str] = set()
-                crit_terms[c["id"]] = [
-                    t for t in toks if not (t in seen_terms
-                                            or seen_terms.add(t))]
-            except Exception:
-                crit_terms[c["id"]] = []
+        crit_terms = _criterion_terms(plan)
         try:
             bodies = [str((qualification.get(u) or {}).get("usable_text")
                           or (evidence or {}).get(u) or "")
@@ -3073,17 +3175,7 @@ def _resend_for_open_cells(plan, evidence, qualification, sent,
                 str(ce[0])))
         except Exception:
             pass
-        crit_terms: dict[str, list[str]] = {}
-        for c in criteria:
-            try:
-                toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
-                toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
-                seen_terms: set[str] = set()
-                crit_terms[c["id"]] = [
-                    t for t in toks if not (t in seen_terms
-                                            or seen_terms.add(t))]
-            except Exception:
-                crit_terms[c["id"]] = []
+        crit_terms = _criterion_terms(plan)
         rare: dict[str, bool] = {}
         for _, eid in open_cells:
             try:
@@ -3274,6 +3366,20 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # open material remains). max_docs/json_budget/model calls intact.
         _open_eids, _open_terms = _open_priority(plan, _prior_states)
         _open_set = set(_open_eids)
+        # Rotação de entidades (Fase G): quantas células cada entidade já
+        # teve efetivamente exibidas. O prefixo fixo reserva um doc por
+        # entidade; com muitas entidades e teto JSON, a primeira entidade
+        # pode ocupar o lote inteiro e as demais esperar rodadas. A ordem
+        # estável por (células já vistas, ordem do plano) garante que a
+        # entidade menos servida venha primeiro, sem nomes fixos.
+        _eid_shown: dict[str, int] = {}
+        try:
+            for _pairs in (_shown or {}).values():
+                for _pair in _pairs or set():
+                    if isinstance(_pair, tuple) and len(_pair) == 2:
+                        _eid_shown[_pair[1]] = _eid_shown.get(_pair[1], 0) + 1
+        except Exception:
+            _eid_shown = {}
         # Células pedidas NESTA chamada (Fase B marca): snapshot para o
         # registro (url, célula) servida no envio.
         try:
@@ -3292,11 +3398,11 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 ordered.append(url)
 
         def _open_first(ents) -> list:
-            return ([e for e in ents
-                     if isinstance(e, dict) and e.get("id") in _open_set]
-                    + [e for e in ents
-                       if not (isinstance(e, dict)
-                               and e.get("id") in _open_set)])
+            _all = [e for e in ents if isinstance(e, dict)]
+            _open = [e for e in _all if e.get("id") in _open_set]
+            _closed = [e for e in _all if e.get("id") not in _open_set]
+            _open.sort(key=lambda e: _eid_shown.get(e.get("id"), 0))
+            return _open + _closed
 
         for _e in _open_first((plan or {}).get("entities", []) or []):
             if not isinstance(_e, dict) or _e.get("required", True) is False:
@@ -3338,6 +3444,13 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 _prior_cell_refs, _shown)
         except Exception:
             _resend_open = []
+        try:
+            # Mesma rotação: entidade menos servida primeiro; dentro dela
+            # a ordem de evidência/célula do _resend_for_open_cells fica
+            # estável. Não altera quais pares qualificam.
+            _resend_open.sort(key=lambda t: _eid_shown.get(t[2], 0))
+        except Exception:
+            pass
         _resend_urls: list[str] = []
         for _u, _c, _e in _resend_open:
             if _u not in _resend_urls:
@@ -3503,11 +3616,13 @@ def make_model_assessor(model_client, max_docs: int = 24,
         # sem literais, mesma localidade ≤1500 do _resend_for_open_cells.
         # URL fora do reenvio recebe None (comportamento idêntico).
         _resend_focus: dict[str, tuple[list[str], list[str]]] = {}
+        _windows_by_url: dict[str, str] = {}
         try:
             _f_emap = {e.get("id"): e for e in (plan or {}).get("entities", [])
                        if isinstance(e, dict)}
             _f_cmap = {c.get("id"): c for c in (plan or {}).get("criteria", [])
                        if isinstance(c, dict)}
+            _f_terms = _criterion_terms(plan)
             try:
                 _f_generic = _plan_shared_tokens(
                     plan, (plan or {}).get("question"))
@@ -3515,25 +3630,23 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 _f_generic = frozenset()
             for _u, _c, _e in _resend_open:
                 try:
-                    _dt = _norm_tokens(
-                        str((_f_cmap.get(_c) or {}).get("label") or ""),
-                        min_len=4)
-                    _dt.extend(t for t in _expand_terms_en(_dt)
-                               if len(t) >= 4)
-                    _seen: set[str] = set()
-                    _dt = [t for t in _dt
-                           if len(t) >= 4 and not (t in _seen
-                                                   or _seen.add(t))]
+                    _dt = list(_f_terms.get(_c) or [])
                     _ent = _f_emap.get(_e) or {}
                     _anc: list[str] = []
                     _lbl = str(_ent.get("label") or "").lower()
                     if _lbl.strip():
                         _anc.append(_lbl)
+                    # Um token distintivo que não é a própria dimensão
+                    # (ex.: 'opencode') ancora o foco quando o doc cita
+                    # só ele; 'review' fica de fora para não voltar ao
+                    # nome da entidade.
                     try:
-                        _dd = _entity_distinctive_tokens(_ent, _f_generic)
-                        if (len(_dd) == 1 and _dd[0]
-                                and _dd[0] not in _lbl):
-                            _anc.append(_dd[0])
+                        for _tok in _entity_distinctive_tokens(
+                                _ent, _f_generic):
+                            if (_tok and _tok not in _dt
+                                    and _tok not in _lbl
+                                    and _tok not in _anc):
+                                _anc.append(_tok)
                     except Exception:
                         pass
                     _prev = _resend_focus.get(_u)
@@ -3585,6 +3698,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
             items.append(entry)
             used_budget += len(blob)
             _sent.add(url)
+            _windows_by_url[url] = _windows
             # (url, célula) servida (Fase G): só marca o par quando o
             # excerto enviado mostra a entidade e o termo da dimensão.
             # Antes, todas as células pedidas eram marcadas para todo
@@ -3619,6 +3733,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
                      "cuts": "; ".join(cuts) if cuts else "sem cortes",
                      "excerpt_chars": {i["url"]: len(i["excerpt"] or "")
                                        for i in items},
+                     "windows": _windows_by_url,
                      "batch": f"{len(items)}/{len(ordered)}"}
         assess.last_selection = selection
         try:

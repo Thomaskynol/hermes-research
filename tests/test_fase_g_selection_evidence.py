@@ -83,6 +83,77 @@ class PtEnDimensionBridgeTest(unittest.TestCase):
         self.assertFalse(ac._cell_locality_hit(
             text, ent, toks, generic=frozenset(), rare_ok=True))
 
+    def test_entity_name_is_identity_not_dimension_evidence(self):
+        """O nome 'opencode-review' não prova a dimensão revisão."""
+        ent = {"id": "e1", "label": "opencode-review", "required": True}
+        toks = ac._norm_tokens("revisão de código", min_len=4)
+        toks.extend(t for t in ac._expand_terms_en(toks) if len(t) >= 4)
+        self.assertFalse(ac._cell_locality_hit(
+            "opencode-review is a plugin.", ent, toks,
+            generic=frozenset(), rare_ok=True),
+            "o rótulo da entidade não pode marcar a célula sozinho")
+        self.assertFalse(ac._cell_locality_hit(
+            "OpenCode Review is a plugin.", ent, toks,
+            generic=frozenset(), rare_ok=True),
+            "a forma espaçada do rótulo também é identidade")
+        self.assertTrue(ac._cell_locality_hit(
+            "opencode-review adds a code review workflow.", ent, toks,
+            generic=frozenset(), rare_ok=True),
+            "uma ocorrência fora do rótulo é evidência visível")
+
+    def test_shared_label_token_does_not_mark_every_dimension(self):
+        """'Melhoria' compartilhado não prova planejamento nem revisão."""
+        plan = {
+            "plan_id": "g3", "version": 1, "question": "q",
+            "entities": [{"id": "e1", "label": "AlphaWidget",
+                          "required": True}],
+            "criteria": [
+                {"id": "c2", "label": "Melhoria de planejamento",
+                 "required": True, "applies_to": ["e1"]},
+                {"id": "c3", "label": "Melhoria de revisão",
+                 "required": True, "applies_to": ["e1"]},
+            ],
+            "initial_paths": ["q"],
+        }
+        got = ac._excerpt_shown_cells(
+            "AlphaWidget melhoria de qualidade.", plan)
+        self.assertEqual(got, set(), got)
+
+    def test_accented_body_matches_accent_stripped_term(self):
+        ent = {"id": "e1", "label": "AlphaWidget", "required": True}
+        toks = ac._norm_tokens("revisão de código", min_len=4)
+        toks.extend(t for t in ac._expand_terms_en(toks) if len(t) >= 4)
+        self.assertTrue(ac._cell_locality_hit(
+            "AlphaWidget revisão de código.", ent, toks,
+            generic=frozenset(), rare_ok=True))
+
+    def test_plural_inflection_matches(self):
+        ent = {"id": "e1", "label": "AlphaWidget", "required": True}
+        toks = ac._norm_tokens("revisão de código", min_len=4)
+        toks.extend(t for t in ac._expand_terms_en(toks) if len(t) >= 4)
+        self.assertTrue(ac._cell_locality_hit(
+            "AlphaWidget publishes code reviews.", ent, toks,
+            generic=frozenset(), rare_ok=True))
+        tests = ac._norm_tokens("testes", min_len=4)
+        tests.extend(t for t in ac._expand_terms_en(tests) if len(t) >= 4)
+        self.assertTrue(ac._cell_locality_hit(
+            "AlphaWidget has a test suite.", ent, tests,
+            generic=frozenset(), rare_ok=True))
+
+    def test_expanded_terms_match_whole_words_only(self):
+        """'featured' não prova funcionalidades; 'maintainers' não prova manutenção."""
+        ent = {"id": "e1", "label": "AlphaWidget", "required": True}
+        func = ac._norm_tokens("funcionalidades", min_len=4)
+        func.extend(t for t in ac._expand_terms_en(func) if len(t) >= 4)
+        self.assertFalse(ac._cell_locality_hit(
+            "AlphaWidget is featured in a list.", ent, func,
+            generic=frozenset(), rare_ok=True))
+        maint = ac._norm_tokens("manutenção", min_len=4)
+        maint.extend(t for t in ac._expand_terms_en(maint) if len(t) >= 4)
+        self.assertFalse(ac._cell_locality_hit(
+            "AlphaWidget maintainers are listed.", ent, maint,
+            generic=frozenset(), rare_ok=True))
+
 
 class ShownPairIsExcerptLevelTest(unittest.TestCase):
     """Célula só conta como exibida quando o excerto a mostra."""
@@ -113,7 +184,7 @@ class ShownPairIsExcerptLevelTest(unittest.TestCase):
                 + "unrelated maintenance prose. " * 15
                 + "planning workflow with gates and stages. ")
 
-    def _assess(self, doc, with_implementation=True):
+    def _assess(self, doc, with_implementation=True, excerpt_chars=300):
         prompts = []
 
         def fake_client(prompt):
@@ -121,7 +192,7 @@ class ShownPairIsExcerptLevelTest(unittest.TestCase):
             return "[]"
 
         assess = ac.make_model_assessor(
-            fake_client, max_docs=1, excerpt_chars=300)
+            fake_client, max_docs=1, excerpt_chars=excerpt_chars)
         plan = self._plan(with_implementation=with_implementation)
         assess(plan, {"https://example.org/a": doc},
                {"https://example.org/a": qual(doc)})
@@ -161,6 +232,94 @@ class ShownPairIsExcerptLevelTest(unittest.TestCase):
                          str((assess.last_selection or {}).get("cuts")),
                          "par (url,célula) já exibido no excerto não "
                          "deve consumir reenvio focado")
+
+    def test_section_outside_excerpt_triggers_focused_resend(self):
+        """Seção fora do 1º excerto volta pelo reenvio focado (accept32)."""
+        url = "https://example.org/a"
+        filler = "filler " * 20
+        doc = (
+            "AlphaWidget is a widget. " + filler
+            + "License MIT. " + filler
+            + "Version 1.0. " + filler
+            + "Install with npm. " + filler
+            + "Price free. " + filler
+            + "Maintainers active. " + filler
+            + "AlphaWidget planning workflow with gates. " + "tail " * 20
+        )
+        assess, plan, prompts = self._assess(
+            doc, with_implementation=False, excerpt_chars=100)
+        first = excerpt_of(prompts[-1], url)
+        self.assertTrue(first)
+        self.assertNotIn("planning", first[0].lower(),
+                         f"1º excerto não deveria conter a seção: {first[0]!r}")
+        assess(plan, {url: doc}, {url: qual(doc)})
+        cuts = str((assess.last_selection or {}).get("windows"))
+        self.assertIn("resend-foco", cuts,
+                      f"célula fora do excerto deve disparar reenvio: {cuts}")
+        second = excerpt_of(prompts[-1], url)
+        self.assertTrue(second)
+        self.assertIn("planning", second[0].lower(),
+                      f"2º excerto deve conter a seção reenviada: {second[0]!r}")
+
+    def test_boolean_rare_map_does_not_silence_marking(self):
+        """Bool no lugar do mapa não pode zerar silenciosamente o _shown."""
+        plan = self._plan()
+        excerpt = "AlphaWidget implementation notes and release details."
+        got = ac._excerpt_shown_cells(excerpt, plan, True)
+        self.assertIn(("c0", "e1"), got, got)
+
+
+class EntityRotationTest(unittest.TestCase):
+    """Com teto pequeno, a entidade menos servida vem primeiro."""
+
+    def _plan(self):
+        return {
+            "plan_id": "g2", "version": 1, "question": "q",
+            "entities": [
+                {"id": "e1", "label": "AlphaWidget", "required": True},
+                {"id": "e2", "label": "BetaWidget", "required": True},
+            ],
+            "criteria": [
+                {"id": "c1", "label": "planejamento", "required": True,
+                 "applies_to": ["e1"], "description": "d1"},
+                {"id": "c2", "label": "implementação", "required": True,
+                 "applies_to": ["e2"], "description": "d2"},
+            ],
+            "initial_paths": ["q"],
+        }
+
+    def test_second_call_rotates_to_unserved_entity(self):
+        c_url = "https://example.org/c"
+        a_url = "https://example.org/a"
+        b_url = "https://example.org/b"
+        first_docs = {
+            c_url: "AlphaWidget planning workflow with gates.",
+        }
+        all_docs = {
+            c_url: "AlphaWidget planning workflow with gates.",
+            a_url: ("AlphaWidget planning workflow with gates. "
+                    "AlphaWidget planning AlphaWidget planning."),
+            b_url: "BetaWidget implementation notes and release details.",
+        }
+        prompts = []
+
+        def fake_client(prompt):
+            prompts.append(prompt)
+            return "[]"
+
+        assess = ac.make_model_assessor(
+            fake_client, max_docs=1, excerpt_chars=300)
+        plan = self._plan()
+        assess(plan, first_docs,
+               {u: qual(t) for u, t in first_docs.items()})
+        first = [it["url"] for it in material(prompts[-1])]
+        self.assertEqual(first, [c_url], first)
+        assess(plan, all_docs,
+               {u: qual(t) for u, t in all_docs.items()})
+        second = [it["url"] for it in material(prompts[-1])]
+        # e1 já teve célula exibida; a rotação deve servir e2 antes de
+        # outro doc não enviado de e1 (antes da correção vinha /a).
+        self.assertEqual(second, [b_url], second)
 
 
 if __name__ == "__main__":
