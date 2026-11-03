@@ -782,6 +782,35 @@ _PT_EN_RESEARCH: dict[str, tuple[str, ...]] = {
     "justica": ("fairness",), "referencia": ("reference",),
     "citacao": ("citation",), "base": ("benchmark", "dataset"),
     "conjunto": ("dataset",), "dados": ("data",),
+    # Software-research dimensions (generic, no candidate names): a PT
+    # criterion must reach the EN section that answers it. Longer terms
+    # only, so "code"/"test" do not match "decode"/"latest".
+    "planejamento": ("planning",),
+    "implementacao": ("implementation", "implemented"),
+    "testes": ("tests", "testing"),
+    "revisao": ("review",),
+    "compatibilidade": ("compatibility", "compatible"),
+    "dependencia": ("dependency",), "dependencias": ("dependencies",),
+    "custos": ("costs", "pricing"),
+    "manutencao": ("maintenance", "maintainers"),
+    "funcionalidade": ("functionality", "feature"),
+    "funcionalidades": ("functionality", "features"),
+    "documentacao": ("documentation", "docs"),
+    "versao": ("version", "release"),
+    "instalacao": ("installation", "install"),
+    "configuracao": ("configuration", "config"),
+    "integracao": ("integration", "integrated"),
+    "seguranca": ("security",),
+    "qualidade": ("quality",),
+    "suporte": ("support",),
+    "licenca": ("license",),
+    "preco": ("price", "pricing"),
+    "gratuito": ("free",), "gratis": ("free",), "pago": ("paid",),
+    "assinatura": ("subscription",),
+    "requisito": ("requirement",), "requisitos": ("requirements",),
+    "exemplo": ("example",), "exemplos": ("examples",),
+    "fluxo": ("workflow",), "orquestracao": ("orchestration",),
+    "automatizado": ("automated",), "automatizada": ("automated",),
 }
 
 
@@ -2827,6 +2856,55 @@ def _cell_locality_hit(text: str, ent: dict, terms: list,
     return False
 
 
+def _excerpt_shown_cells(excerpt, plan, rare_ok=None,
+                         generic=None) -> set:
+    """Required cells whose entity+dimension are visible in the excerpt.
+
+    Fase G: the resend bookkeeping must record what the model actually
+    saw, not every cell requested in the call. A source can be in the
+    corpus and even in the batch while the section that answers a cell
+    fell outside the excerpt window; marking that pair as shown killed
+    the focused resend (accept32) forever. Deterministic, stdlib.
+    """
+    out: set = set()
+    try:
+        text = str(excerpt or "")
+        if not text.strip():
+            return out
+        emap = {e.get("id"): e for e in (plan or {}).get("entities", [])
+                if isinstance(e, dict)}
+        if not emap:
+            return out
+        if generic is None:
+            try:
+                generic = _plan_shared_tokens(
+                    plan, (plan or {}).get("question"))
+            except Exception:
+                generic = frozenset()
+        terms_by_c: dict[str, list[str]] = {}
+        for c in (plan or {}).get("criteria", []) or []:
+            if not isinstance(c, dict) or not c.get("id"):
+                continue
+            toks = _norm_tokens(str(c.get("label") or ""), min_len=4)
+            toks.extend(t for t in _expand_terms_en(toks) if len(t) >= 4)
+            seen: set[str] = set()
+            terms_by_c[c["id"]] = [
+                t for t in toks if not (t in seen or seen.add(t))]
+        rare_map = rare_ok or {}
+        for cid, eid in _plan_cells(plan):
+            ent = emap.get(eid)
+            terms = terms_by_c.get(cid) or []
+            if not ent or not terms:
+                continue
+            if _cell_locality_hit(
+                    text, ent, terms, generic=generic,
+                    rare_ok=rare_map.get(eid, True)):
+                out.add((cid, eid))
+    except Exception:
+        return out
+    return out
+
+
 def _open_cell_coverage(urls, plan, evidence, qualification,
                         prior_states, prior_cell_refs, shown
                         ) -> dict[str, list[tuple[str, str]]]:
@@ -3370,6 +3448,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
                            if not (isinstance(_u, str) and _u.startswith("user://"))]
         except Exception:
             _all_bodies = []
+        # Fase G: o par (url, célula) só conta como exibido quando o
+        # EXCERTO enviado contém a menção da entidade e o termo da
+        # dimensão (ver _excerpt_shown_cells).
+        try:
+            _mark_generic = _plan_shared_tokens(
+                plan, (plan or {}).get("question"))
+        except Exception:
+            _mark_generic = frozenset()
         def _doc_entity_terms(_url: str, _text: str) -> list[str]:
             try:
                 try:
@@ -3499,13 +3585,16 @@ def make_model_assessor(model_client, max_docs: int = 24,
             items.append(entry)
             used_budget += len(blob)
             _sent.add(url)
-            # (url, célula) servida (Fase B marca): registra as células
-            # pedidas nesta chamada junto ao url enviado — o reenvio
-            # futuro só recita pares (url, célula) nunca exibidos juntos
-            # (fecha o buraco inter-critérios sem repetir o que o modelo
-            # já viu com a célula pedida).
+            # (url, célula) servida (Fase G): só marca o par quando o
+            # excerto enviado mostra a entidade e o termo da dimensão.
+            # Antes, todas as células pedidas eram marcadas para todo
+            # doc enviado; o reenvio focado nunca disparava e a seção
+            # fora da janela não voltava.
             try:
-                _shown.setdefault(url, set()).update(_req_now)
+                _shown_cells = _excerpt_shown_cells(
+                    excerpt, plan, _rare_cache, _mark_generic)
+                if _shown_cells:
+                    _shown.setdefault(url, set()).update(_shown_cells)
             except Exception:
                 pass
         if len(ordered) > len(items):
