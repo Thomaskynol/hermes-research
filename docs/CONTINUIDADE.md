@@ -1,39 +1,79 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual (2026-11-01):** HEAD `a2f9d49`, branch `feat/product-v1`,
-> sem push. Entregue pós-accept28: 5 causas corrigidas + 9 achados de
-> revisão aplicados, sem hardcode (contratos A1–A6 em
-> `tests/test_accept28_causes.py`, 36 testes TDD; ajustes
-> `test_discovery_cells`/`identity_gate`/`na_swap` ao novo contrato;
-> `adaptive_coordinator.py` +562, `verification_report.py` +36; revisão
-> cavecrew 1🔴+8🟡 aplicada, resíduo URL+corpo eliminado).
-> Suíte **599 OK** (595+4 novos, RED→GREEN do positivo; 10 skips
-> pré-existentes). Diagnose congelado do
-> accept28: **53/11** (só C9 combinação vira LACUNA sem-âncora).
-> Plano ativo: `.planning/agent-reach-accept21/` (`task_plan.md`,
-> `findings.md`, `progress.md`).
+> **Estado atual (2026-11-03):** HEAD `38141b1`, branch `feat/product-v1`,
+> primeiro push feito em 2026-11-03 (ver §Push). Fase G (seleção de
+> evidência) fechada em duas etapas:
+> `64e0a3c` (ponte PT→EN + `_shown` por excerto) e `38141b1`
+> (remediação da revisão: nome da entidade não é dimensão, spans
+> normalizados/acentos, plurais, termos compartilhados, janela de
+> reenvio por orçamento, rotação de entidades, `selection.windows`).
+> Suíte **746 OK** / 10 skips / EXIT 0; foco 13 OK. Run real
+> **accept42 encerrado** em `38141b1` (EXIT=0, dir exclusivo,
+> `max_rounds=12`, 8082 do usuário UP; SearXNG/gateway DOWN
+> documentados) — reconciliação pendente. Baseline accept41: 2/41
+> partial, 18 selection_context, 13 missing_dimension, parada
+> default=6 com folga.
+> Plano ativo: `.planning/fase-g-selecao/task_plan.md`; deepwork:
+> `.slim/deepwork/missao-accept42-selecao/progress.md`.
 >
-> Atenção: o run accept28 executou o produto `95b0ec7`; o HEAD atual
-> `a2f9d49` contém produto novo ainda sem run real (ver Pendências).
+> Atenção: não declarar aceite antes de reconciliar relatório, matriz
+> e verificadores contra os artefatos do accept42. A versão 2.1.4 é
+> premissa de entrada do experimento; a versão observada do OpenCode
+> deve ser lida do ambiente/artefatos.
+
 
 ## Pendências reais
 
-1. **Execução real integrada + relatório final da pesquisa** — nenhum run
-   real após `a2f9d49`; RA8 segue PENDENTE, sem flexibilizar.
-2. **Revalidação de runs antigos além do accept28** — só o accept28 foi
-   reconferido contra os novos contratos; runs anteriores não revalidados.
-3. **Oráculo pós-hoc não populado in-product** — `diagnose_audit` roda
-   pós-hoc; o produto não popula o oráculo durante a execução.
-4. **HEAD `a2f9d49` ≠ produto do run `95b0ec7`** — hashes do run
-   (`hashes.frozen`) não conferem com o HEAD atual; o próximo run real
-   precisa congelar HEAD e reconferir hashes pré/pós-run.
+1. **accept42 encerrado (aguarda reconciliação)** — run real congelado
+   em `38141b1`, EXIT=0; reconciliar `report.md`, matriz e verificadores
+   e atualizar `docs/ACEITE_V1_RESULTADO.md`/`REQUIREMENTS_MATRIX.md`
+   com o resultado efetivo, sem forçar aprovação.
+2. **RA8** — cobertura da pergunta continua aberta; accept41 ficou
+   `2/41 partial` com 18 selection_context e 13 missing_dimension. O
+   accept42 deve mostrar se as correções aumentam a cobertura útil.
+3. **SearXNG/gateway** — sem container SearXNG e gateway 8001 parado;
+   o run usa os canais disponíveis e registra a degradação. Não declarar
+   bloqueio externo sem confirmar impacto no corpus do run.
+4. **Resíduos Fase G** — janela de foco limitada a 600 chars; teste
+   multi-entidade do sort de reenvio ausente; revisão final não repetida
+   após ajustes de acento/plural (suite cobre). Registrar como limitação,
+   não como aceite.
 
-## Próxima ação (fase 2)
+## Próxima ação (fase 3)
 
-Pesquisa real congelada (HEAD fixo, hashes pré/pós-run, infra medida) +
-**2 Markdowns**: relatório do run + atualização do resultado acumulado
-(`docs/ACEITE_V1_RESULTADO.md`). Sem produto neste lane até nova
-hipótese explícita.
+Ler os artefatos do accept42 (relatório, diagnose, verification,
+counters), comparar com accept41 e decidir se a entrega é útil/parcial.
+Corrigir causa geral se houver defeito demonstrável; não repetir run sem
+hipótese nova. Atualizar CONTINUIDADE e commit local dos docs.
+
+
+## Push (2026-11-03, tarefa complementar)
+
+- Repositório: `git@github.com:Thomaskynol/hermes-research.git`.
+- Publicado: `feat/product-v1` → `38141b1`; `main` → `38141b1`
+  (remoto vazio, mesmo HEAD, sem trocar o checkout ativo).
+- Remoto anterior (`origin`) apontava para caminho local não-git
+  (`/home/thomaskyn/.hermes/deep_research_outputs/gpt_researcher`);
+  URL substituída após constatar que não era repositório. Sem
+  force-push, sem reescrita de histórico.
+- Identidade local configurada: `Thomaskynol <thomaskynol@gmail.com>`
+  (só neste repositório; vale para novos commits).
+- Autoria antiga divergente (sem reescrita, hashes preservados):
+  commits intermediários como `hermes-dev <hermes-dev@local>`
+  (ex.: `f3fb458`, `934f373`, `ac81ae9`); demais como
+  `Thomas Kyn de Oliveira <thomaskyn@localhost.localdomain>`
+  (ex.: `38141b1`, `64e0a3c`, `0e6ad16`). Nenhum commit nosso é de
+  terceiro; são identidades locais anteriores do mesmo trabalho.
+- Chave SSH usada: `~/.ssh/thomaskynol_github` via `GIT_SSH_COMMAND`
+  (sem alteração no `~/.ssh/config`).
+- Sem workflows de CI (`.github` inexistente); push não dispara
+  pacotes, releases nem deploy.
+- Orientação vigente: publicar código em desenvolvimento não equivale
+  a declarar o produto aprovado. Fazer novos pushes ao concluir
+  marcos validados desta missão. Pendentes de publicação após este
+  push: este próprio `CONTINUIDADE.md` + `.planning/fase-g-selecao/`
+  (commit após a reconciliação do accept42).
+
 
 ## Correções de leitura — contratos vigentes (A1–A6, `test_accept28_causes.py`)
 

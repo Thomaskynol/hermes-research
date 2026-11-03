@@ -16,12 +16,15 @@ Corrigir causas gerais que impedem fontes pertinentes de chegarem ao assessor e 
 - H3: limite de rounds default=6 pode ser vinculante com folga; reavaliar após o fix, sem aumentar tetos globais silenciosamente.
 
 ## Fases
-1. TDD e fix (concluído; suite 738 OK).
-2. Revisão independente (cavecrew-reviewer) e correções.
-3. Run real accept42 em HEAD congelado; 8082 up; SearXNG DOWN documentado; fallback direto permitido.
+1. TDD e fix inicial (concluído; commit 64e0a3c; suite 738 OK).
+2. Revisão independente (cavecrew-reviewer) e correções (concluído; 3 tentativas; commit 38141b1; suite 746 OK).
+3. Run real accept42 em HEAD congelado 38141b1; 8082 up; SearXNG DOWN documentado; fallback direto permitido (em execução).
 4. Reconciliação report/matriz/verificação; CONTINUIDADE; commit local.
 
 ## Evidência
 - `/home/thomaskyn/hermes-runs/accept41/` (baseline)
-- `/home/thomaskyn/hermes-runs/accept42/` (novo run)
-- `tests/test_fase_g_selection_evidence.py`
+- `/home/thomaskyn/hermes-runs/accept42/` (novo run em 38141b1)
+- `tests/test_fase_g_selection_evidence.py` (13 testes)
+- Revisão: ses_e6012bbadffe8jYBEVPkSN5qWB (3 tentativas)
+- Resíduos aceitos: janela de foco 600 chars; teste multi-entidade do sort de reenvio; sem re-review após acentos/plurais.
+
