@@ -78,6 +78,7 @@ def main():
                           "síntese histórica reprocessada, sem gerador real.")}
     st["user_context"] = copy.deepcopy(original.get("user_context", {}))
     st["user_context"]["origin"] = "harness"
+    ac._sync_harness_context_sources(st)
     if args.observed_version:
         st["environment_observations"] = [{"command": "opencode --version", "value": args.observed_version,
                                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}]

@@ -300,6 +300,7 @@ def adaptive_entry(*, question: str, profile: str = "light",
                      overrides: dict | None = None,
                      budget=None, clock=None, resume: bool = False,
                      user_context: dict | None = None,
+                     context_origin: str = "user-provided",
                      control=None) -> dict:
     """Testable adaptive entry: real planner/assessor/writer/coordinator.
 
@@ -336,7 +337,7 @@ def adaptive_entry(*, question: str, profile: str = "light",
         fetch_fn=fetch_transport, assess_fn=assess, writer_fn=writer,
         auditor_fn=auditor_fn, clock=clock, budget=budget,
         run_dir=run_dir, run_id=run_id, overrides=overrides,
-        user_context=user_context, resume=resume, control=control)
+        user_context=user_context, context_origin=context_origin, resume=resume, control=control)
 
 
 def write_adaptive_manifest(run_dir, *, result: dict, question: str = "",
@@ -471,8 +472,9 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
     _p.add_argument("--run-id", default=None,
                     help="run id explícito (necessário com --resume)")
     _p.add_argument("--context", action="append", default=None,
-                    help="fato do usuário KEY=VALUE (repetível; origem "
-                         "user-provided, capa em partial, nunca covered)")
+                    help="premissa KEY=VALUE (repetível; capa em partial, nunca covered)")
+    _p.add_argument("--context-origin", choices=("harness", "user-provided"), default="harness",
+                    help="origem explícita da premissa; padrão harness para configuração da execução")
     try:
         _a = _p.parse_args(argv)
     except SystemExit:
@@ -616,7 +618,7 @@ async def _adaptive_main(argv: list, *, config_path=None, output_dir=None,
                 search_transport=_search_fn, fetch_transport=_fetch_fn,
                 auditor_fn=_auditor_fn,
                 budget=_budget, run_dir=str(_run_dir), run_id=_run_id,
-                overrides=_overrides, user_context=_user_context,
+                overrides=_overrides, user_context=_user_context, context_origin=_a.context_origin,
                 resume=_a.resume, control=_control))
     except ValueError as _e:
         print(f"[ADAPTIVE] {_e}")

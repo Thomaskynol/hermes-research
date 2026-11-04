@@ -351,6 +351,10 @@ def _source_provenance_text(state: dict, synthesis: str) -> str:
     lines = []
     for line in synthesis.splitlines():
         low = normalized(line)
+        if (obtained - included and "fora do corpus" in low
+                and re.search(r"fora (?:desses|destes|daqueles|dos selecionados) (?:documentos|excertos|textos)", low)):
+            line = re.sub(r"(?i)fora do corpus", "fora do material enviado à síntese", line)
+            low = normalized(line)
         if (len(functions) >= 2 and ("ausencia de base para combin" in low or "sem base para combin" in low)
                 and any(x in low for x in ("demais", "outros candidatos", "outras opcoes"))):
             named = [e for e in selected if (form := normalized(e.get("label") or ""))
@@ -1960,6 +1964,13 @@ def render_report(state: dict, *, synthesis_text: str,
     if (state.get("user_context") or {}).get("origin") == "harness":
         result = re.sub(r"(?i)vers[aã]o instalada informada pelo usu[aá]rio",
                         "versão de referência da premissa controlada", result)
+        for fact in ((state.get("user_context") or {}).get("facts") or {}).values():
+            value = str(fact or "")
+            if value:
+                result = re.sub(
+                    r"(?i)vers[aã]o (?:instalada|de refer[eê]ncia)\s+(" + re.escape(value) +
+                    r")\s+(?:informada|fornecida) pelo usu[aá]rio",
+                    r"versão de referência \1 da premissa controlada", result)
     return result
 
 

@@ -426,6 +426,64 @@ class Audit(unittest.TestCase):
 
 
 class Topic(unittest.TestCase):
+    def test_assessor_prompt_retains_harness_context_origin(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        seen = {}
+        def client(prompt):
+            seen["prompt"] = prompt
+            return "[]"
+        ac._assess_round(st, ac.make_model_assessor(client), led)
+        self.assertIn("premissa controlada do experimento", seen["prompt"].lower())
+        self.assertNotIn("Contexto informado pelo usuário", seen["prompt"])
+
+    def test_assessor_prompt_retains_user_context_origin(self):
+        st = state(); st["user_context"] = {"origin":"user-provided", "facts":{"installed_version":"2.1.4"}}
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        seen = {}
+        def client(prompt):
+            seen["prompt"] = prompt
+            return "[]"
+        ac._assess_round(st, ac.make_model_assessor(client), led)
+        self.assertIn("Contexto informado pelo usuário", seen["prompt"])
+
+    def test_assessor_output_cannot_relabel_harness_only_context_as_user(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_riverhost_version":"2.1.4"}}
+        ac._inject_user_fact(st, "installed_riverhost_version", "2.1.4")
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        def client(prompt):
+            return json.dumps([{"criterion_id":"version", "entity_id":"host", "state":"partial",
+                                "justification":"A versão 2.1.4 foi informada pelo usuário.",
+                                "origin":"user-provided", "references":[{"url":"user://context/installed_riverhost_version"}]}])
+        evaluations, _ = ac._assess_round(st, ac.make_model_assessor(client), led)
+        versions = [e for e in evaluations if e["criterion_id"] == "version"]
+        self.assertTrue(versions, "a named context fact must remain attributable to its platform")
+        ev = versions[0]
+        self.assertEqual(ev["origin"], "harness")
+        self.assertNotIn("pelo usuário", ev["justification"])
+        self.assertEqual(ev["state"], "partial")
+
+    def test_context_origin_does_not_relabel_claims_with_external_evidence(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        ev = {"origin":"assessor", "justification":"River Review helps River Plan, considerando a versão 2.1.4.",
+              "references":[{"url":"user://context/installed_version"}, {"url":A}, {"url":B}]}
+        self.assertEqual(ac._context_evaluation_origin(st, ev), ev)
+
+    def test_other_platform_context_key_does_not_identify_this_platform(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_other_version":"2.1.4"}}
+        ev = {"references":[{"url":"user://context/installed_other_version"}]}
+        self.assertFalse(ac._context_identifies_entity(st, st["plan"]["entities"][0], ev))
+
+    def test_harness_context_entry_is_relabelled_without_touching_source_documents(self):
+        st = state(); st["user_context"] = {"origin":"user-provided", "facts":{"installed_version":"2.1.4"}}
+        ac._inject_user_fact(st, "installed_version", "2.1.4")
+        prior_source = st["evidence"][A]
+        st["user_context"]["origin"] = "harness"
+        ac._sync_harness_context_sources(st)
+        self.assertIn("premissa controlada", st["evidence"]["user://context/installed_version"])
+        self.assertEqual(st["evidence"][A], prior_source)
+        self.assertEqual(st["qualification"]["user://context/installed_version"]["usable_text"], "2.1.4")
+
     def test_harness_origin_applies_to_ledger_justifications_too(self):
         st = state()
         st["user_context"] = {"origin": "harness", "facts": {"installed_version": "2.1.4"}}
@@ -450,6 +508,25 @@ class Topic(unittest.TestCase):
         self.assertNotIn("versão instalada 2.1.4", out)
         self.assertIn("premissa controlada do experimento", out)
         self.assertIn("tool --version → 2.2.5", out)
+
+    def test_harness_attribution_includes_a_version_between_words(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        led.evaluate("review", "partial", "A versão instalada 2.1.4 informada pelo usuário atende ao mínimo.",
+                     "assessor", [{"url":A}], "a")
+        st["question_coverage"] = led.compute()
+        out = rr.render_report(st, synthesis_text="Resumo.")
+        self.assertNotIn("2.1.4 informada pelo usuário", out)
+        self.assertIn("2.1.4 da premissa controlada", out)
+
+    def test_obtained_but_unselected_documents_are_not_called_outside_corpus(self):
+        st = state(); st["report"] = {"selection":{"included_urls":[A]}}
+        for url in (A,B):
+            ac._counters.record_obtained(st, url, st["evidence"][url], st["qualification"][url])
+        text = "Referências fora desses documentos foram tratadas como fora do corpus."
+        out = rr.render_report(st, synthesis_text=text)
+        self.assertNotIn("tratadas como fora do corpus", out)
+        self.assertIn("fora do material enviado à síntese", out)
 
     def test_obtained_url_cannot_be_reported_as_outside_corpus(self):
         st = state();st["report"] = {"selection": {"included_urls": [A]}}
@@ -505,6 +582,7 @@ class IntegratedEntry(unittest.TestCase):
             raise AssertionError("Unexpected model call")
         with tempfile.TemporaryDirectory() as tmp:
             result = entry.adaptive_entry(question=st["question"], plan=p, profile="light", run_dir=tmp,
+                user_context={"installed_riverhost_version":"2.1.4"}, context_origin="harness",
                 model_transport=model, search_transport=lambda *a, **kw: [{"url": A}, {"url": B}],
                 fetch_transport=lambda u: {"text": st["evidence"][u], "qualification": st["qualification"][u]},
                 auditor_fn=lambda *a: {"enabled": False, "accepted": False, "verdict_state": "não revisado semanticamente"},
@@ -520,7 +598,12 @@ class IntegratedEntry(unittest.TestCase):
             self.assertNotIn("ponytail", out)
             self.assertTrue((Path(tmp) / "verification.json").is_file())
             saved = json.loads((Path(tmp) / "state.json").read_text())
+            self.assertEqual(saved["user_context"]["origin"], "harness")
             self.assertEqual(saved["question_coverage"]["denominator"], 4)
+            with self.assertRaisesRegex(ValueError, "cannot mix context origins"):
+                entry.adaptive_entry(question=st["question"], run_dir=tmp, run_id=result["run_id"],
+                                     resume=True, user_context={"other":"value"},
+                                     context_origin="user-provided", clock=lambda: 0)
 
 
 if __name__ == "__main__":

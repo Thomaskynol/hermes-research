@@ -3671,6 +3671,10 @@ def make_model_assessor(model_client, max_docs: int = 24,
     _prior_ref_closed: list[str] = []
     _prior_states: dict[tuple[str, str], str] = {}
     _prior_cell_refs: dict[tuple[str, str], set] = {}
+    _context_origin = ["user-provided"]
+
+    def set_context_origin(origin) -> None:
+        _context_origin[0] = "harness" if origin == "harness" else "user-provided"
 
     def set_semantic_rank(urls) -> None:
         """Ordem semântica (8082) p/ os lotes não-enviados; só reordena.
@@ -3765,6 +3769,9 @@ def make_model_assessor(model_client, max_docs: int = 24,
         qualification = dict(qualification or {})
         attempts = dict(attempts or {})
         facts = dict(user_context or {})
+        context_label = ("Premissa controlada do experimento (harness)"
+                         if _context_origin[0] == "harness"
+                         else "Contexto informado pelo usuário")
         # Contexto do usuário nunca é evidência: fora da seleção, em bloco
         # separado (chaves user://context/CHAVE, origin user-provided).
         ctx_urls = {u for u in evidence
@@ -4224,8 +4231,8 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "interoperabilidade a afirmação de integração é LACUNA, sem "
             "apagar a INFERÊNCIA de complementaridade registrada. "
             "Referencie SOMENTE urls do material selecionado acima"
-            + ("; para fato do usuário, referencie user://context/CHAVE "
-               "com origin user-provided (capa em partial, nunca covered)."
+            + ("; para fato de contexto, referencie user://context/CHAVE "
+               f"com origin {_context_origin[0]} (capa em partial, nunca covered)."
                if facts else ".")
             + " Quando o material selecionado listar projetos/ferramentas "
             "nomeados pertinentes à pergunta, emita propose_entity para "
@@ -4234,14 +4241,14 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "material selecionado acima (origem do candidato); url "
             "inventada ou fora da seleção é ignorada."
             + _cells_txt
-            + (f"\nContexto informado pelo usuário (NÃO é evidência; nunca "
+            + (f"\n{context_label} (NÃO é evidência; nunca "
                f"cite como fonte; critério sustentado SÓ por este contexto "
                f"capa em partial, nunca covered; comparação numérica "
                f"contra mínimo declarado no corpus é sustentada "
                f"(premissa + corpus, capa partial); compatibilidade "
                f"funcional/integração com a versão do contexto sem fonte "
                f"que a mencione é insufficient (LACUNA); use origin "
-               f"\"user-provided\"): "
+               f"\"{_context_origin[0]}\"): "
                f"{_json.dumps(facts, ensure_ascii=False)[:2000]}"
                if facts else "")
         )
@@ -4319,6 +4326,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
     assess.set_relevance_terms = set_relevance_terms  # type: ignore[attr-defined]
     assess.set_previous_evaluations = set_previous_evaluations  # type: ignore[attr-defined]
     assess.set_semantic_rank = set_semantic_rank  # type: ignore[attr-defined]
+    assess.set_context_origin = set_context_origin  # type: ignore[attr-defined]
     return assess
 
 
@@ -4459,7 +4467,9 @@ def _writer_gate_guidance() -> str:
         "remova a citação injusta ou reescreva sem os literais; nota "
         "metodológica sobre URLs do pedido que ficaram fora do corpus "
         "deve referi-las como \"fora do corpus\", nunca como fonte "
-        "lida; rótulo LACUNA sozinho não isenta versão/literal do gate "
+        "lida; documento obtido mas não incluído no excerto continua "
+        "no corpus, apenas fora do material enviado à síntese. "
+        "Rótulo LACUNA sozinho não isenta versão/literal do gate "
         "de citação.")
 
 
@@ -4875,6 +4885,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "Recomende opções pela utilidade das funções para o pedido e pelos limites "
             "da evidência, nunca apenas por contagens de cobertura ou fontes. "
             "Uma ferramenta que ajuda uma etapa não precisa executá-la autonomamente. "
+            "Um comando de testes do próprio projeto é evidência sobre o "
+            "desenvolvimento desse projeto, não prova que ele ajude o usuário "
+            "a testar outro código; quando o excerto contiver esse comando, "
+            "não afirme que ele não menciona execução de testes. "
             "Contexto de versão/plataforma não é candidato. Não repita o plano inteiro "
             "nem instruções internas do agente; escreva uma comparação útil e concisa. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
@@ -4888,9 +4902,11 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "empilhe citações quando só um dos documentos trata da entidade; "
             "INFERÊNCIA/LACUNA marcada exige premissa verificável: cite os "
             "documentos da entidade consultados que sustentam a premissa "
-            "(a ausência foi verificada em documento que trata da entidade; "
-            "documento que não menciona a entidade não sustenta); "
-            "fatos vindos do contexto informado pelo usuário (ex.: a "
+            "(a ausência foi verificada somente nos trechos apresentados de "
+            "documento que trata da entidade; isso não prova ausência no "
+            "documento integral; documento que não menciona a entidade não sustenta); "
+            "fatos vindos do contexto informado pelo usuário ou de premissa "
+            "controlada do harness (ex.: a "
             "versão instalada) não são evidência coletada: comparação "
             "numérica contra mínimo declarado no corpus é sustentada "
             "(premissa + corpus); compatibilidade funcional ou "
@@ -5031,12 +5047,31 @@ def _inject_user_fact(state: dict, key: str, value: str) -> None:
     url = f"user://context/{key}"
     if url in state.get("evidence", {}):
         return
-    state["evidence"][url] = (f"[contexto informado pelo usuário] "
+    harness = (state.get("user_context") or {}).get("origin") == "harness"
+    label = "premissa controlada do experimento" if harness else "contexto informado pelo usuário"
+    state["evidence"][url] = (f"[{label}] "
                                f"{key}: {value}")
     state["qualification"][url] = {
         "status": "usable",
-        "reason": "user-provided context (não evidência coletada)",
+        "reason": f"{label} (não evidência coletada)",
         "usable_text": str(value), "excluded": False}
+
+
+def _sync_harness_context_sources(state: dict) -> None:
+    """Relabel only synthetic context entries when their recorded origin is harness."""
+    context = state.get("user_context") or {}
+    if context.get("origin") != "harness":
+        return
+    for key in (context.get("facts") or {}):
+        url = f"user://context/{key}"
+        body = (state.get("evidence") or {}).get(url)
+        if isinstance(body, str):
+            state["evidence"][url] = body.replace(
+                "[contexto informado pelo usuário]",
+                "[premissa controlada do experimento]", 1)
+        qual = (state.get("qualification") or {}).get(url)
+        if isinstance(qual, dict):
+            qual["reason"] = "premissa controlada do experimento (não evidência coletada)"
 
 
 def _only_user_context(ev: dict) -> bool:
@@ -5053,8 +5088,33 @@ def _only_user_context(ev: dict) -> bool:
                for r in refs)
 
 
+def _context_identifies_entity(state: dict, entity: dict, ev: dict) -> bool:
+    """A context-only fact may name its platform in the structured fact key."""
+    if not _only_user_context(ev):
+        return False
+    from entity_identity import normalized
+    name = normalized(re.sub(r"\([^)]*\)", "", str(entity.get("label") or "")))
+    if not name:
+        return False
+    facts = (state.get("user_context") or {}).get("facts") or {}
+    for ref in ev.get("references") or []:
+        url = str(ref.get("url", ref.get("doc_id", "")))
+        prefix = "user://context/"
+        if not url.startswith(prefix):
+            return False
+        key = url[len(prefix):]
+        if key not in facts or not re.search(r"(?:^| )" + re.escape(name) + r"(?:$| )", normalized(key)):
+            return False
+    return True
+
+
 def _revalidate_evaluation(state: dict, ledger, previous: dict) -> dict:
     """Keep invalidated exclusions as history and persist the actual ledger state."""
+    original = previous
+    previous = _context_evaluation_origin(state, previous)
+    if previous != original:
+        state.setdefault("historical_evaluations", []).append({
+            "evaluation": dict(original), "reason": "harness context origin reconciled"})
     recorded = ledger.evaluate(previous["criterion_id"], previous.get("state", ""),
                                previous.get("justification", ""), previous.get("origin", ""),
                                previous.get("references", []), previous.get("entity_id"))
@@ -5066,6 +5126,20 @@ def _revalidate_evaluation(state: dict, ledger, previous: dict) -> dict:
             f"N/A sem exclusão comprovada: {previous.get('criterion_id')}"
             f"×{previous.get('entity_id')} -> insufficient")
     return {**previous, **recorded}
+
+
+def _context_evaluation_origin(state: dict, ev: dict) -> dict:
+    """Only a claim supported entirely by harness context inherits its origin."""
+    if (state.get("user_context") or {}).get("origin") != "harness" or not _only_user_context(ev):
+        return ev
+    out = dict(ev)
+    out["origin"] = "harness"
+    text = str(out.get("justification") or "")
+    text = re.sub(r"(?i)\b(?:informad|fornecid)([oa]) pelo usu[aá]rio\b",
+                  lambda m: "fornecid" + m.group(1).lower() + " pelo harness", text)
+    text = re.sub(r"(?i)premissa do usu[aá]rio", "premissa controlada do experimento", text)
+    out["justification"] = text
+    return out
 
 
 def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
@@ -5080,6 +5154,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     so the caller can preserve evidence and produce a partial/failure
     result (never silent).
     """
+    _sync_harness_context_sources(state)
     ledger.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
     _update_ledger_counts(state, ledger)
     # Default assessor uses no model: never spends budget, never blocked.
@@ -5136,6 +5211,9 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     import inspect as _inspect
     _uc = state.get("user_context") or {}
     _facts = _uc.get("facts", {}) if isinstance(_uc, dict) else {}
+    _origin_hook = getattr(assess_fn, "set_context_origin", None)
+    if callable(_origin_hook):
+        _origin_hook(_uc.get("origin") if isinstance(_uc, dict) else None)
     if not isinstance(_facts, dict):
         _facts = {}
     try:
@@ -5278,6 +5356,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             state["notes"].append(
                 f"assessor evaluation malformed (not a dict/criterion): kept")
             continue
+        ev = _context_evaluation_origin(state, ev)
         # Persistência legível: ids internos viram rótulos na
         # justificativa (fallback mantém o original; sem literais).
         # Só prosa: spans de URL são mascarados antes da substituição
@@ -5336,8 +5415,8 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                     (e for e in (state.get("plan") or {}).get("entities", [])
                      if isinstance(e, dict)
                      and e.get("id") == ev.get("entity_id")), None)
-                if isinstance(_ent, dict) and not _evaluation_refs_have_identity(
-                        state, _ent, ev.get("references") or []):
+                if (isinstance(_ent, dict) and not _context_identifies_entity(state, _ent, ev)
+                        and not _evaluation_refs_have_identity(state, _ent, ev.get("references") or [])):
                     state["notes"].append(
                         f"identity mismatch: {ev.get('criterion_id')}×"
                         f"{ev.get('entity_id')} sem doc da entidade "
@@ -6687,11 +6766,13 @@ def run_adaptive(question: str, *, profile: str = "light",
                  overrides: dict | None = None,
                  quantitative: list | None = None,
                  user_context: dict | None = None,
+                 context_origin: str = "user-provided",
                  checkpoint=None, resume: bool = False,
                  control=None, user_demands_rounds: bool = False) -> dict:
     """Execute the adaptive loop. All external effects are injected.
 
-    user_context: fatos do usuário {KEY: VALUE} (origem user-provided):
+    user_context: fatos de contexto {KEY: VALUE}; context_origin identifica
+    se foram fornecidos pelo usuário ou pelo harness. Ambos
     vão a state["user_context"], viram entradas user://context/KEY
     endereçáveis (nunca evidência coletada) e capam cobertura em partial.
 
@@ -6714,7 +6795,9 @@ def run_adaptive(question: str, *, profile: str = "light",
     resolved = resolve_adaptive(profile, overrides,
                                  user_demands_rounds=user_demands_rounds)
     budget_given = budget is not None
-    # user_context: só dict {KEY: VALUE}; origem sempre user-provided.
+    if context_origin not in ("user-provided", "harness"):
+        raise ValueError("[ADAPTIVE] invalid context_origin")
+    # Context values are assumptions, not collected evidence.
     _facts: dict = {}
     if user_context is not None:
         if not isinstance(user_context, dict):
@@ -6787,6 +6870,10 @@ def run_adaptive(question: str, *, profile: str = "light",
         _stored_uc = state.setdefault(
             "user_context", {"facts": {}, "origin": "user-provided"})
         _stored_facts = _stored_uc.setdefault("facts", {})
+        if _facts and _stored_facts and _stored_uc.get("origin") != context_origin:
+            raise ValueError("[ADAPTIVE] resume cannot mix context origins")
+        if _facts and not _stored_facts:
+            _stored_uc["origin"] = context_origin
         for _k, _v in _facts.items():
             if _k not in _stored_facts:
                 _stored_facts[_k] = _v
@@ -6893,14 +6980,14 @@ def run_adaptive(question: str, *, profile: str = "light",
     state["plan_meta"] = plan_meta
     disc = (plan.get("open_discovery") or {})
     state["discovery"]["open"] = bool(disc.get("needed", False))
-    # Fatos do usuário: origem user-provided, endereçáveis via
+    # Fatos de contexto: origem explícita, endereçáveis via
     # user://context/KEY (nunca evidência coletada).
-    state["user_context"] = {"facts": dict(_facts), "origin": "user-provided"}
+    state["user_context"] = {"facts": dict(_facts), "origin": context_origin}
     for _k, _v in _facts.items():
         _inject_user_fact(state, _k, _v)
     if _facts:
         state["notes"].append(
-            f"contexto do usuário registrado: {len(_facts)} fato(s) "
+            f"contexto ({context_origin}) registrado: {len(_facts)} fato(s) "
             f"(não evidência coletada)")
     if run_dir is not None:
         _state.save(run_dir, state)
