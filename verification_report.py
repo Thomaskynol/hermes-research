@@ -548,6 +548,166 @@ def _n_to_url(numbers) -> dict[int, str]:
     return out
 
 
+#: Gate de polaridade do scope (accept42 item 1): marcadores PT de
+#: negação/limite e de modalidade não-factual. Formas normalizadas
+#: (minúsculas, sem acento, via _norm_mention); lista revisável.
+#: Frase interop (≥2 entidades) com qualquer marcador tem teto
+#: "partial declarada/LACUNA", nunca "integração testada". Afirmação
+#: positiva legítima que cita teste ("integração testada documentada
+#: em [7]") não contém marcador e segue integração testada.
+_POLARITY_NEGATION_MARKERS = (
+    "sem prova",
+    "ausencia de",
+    "nao ha",
+    "permanece lacuna",
+    "sem teste",
+    "nao demonstra",
+    "desconhecida",
+)
+
+_POLARITY_MODALITY_MARKERS = (
+    "pode",
+    "poderia",
+    "inferida",
+    "prudente",
+    "plausivel",
+)
+
+
+def _has_polarity_ceiling(sentence: str) -> bool:
+    """True quando a frase carrega negação/limite ou modalidade não-factual.
+
+    Multi-palavra casa por substring normalizada; palavra isolada
+    ("pode") exige fronteira para não vetar substring ("podemos" segue
+    livre — só a forma isolada limita).
+    """
+    try:
+        norm = _norm_mention(sentence)
+    except Exception:
+        return False
+    if not norm:
+        return False
+    padded = f" {norm} "
+    try:
+        for marker in _POLARITY_NEGATION_MARKERS:
+            if marker in norm:
+                return True
+        for marker in _POLARITY_MODALITY_MARKERS:
+            if f" {marker} " in padded:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+#: Verbos de integração/teste (accept42 item 2): formas normalizadas
+#: (minúsculas, sem acento, via _norm_mention); lista revisável.
+#: A família do verbo integrar casa por igualdade de token (fronteira de
+#: palavra): "integralmente"/"integridade"/"integral" NÃO casam.
+_INTEROP_VERB_FAMILY = frozenset({
+    "integra", "integrar", "integram", "integrou",
+    "integrado", "integrada", "integracao",
+})
+_INTEROP_VERB_MARKERS = (
+    "interoperabilidade testada",
+    "teste de uso conjunto",
+    "funciona com",
+    "compativel testado",
+)
+#: Frase interop (≥2 entidades) sem verbo da família/lista e sem evidência
+#: de execução no doc recebe "documentado (sem teste executado)", nunca
+#: "integração testada" — mera menção ao host + plugin não fecha interop.
+
+#: Evidência de execução no doc (accept42 item 2): o doc mostra teste ou
+#: funcionamento executado, não só documentação. Formas normalizadas;
+#: lista revisável. Token isolado casa por igualdade (não substring:
+#: "untested" nunca conta como "tested").
+_INTEROP_EXECUTION_MARKERS = (
+    "teste executado",
+    "test executed",
+    "tested",
+    "test passed",
+    "funciona",
+    "working",
+)
+
+
+def _has_interop_verb(sentence: str) -> bool:
+    """True quando a frase alega integração/teste com verbo da lista.
+
+    Família exata por igualdade de token; frases por substring
+    normalizada. "integralmente" nunca é verbo de integração.
+    """
+    try:
+        norm = _norm_mention(sentence)
+    except Exception:
+        return False
+    if not norm:
+        return False
+    try:
+        toks = set(norm.split())
+        if toks & _INTEROP_VERB_FAMILY:
+            return True
+        for marker in _INTEROP_VERB_MARKERS:
+            if " " in marker and marker in norm:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _has_execution_evidence(doc_text: str) -> bool:
+    """True quando o doc mostra execução (teste/funcionamento)."""
+    try:
+        norm = _norm_mention(doc_text)
+    except Exception:
+        return False
+    if not norm:
+        return False
+    try:
+        toks = set(norm.split())
+        for marker in _INTEROP_EXECUTION_MARKERS:
+            if " " in marker:
+                if marker in norm:
+                    return True
+            elif marker in toks:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _meets_test_standard(sentence: str, cited_docs) -> bool:
+    """Verbo de integração/teste na frase OU execução em doc citado."""
+    try:
+        if _has_interop_verb(sentence):
+            return True
+        for doc in cited_docs or ():
+            if doc and _has_execution_evidence(doc):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _is_plan_enumeration(sentence: str, strict_named) -> bool:
+    """Enumeração de candidatos do plano: ≥3 entidades em forma estrita,
+    sem verbo de integração/teste e sem marcador de inferência.
+
+    Listagem, nunca canal declared_inference (genérico, sem literais de
+    produto). Pares (2 entidades) sem verbo caem em "documentado
+    (sem teste executado)"; só a enumeração sai do canal.
+    """
+    try:
+        if len(strict_named or ()) < 3:
+            return False
+        if _has_inference_marker(sentence):
+            return False
+        return not _has_interop_verb(sentence)
+    except Exception:
+        return False
+
+
 def _sentence_supported(sentence_tokens: set[str], doc_text: str,
                         named_entities: list,
                         sentence_raw: str = "") -> tuple[bool, str]:
@@ -598,6 +758,17 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
                              if _entity_mentioned(label, eid, sentence_raw)]
             if _strict_named:
                 named = _strict_named
+    except Exception:
+        pass
+    # Gate de polaridade (accept42 item 1): frase interop (nomeia >=2)
+    # com negação/limite ou modalidade não-factual nunca sustenta
+    # "integração testada" — o emissor dá teto partial/LACUNA.
+    try:
+        if (sentence_raw and len(named) >= 2
+                and _has_polarity_ceiling(sentence_raw)):
+            return False, ("teto polaridade: afirmação com negação/limite "
+                           "ou modalidade não-factual (partial "
+                           "declarada/LACUNA, nunca integração testada)")
     except Exception:
         pass
     if named and not any(_entity_mentioned(label, eid, doc_text)
@@ -785,6 +956,11 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
     # paráfrase sem forma cheia nunca sustenta relação — LACUNA explícita,
     # nunca supported/integração testada, em qualquer espelho que use este
     # auditor.
+    try:
+        _capped = bool(_has_polarity_ceiling(relation)
+                       or _has_polarity_ceiling(anchor))
+    except Exception:
+        _capped = False
     if not named_anchor and not named_relation:
         return False, False, "sem âncora de entidade", \
             ("inferência sem âncora de entidade (sem citação de "
@@ -820,6 +996,13 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
             relation_reason = (
                 "inferência sem citação de interoperabilidade "
                 "(complementaridade plausível, não integração testada)")
+    # Gate de polaridade (accept42 item 1): negação/limite ou modalidade
+    # não-factual na âncora/relação nunca vira integração testada.
+    if _capped and relation_ok:
+        relation_ok = False
+        relation_reason = ("teto polaridade: afirmação com negação/limite "
+                           "ou modalidade não-factual (partial "
+                           "declarada/LACUNA, nunca integração testada)")
     return anchor_ok, relation_ok, anchor_reason, relation_reason
 
 
@@ -1081,6 +1264,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             _interop_ok = False
             _anchor_any_ok = False
             _rel_reasons: list[str] = []
+            _std_docs: list[str] = []
             for n in citations:
                 url = n_to_url.get(n)
                 if not url:
@@ -1090,6 +1274,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 if not _doc:
                     _rel_reasons.append("citação fora do corpus")
                     continue
+                _std_docs.append(_doc)
                 a_ok, r_ok, _a_r, r_r = _audit_inference(
                     _anchor, _relation, _doc, _named_anchor, _named_rel)
                 if a_ok:
@@ -1098,14 +1283,38 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     _interop_ok = True
                     break
                 _rel_reasons.append(r_r or _a_r)
-            if _interop_ok:
+            # Gate de polaridade (accept42 item 1): negação/limite ou
+            # modalidade não-factual nunca emite "integração testada".
+            try:
+                _capped = bool(_has_polarity_ceiling(sentence))
+            except Exception:
+                _capped = False
+            if _interop_ok and not _capped:
+                if _meets_test_standard(sentence, _std_docs):
+                    supported += 1
+                    declared_inference.append(
+                        {"sentence": sentence, "citations": citations,
+                         "anchor_ok": True, "relation_ok": True,
+                         "scope": "integração testada (interoperabilidade "
+                                  "citada)"})
+                    continue
+                # Co-mencção ≠ teste (accept42 item 2): premissas
+                # sustentadas, mas sem verbo de teste nem execução no doc —
+                # documentado, nunca integração testada.
                 supported += 1
                 declared_inference.append(
                     {"sentence": sentence, "citations": citations,
-                     "anchor_ok": True, "relation_ok": True,
-                     "scope": "integração testada (interoperabilidade "
-                              "citada)"})
+                     "anchor_ok": True, "relation_ok": False,
+                     "scope": "documentado (sem teste executado)"})
                 continue
+            if _capped and _interop_ok:
+                # Teto: âncora+relação ok no overlap, mas a frase nega ou
+                # limita — cai no ramo partial/LACUNA abaixo.
+                _interop_ok = False
+                _rel_reasons = ["teto polaridade: afirmação com "
+                                "negação/limite ou modalidade não-factual "
+                                "(partial declarada/LACUNA, nunca "
+                                "integração testada)"]
             # ancora ok mas relacao sem prova = complementaridade plausivel
             reason = _rel_reasons[0] if _rel_reasons else \
                 ("inferência sem citação de interoperabilidade "
@@ -1175,7 +1384,26 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             # overlap/entidade ok em doc(s) só, mas nenhum doc citado
             # menciona >=2 entidades: não é integração testada
             ok = False
-        if not ok and _needs_interop and not _has_interop_doc:
+        # Gate de polaridade (accept42 item 1): frase interop com
+        # negação/limite ou modalidade não-factual nunca vira
+        # "integração testada" — cai em unsupported com teto explícito.
+        try:
+            _cap2 = bool(_needs_interop and _has_polarity_ceiling(sentence))
+        except Exception:
+            _cap2 = False
+        # Enumeração do plano (accept42 item 3): lista de ≥3 candidatos
+        # sem verbo de teste nunca entra no canal declared_inference.
+        try:
+            _enum = bool(_needs_interop and _has_interop_doc
+                         and _is_plan_enumeration(sentence, _interop_named))
+        except Exception:
+            _enum = False
+        if _cap2 and ok:
+            ok = False
+            reasons.append("teto polaridade: afirmação com negação/limite "
+                           "ou modalidade não-factual (partial "
+                           "declarada/LACUNA, nunca integração testada)")
+        if not ok and _needs_interop and not _has_interop_doc and not _enum:
             _covered = [entry for entry in _interop_named
                         if any(_entity_mentioned(entry[1], entry[2], _doc)
                                for _, _doc in _cited if _doc)]
@@ -1204,40 +1432,55 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             # v2-1 positiva: integração testada vai para o canal declared
             # com premissas+limites (não só contagem): qual doc sustenta
             # quais entidades, na janela auditada.
-            if _needs_interop and _has_interop_doc:
-                try:
-                    _which = []
-                    for _, _doc in _cited:
-                        if not _doc:
-                            continue
-                        _hit = [str(_lb) for _toks, _lb, _eid in _interop_named
-                                if _entity_mentioned(_lb, _eid, _doc)]
-                        if len(_hit) >= 2:
-                            _which.append("; ".join(_hit[:4]))
-                            break
-                except Exception:
-                    _which = []
-                declared_inference.append(
-                    {"sentence": sentence, "citations": citations,
-                     "anchor_ok": True, "relation_ok": True,
-                     "scope": "integração testada (interoperabilidade "
-                              "citada)" + (f": {_which[0][:160]}" if _which
-                                            else "") +
-                              "; limites: janela auditada (usable_text "
-                              "integral), sem extrapolar além do doc citado"})
+            if _needs_interop and _has_interop_doc and not _cap2 and not _enum:
+                if not _meets_test_standard(
+                        sentence, [d for _, d in _cited if d]):
+                    # Co-mencção ≠ teste (accept42 item 2): sustentada,
+                    # mas sem verbo de teste nem execução no doc.
+                    declared_inference.append(
+                        {"sentence": sentence, "citations": citations,
+                         "anchor_ok": True, "relation_ok": False,
+                         "scope": "documentado (sem teste executado)"})
+                else:
+                    try:
+                        _which = []
+                        for _, _doc in _cited:
+                            if not _doc:
+                                continue
+                            _hit = [str(_lb)
+                                    for _toks, _lb, _eid in _interop_named
+                                    if _entity_mentioned(_lb, _eid, _doc)]
+                            if len(_hit) >= 2:
+                                _which.append("; ".join(_hit[:4]))
+                                break
+                    except Exception:
+                        _which = []
+                    declared_inference.append(
+                        {"sentence": sentence, "citations": citations,
+                         "anchor_ok": True, "relation_ok": True,
+                         "scope": "integração testada (interoperabilidade "
+                                  "citada)" + (f": {_which[0][:160]}"
+                                                if _which else "") +
+                                  "; limites: janela auditada (usable_text "
+                                  "integral), sem extrapolar além do doc "
+                                  "citado"})
         else:
             # conclusoes separadas: preserva a razao do gate (exata vs
             # familia vs entidade vs corpus) em vez de colapsar em
-            # "sem sobreposição"
+            # "sem sobreposição". Teto de polaridade tem prioridade: é a
+            # causa do rebaixamento, não a entidade.
+            _cap_reasons = [r for r in reasons
+                            if r.startswith("teto polaridade")]
             _prio = [r for r in reasons
                      if r in ("versão exata ausente no doc",
                               "família funcional ausente no doc",
                               "entidade não mencionada no doc",
                               "citação fora do corpus")]
-            reason = _prio[0] if _prio else (
+            reason = _cap_reasons[0] if _cap_reasons else (
+                _prio[0] if _prio else (
                 "entidade não mencionada no doc"
                 if "entidade não mencionada no doc" in reasons
-                else (reasons[0] if reasons else "sem sobreposição"))
+                else (reasons[0] if reasons else "sem sobreposição")))
             unsupported.append({"sentence": sentence,
                                 "citations": citations,
                                 "reason": reason})
@@ -1410,6 +1653,29 @@ def verify_question(state: dict, ledger=None) -> dict:
     return _result("question", "partial", evidence, notes)
 
 
+def _judged_quorum(audit: dict | None, reviewed: int) -> int:
+    """Afirmações com veredito final com quórum.
+
+    Exclui review_incomplete/missing_result (tentativa sem quórum).
+    Sem detalhe de vereditos, equivale a reviewed (comportamento
+    preservado); campo novo, leitores antigos intactos.
+    """
+    try:
+        audit = audit if isinstance(audit, dict) else {}
+        explicit = audit.get("claims_judged_quorum")
+        if isinstance(explicit, int) and not isinstance(explicit, bool):
+            return max(0, explicit)
+        verdicts = audit.get("verdicts") or []
+        if any(isinstance(v, dict) for v in verdicts):
+            return sum(1 for v in verdicts
+                       if isinstance(v, dict)
+                       and v.get("verdict") not in ("review_incomplete",
+                                                   "missing_result"))
+    except Exception:
+        pass
+    return reviewed
+
+
 def verify_review(state: dict, audit: dict | None = None) -> dict:
     """Claims extracted/reviewed, votes, failures and batches (audit only)."""
     audit = audit if isinstance(audit, dict) else (state.get("semantic") or {})
@@ -1432,10 +1698,12 @@ def verify_review(state: dict, audit: dict | None = None) -> dict:
                                                "missing_result"))
     unsupported = [v.get("id") for v in verdicts
                    if v.get("verdict") == "unsupported"]
+    judged = _judged_quorum(audit, reviewed)
     evidence = {
         "enabled": enabled,
         "claims_extracted": claims,
         "claims_reviewed": reviewed,
+        "claims_judged_quorum": judged,
         "claims_unreviewed": max(0, claims - reviewed),
         "verdict_state": audit.get("verdict_state", "não revisado"),
         "accepted": bool(audit.get("accepted")),
@@ -1459,6 +1727,24 @@ def verify_review(state: dict, audit: dict | None = None) -> dict:
     if reviewed < claims:
         notes.append(f"{claims - reviewed} afirmação(ões) não revisada(s) "
                      "(omissão explícita, nunca silenciosa)")
+    # Denominadores de quórum (accept42 item 4): votos por afirmação vs
+    # total de slots — tentativa (reviewed) sem quórum nunca se passa por
+    # julgamento (judged).
+    try:
+        _votes = summary.get("votes")
+        _tfv = summary.get("technical_failure_votes")
+        if (isinstance(_votes, int) and not isinstance(_votes, bool)
+                and isinstance(_tfv, int) and not isinstance(_tfv, bool)
+                and claims > 0 and _votes > 0):
+            _slots = claims * _votes
+            notes.append(
+                f"quórum: {_votes} voto(s) por afirmação com veredito; "
+                f"{_tfv} voto(s) de falha técnica em {_slots} slot(s) "
+                f"de voto ({claims} afirmações × {_votes} votos); "
+                f"julgadas com quórum: {judged}/{claims} "
+                f"(tentadas: {reviewed}/{claims})")
+    except Exception:
+        pass
     if failures:
         notes.append(f"{failures} falha(s) técnica(s) contabilizada(s); "
                      "falha não conta como voto favorável")
@@ -1613,6 +1899,7 @@ def verify_support(state: dict, report_text: str,
         reviewed = sum(1 for v in verdicts
                        if v.get("verdict") not in ("review_incomplete",
                                                    "missing_result"))
+    judged = _judged_quorum(audit, reviewed)
     evidence = {
         "citations": len(_all_refs) + _bracket_total,
         "citations_evidence": len(_evidence_refs) + _bracket_total,
@@ -1622,6 +1909,7 @@ def verify_support(state: dict, report_text: str,
             set(unknown) | set(_bracket_unknown)),
         "claims_extracted": claims,
         "claims_reviewed": reviewed,
+        "claims_judged_quorum": judged,
         "claims_without_support_evidence": max(0, claims - reviewed),
         "unsupported_claims": unsupported,
         "corpus_size": len(corpus),
@@ -1881,7 +2169,9 @@ def verify_support(state: dict, report_text: str,
         if _sent_status == "failed":
             return _result("support", "failed", evidence, notes)
         return _result("support", "partial", evidence, notes)
-    if not audit.get("enabled") or reviewed < claims:
+    # "integralmente revisadas" só com quórum (accept42 item 4): a
+    # tentativa (reviewed) sem veredito final não conta como julgamento.
+    if not audit.get("enabled") or judged < claims:
         notes.append("citações resolvem no corpus, mas as afirmações não "
                      "foram integralmente revisadas")
         return _result("support", "partial", evidence, notes)
