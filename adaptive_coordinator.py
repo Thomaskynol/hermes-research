@@ -5336,7 +5336,9 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         if st == "insufficient" and ev.get("entity_id") and re.search(r"n[aã]o menciona", str(ev.get("justification") or ""), re.I):
             ent = next((e for e in (state.get("plan") or {}).get("entities", []) if e.get("id") == ev.get("entity_id")), {})
             selection = getattr(assess_fn, "last_selection", None) or {}
-            excerpts = selection.get("excerpts") or {}
+            excerpts = dict(selection.get("excerpts") or {})
+            for previous in state.get("assessments") or []:
+                excerpts.update(previous.get("excerpts") or {})
             if any(_identity_matches(ent, body, source_url=url) for url, body in excerpts.items()):
                 state.setdefault("historical_evaluations", []).append({"evaluation": dict(ev), "reason": "entity named in examined excerpt"})
                 ev = dict(ev)
@@ -8284,13 +8286,16 @@ def _promote_partial_declared(state: dict, ledger,
                         return False
                 from entity_identity import normalized
                 sentence = normalized(decl.get("sentence") or "")
-                relation = any(w in sentence for w in ("combin", "complement", "sobrepos", "overlap", "integra"))
+                overlap = any(w in sentence for w in ("sobrepos", "overlap"))
+                relation = any(w in sentence for w in ("combin", "complement", "integra"))
                 matches = []
                 for c in targets:
                     if not _is_global(c) or c.get("applies_to"):
                         continue
                     label = normalized(c.get("label") or "")
-                    if relation and any(w in label for w in ("combin", "complement", "sobrepos", "overlap", "integra")):
+                    if overlap and any(w in label for w in ("sobrepos", "overlap")):
+                        matches.append(c)
+                    elif relation and not overlap and any(w in label for w in ("combin", "complement", "integra")):
                         matches.append(c)
                     elif label and len(label) >= 5 and label in sentence:
                         matches.append(c)

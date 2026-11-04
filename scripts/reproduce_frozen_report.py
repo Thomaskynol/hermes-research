@@ -70,7 +70,7 @@ def main():
         "code_head": head, "inherited_evaluations": len(st["evaluations"]),
         "original_consumption": original["consumption"],
         "description": "material do accept43; nenhuma nova busca/coleta; "
-                       + ("assessor e escrita reaplicados de chamadas reais com prompts idênticos; votos novos reais."
+                       + ("assessor reaplicado com prompts idênticos; escrita reaplicada com prompt igual exceto o ID do run; votos novos reais."
                           if args.model and args.assessment_replay_from and args.writer_replay_from else
                           "assessor reaplicado de chamada real com prompt idêntico; escrita e votos novos reais."
                           if args.model and args.assessment_replay_from else
@@ -143,10 +143,15 @@ def main():
                         mode = "assessor_replay_exact_prompt"
                     elif args.writer_replay_from and prompt.startswith("Responda em português"):
                         prior = args.writer_replay_from / "model-03-prompt.txt"
-                        if prior.read_text() != prompt:
-                            raise ValueError("writer replay prompt differs; cannot attribute same response to changed input")
+                        old_prompt = prior.read_text()
+                        # A distinct run id is provenance, not research
+                        # input. Require every other byte to match exactly.
+                        old_id, new_id = args.writer_replay_from.name, out.name
+                        if not (prompt.count(new_id) == 1 and old_prompt.count(old_id) == 1
+                                and prompt.replace(new_id, old_id) == old_prompt):
+                            raise ValueError("writer replay prompt differs beyond run id")
                         answer = prior.with_name("model-03-answer.txt").read_text()
-                        mode = "writer_replay_exact_prompt"
+                        mode = "writer_replay_same_prompt_except_run_id"
                     else:
                         answer = transport(prompt)
                 except Exception as exc:

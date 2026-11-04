@@ -68,6 +68,14 @@ class ScopeAndSelection(unittest.TestCase):
         self.assertEqual(led.state_of("discovery"), "uninvestigated")
         self.assertEqual(led.state_of("combo"), "partial")
 
+    def test_overlap_is_promoted_to_overlap_instead_of_combinations(self):
+        st=state();st["plan"]["criteria"].append({"id":"overlap","label":"Funções sobrepostas","required":True,"description":"Comparar funções iguais."})
+        led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        decl={"sentence":"INFERÊNCIA: sobreposição entre funções [1][2].","citations":[1,2],"anchor_ok":True,"scope":"limites explícitos","premise_docs":[A,B]}
+        self.assertTrue(ac._promote_partial_declared(st,led,[decl],{1:A,2:B}))
+        self.assertEqual(led.state_of("combo"),"uninvestigated")
+        self.assertEqual(led.state_of("overlap"),"partial")
+
     def test_unselected_homonym_not_added_to_combination(self):
         st = state();st["plan"]["entities"].append({"id":"z", "label":"Other River Review", "discovered":True, "required":False})
         text = "INFERÊNCIA: River Review (acme) e River Plan se complementam [1][2]."
@@ -81,6 +89,16 @@ class ScopeAndSelection(unittest.TestCase):
             return [{"criterion_id":"review", "entity_id":"a", "state":"insufficient", "origin":"assessor", "references":[],
                      "justification":"O material selecionado não menciona River Review (acme) nem mostra revisão."}]
         assessor.last_selection={"urls":[A], "excerpts":{A:st["evidence"][A]}}
+        ac._assess_round(st,assessor,led)
+        self.assertNotIn("não menciona River Review",led.compute()["criteria"][1]["justification"])
+
+    def test_later_batch_cannot_erase_identity_observed_in_prior_excerpt(self):
+        st=state();led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        st["assessments"]=[{"round":0,"selection":[A],"excerpts":{A:st["evidence"][A]}}]
+        def assessor(*args):
+            return [{"criterion_id":"review","entity_id":"a","state":"insufficient","origin":"assessor","references":[],
+                     "justification":"O material selecionado não menciona River Review (acme) nem mostra revisão."}]
+        assessor.last_selection={"urls":[B],"excerpts":{B:st["evidence"][B]}}
         ac._assess_round(st,assessor,led)
         self.assertNotIn("não menciona River Review",led.compute()["criteria"][1]["justification"])
 
