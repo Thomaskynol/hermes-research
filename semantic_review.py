@@ -1501,6 +1501,17 @@ def extract_claims(report: str, evidence: dict[str, str],
     prose = re.sub(r"(?m)(?<![.!?:;\n])\n(?=[ \t]*(?!(?:[-*]\s|#{1,6}\s|\d+[.)]\s))\S)", " ", prose)
     prose = re.sub(r"[ \t]{2,}", " ", prose)
     sentences = re.split(r"(?<=[.!?])(?<![0-9])\s+|\n", prose)
+    # A multi-source enumeration is not one claim supported by the first
+    # few selected documents. Split only when each semicolon-delimited
+    # proposition cites its own URL; ordinary qualifiers remain intact.
+    units = []
+    for sentence in sentences:
+        pieces = [p.strip() for p in sentence.split(";")]
+        if len(pieces) > 1 and all(re.search(r"https?://", p) for p in pieces):
+            units.extend(pieces)
+        else:
+            units.append(sentence)
+    sentences = units
     seen: set[str] = set()
     _last_spoken: list[str] = []
     _EVIDENCE_STORE.update(evidence)

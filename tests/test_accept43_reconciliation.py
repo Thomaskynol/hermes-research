@@ -244,6 +244,42 @@ class Identity(unittest.TestCase):
 
 
 class Audit(unittest.TestCase):
+    def test_multi_source_enumeration_produces_one_claim_per_candidate(self):
+        text=(f"Seleção: River Review usa revisão ({A}); River Plan usa planejamento ({B}).")
+        claims=sr.extract_claims(text,{A:"River Review performs review.",B:"River Plan helps planning."},generic=True)
+        self.assertTrue(any("River Review" in c["claim"] and "River Plan" not in c["claim"] for c in claims),claims)
+        self.assertTrue(any("River Plan" in c["claim"] and "River Review" not in c["claim"] for c in claims),claims)
+
+    def test_grounded_complementarity_from_separate_sources_is_partial(self):
+        st=state(); text=("INFERÊNCIA: River Review (acme) complementa River Plan pois um revisa código e o outro faz perguntas interativas, "
+                           "sem prova de integração testada nem compatibilidade com versão instalada informada pelo usuário [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertTrue(r["partial_declared"],r)
+        self.assertFalse(r["user_premises"])
+        self.assertFalse(any("integração testada (interoperabilidade citada)" in x["scope"] for x in r["declared_inference"]))
+
+    def test_fabricated_premise_does_not_gain_partial_inference(self):
+        st=state();text=("INFERÊNCIA: River Review (acme) complementa River Plan pois um executa testes quânticos e o outro cura pacientes, "
+                          "sem prova de integração testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertFalse(r["partial_declared"],r)
+
+    def test_no_basis_for_any_combination_conflicts_with_two_documented_functions(self):
+        st = state();st["evaluations"] = [
+            {"criterion_id":"review","entity_id":"a","state":"covered","references":[{"url":A}]},
+            {"criterion_id":"review","entity_id":"b","state":"partial","references":[{"url":B}]}]
+        st["report"]={"selection":{"included_urls":[A,B]}}
+        for u,t in st["evidence"].items(): ac._counters.record_obtained(st,u,t,st["qualification"][u])
+        text = f"Ausência de base para combinação de River Review (acme) com os demais, pois apenas revisa código ({A})."
+        out = rr.render_report(st,synthesis_text=text)
+        self.assertNotIn("Ausência de base para combinação",out)
+        self.assertIn("funções documentadas",out)
+
+    def test_unresolved_combination_gap_is_not_erased_when_only_one_function_is_known(self):
+        st = state();st["evaluations"] = [{"criterion_id":"review","entity_id":"a","state":"covered","references":[{"url":A}]}]
+        text = f"Ausência de base para combinação de River Review (acme) com os demais, pois apenas revisa código ({A})."
+        self.assertIn("Ausência de base para combinação",rr.render_report(st,synthesis_text=text))
+
     def test_review_payload_deduplicates_identical_evidence_without_losing_it(self):
         evidence = "Documento substancial. " * 1100 + "TAIL_PROOF"
         items = [{"id": i, "claim": f"Afirmação {i}", "evidence": evidence} for i in range(12)]

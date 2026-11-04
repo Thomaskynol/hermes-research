@@ -329,8 +329,38 @@ def _source_provenance_text(state: dict, synthesis: str) -> str:
     included = set(((state.get("report") or {}).get("selection") or {}).get("included_urls") or [])
     uc = state.get("user_context") or {}
     facts = [str(v) for v in (uc.get("facts") or {}).values()]
+    from entity_identity import normalized
+    from verification_report import _false_absence_ref_usable
+    from adaptive_coordinator import _evaluation_refs_have_identity
+    selected = _required_entities(state)
+    by_id = {e.get("id"): e for e in selected}
+    criteria = {c.get("id"): c for c in (state.get("plan") or {}).get("criteria", [])}
+    functions = {}
+    for ev in state.get("evaluations") or []:
+        crit = criteria.get(ev.get("criterion_id")) or {}
+        label = normalized(crit.get("label") or "")
+        if (ev.get("entity_id") not in by_id or ev.get("state") not in ("partial", "covered")
+                or not crit.get("per_candidate") or any(x in label for x in ("custo", "licenc", "depend", "compat", "versao", "manutenc", "limit"))):
+            continue
+        for ref in ev.get("references") or []:
+            url = ref.get("url", ref.get("doc_id", "")) if isinstance(ref, dict) else ""
+            if (_false_absence_ref_usable(url, state.get("evidence"), state.get("qualification"))
+                    and _evaluation_refs_have_identity(state, by_id[ev["entity_id"]], [ref])):
+                functions.setdefault(ev["entity_id"], url)
+                break
     lines = []
     for line in synthesis.splitlines():
+        low = normalized(line)
+        if (len(functions) >= 2 and ("ausencia de base para combin" in low or "sem base para combin" in low)
+                and any(x in low for x in ("demais", "outros candidatos", "outras opcoes"))):
+            named = [e for e in selected if (form := normalized(e.get("label") or ""))
+                     and re.search(r"(?:^| )" + re.escape(form) + r"(?:$| )", low)]
+            if len(named) == 1 and named[0].get("id") in functions:
+                first = named[0]; other = next((e for e in selected if e.get("id") != first.get("id") and e.get("id") in functions), None)
+                if other:
+                    line = (f"As funções documentadas de {first['label']} e {other['label']} permitem investigar eventual complementaridade "
+                            f"({functions[first['id']]}) ({functions[other['id']]}). "
+                            "A pesquisa não demonstrou integração testada entre elas.")
         if uc.get("origin") == "harness" and any(v in line for v in facts):
             line = re.sub(r"(?i)premissa do usu[aá]rio", "premissa controlada do experimento (harness)", line)
             line = re.sub(r"(?i)vers[aã]o instalada", "versão de referência", line)

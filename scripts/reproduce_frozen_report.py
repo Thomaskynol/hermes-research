@@ -46,6 +46,8 @@ def main():
     p.add_argument("--observed-version", default="", help="Output already obtained from a local command")
     p.add_argument("--assessment-replay-from", type=Path,
                    help="Reuse recorded assessor answers only when current prompts match byte for byte")
+    p.add_argument("--writer-replay-from", type=Path,
+                   help="Reuse the recorded writer answer only when its prompt matches byte for byte")
     args = p.parse_args()
     source, out = args.source_dir.resolve(), args.output_dir.resolve()
     if source == out or source in out.parents or out.exists():
@@ -68,7 +70,12 @@ def main():
         "code_head": head, "inherited_evaluations": len(st["evaluations"]),
         "original_consumption": original["consumption"],
         "description": "material do accept43; nenhuma nova busca/coleta; "
-                       + ("avaliação, escrita e votos com gerador real." if args.model else "síntese histórica reprocessada, sem gerador real.")}
+                       + ("assessor e escrita reaplicados de chamadas reais com prompts idênticos; votos novos reais."
+                          if args.model and args.assessment_replay_from and args.writer_replay_from else
+                          "assessor reaplicado de chamada real com prompt idêntico; escrita e votos novos reais."
+                          if args.model and args.assessment_replay_from else
+                          "avaliação, escrita e votos com gerador real." if args.model else
+                          "síntese histórica reprocessada, sem gerador real.")}
     st["user_context"] = copy.deepcopy(original.get("user_context", {}))
     st["user_context"]["origin"] = "harness"
     if args.observed_version:
@@ -134,6 +141,12 @@ def main():
                             raise ValueError("assessor replay prompt differs; cannot attribute same response to changed input")
                         answer = prior.with_name(f"model-{replay_index:02d}-answer.txt").read_text()
                         mode = "assessor_replay_exact_prompt"
+                    elif args.writer_replay_from and prompt.startswith("Responda em português"):
+                        prior = args.writer_replay_from / "model-03-prompt.txt"
+                        if prior.read_text() != prompt:
+                            raise ValueError("writer replay prompt differs; cannot attribute same response to changed input")
+                        answer = prior.with_name("model-03-answer.txt").read_text()
+                        mode = "writer_replay_exact_prompt"
                     else:
                         answer = transport(prompt)
                 except Exception as exc:
@@ -169,6 +182,7 @@ def main():
         "python": sys.version, "generator": args.model, "source_network": False, "embeddings": "disabled",
         "actual_generator_calls": transport.calls if args.model else 0,
         "assessor_replay_from": str(args.assessment_replay_from) if args.assessment_replay_from else None,
+        "writer_replay_from": str(args.writer_replay_from) if args.writer_replay_from else None,
         "generator_concurrency": 1,
         "tokens": "unknown", "cost_usd": "unknown"})
     # Version/hash the actual delivered text after render and verification.

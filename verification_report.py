@@ -65,6 +65,9 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "testes": ("test", "tests", "testing"),
     "teste": ("test", "tests"),
     "revisao": ("review",),
+    "revisa": ("review",), "planos": ("plans", "plan"),
+    "codigo": ("code",), "perguntas": ("questions",),
+    "interativas": ("interactive",),
     "compatibilidade": ("compatibility", "compatible"),
     "compativel": ("compatible",),
     "versao": ("version",),
@@ -1343,6 +1346,30 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     _interop_ok = True
                     break
                 _rel_reasons.append(r_r or _a_r)
+            # A relation can be grounded by one independently cited premise
+            # for each named entity; neither source needs to mention both.
+            # Require every substantive word in each explicit premise to
+            # match its own entity's document. No compatibility/test claim
+            # follows from this check.
+            grounded_pair = False
+            pair = re.search(r"\b(?:pois|porque)\s+um\s+(.+?)\s+e\s+(?:o|a)\s+outr[oa]\s+(.+?)(?:[,;.]|$)", sentence, re.I)
+            if pair and len(_strict) == 2 and len(_std_docs) >= 2 and _has_polarity_ceiling(sentence):
+                ordered = sorted(_strict, key=lambda e: _norm_mention(sentence).find(_norm_mention(e[1])))
+                matched_urls = []
+                for entry, clause in zip(ordered, pair.groups()):
+                    terms = {w for w in _content_tokens(clause) if len(w) >= 4}
+                    found = None
+                    for n in citations:
+                        url = n_to_url.get(n); doc = _doc_for(url) if url else ""
+                        doc_terms = _support_doc_tokens(doc) if doc else frozenset()
+                        if (terms and doc and _entity_mentioned(entry[1], entry[2], doc)
+                                and all(_expand_support_tokens({w}) & doc_terms for w in terms)):
+                            found = url
+                            break
+                    matched_urls.append(found)
+                grounded_pair = len(set(matched_urls)) == 2 and all(matched_urls)
+                if grounded_pair:
+                    _anchor_any_ok = True
             # Gate de polaridade (accept42 item 1): negação/limite ou
             # modalidade não-factual nunca emite "integração testada".
             try:
@@ -1383,9 +1410,10 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 reason = ("inferência sem citação de interoperabilidade "
                           "(complementaridade plausível, não integração "
                           "testada)")
-            unsupported.append({"sentence": sentence,
-                                "citations": citations,
-                                "reason": reason})
+            if not grounded_pair:
+                unsupported.append({"sentence": sentence,
+                                    "citations": citations,
+                                    "reason": reason})
             _decl = {"sentence": sentence, "citations": citations,
                      "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
                      "scope": "partial declarada (complementaridade "
