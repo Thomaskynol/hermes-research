@@ -129,6 +129,26 @@ class InteropVerbFamilyTest(unittest.TestCase):
         self.assertEqual(res["supported"], 1, res)
 
 
+URL_BOILER = "https://example.com/forum-catalogo"
+DOC_BOILER = ("Widget Alpha e Widget Beta constam no catalogo. "
+              "O forum funciona com moderacao ativa. Link tested ontem.")
+SENT_BOILER = ("Widget Alpha e Widget Beta constam no catalogo "
+               "com comparativo [1].")
+
+
+class IncidentalBoilerplateTest(unittest.TestCase):
+    def test_incidental_tokens_are_not_execution_evidence(self):
+        # 'funciona' (sobre o fórum) e 'tested' (chrome da página) no doc
+        # de 50KB não são evidência de execução da integração citada.
+        res = verify.check_support(
+            SENT_BOILER, {1: URL_BOILER}, {URL_BOILER: DOC_BOILER},
+            PLAN_2)
+        scopes = _scopes(res)
+        self.assertNotIn("integração testada", scopes, res)
+        self.assertIn("documentado (sem teste executado)", scopes, res)
+        self.assertEqual(res["supported"], 1, res)
+
+
 URL_A2 = "https://example.com/widget-alpha"
 URL_B2 = "https://example.com/widget-beta"
 DOC_A2 = ("Widget Alpha gerencia planos com revisao e testes. "

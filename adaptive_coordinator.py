@@ -8114,6 +8114,32 @@ def _promote_partial_declared(state: dict, ledger,
         return False
 
 
+def _write_technical_annex(run_dir, state: dict, verification,
+                           cited=None) -> str:
+    """Grava technical_annex.md ao lado de report.md (entrega separada).
+
+    Plumbing: render via report_renderer.render_technical_annex
+    (verbose=True — o anexo é o artefato técnico; o principal continua
+    legível e intocado). Falha nunca derruba a entrega (nota em
+    state["notes"]). Retorna o caminho ou "".
+    """
+    try:
+        from pathlib import Path as _P
+        import report_renderer as _annex_renderer
+        _annex_markdown = _annex_renderer.render_technical_annex(
+            state, verification, True, "pt-BR", cited)
+        _annex_path = _P(run_dir) / "technical_annex.md"
+        _annex_path.write_text(_annex_markdown or "", encoding="utf-8")
+        return str(_annex_path)
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"persist annex failed: {exc}")
+        except Exception:
+            pass
+        return ""
+
+
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
               write, audit, t_start: float, now, run_dir,
               control=None) -> dict:
@@ -8515,6 +8541,17 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             report_path = _P(run_dir) / "report.md"
             report_path.write_text(report_markdown or "", encoding="utf-8")
             result["report_path"] = str(report_path)
+            try:
+                try:
+                    _cited = set(cited_urls or [])
+                except Exception:
+                    _cited = None
+                _annex_path = _write_technical_annex(
+                    run_dir, state, verification, _cited)
+                if _annex_path:
+                    result["annex_path"] = _annex_path
+            except Exception as exc:
+                state["notes"].append(f"persist annex failed: {exc}")
             if verification:
                 try:
                     import verification_report as _verify_write

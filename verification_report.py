@@ -618,17 +618,15 @@ _INTEROP_VERB_MARKERS = (
 #: de execução no doc recebe "documentado (sem teste executado)", nunca
 #: "integração testada" — mera menção ao host + plugin não fecha interop.
 
-#: Evidência de execução no doc (accept42 item 2): o doc mostra teste ou
-#: funcionamento executado, não só documentação. Formas normalizadas;
-#: lista revisável. Token isolado casa por igualdade (não substring:
-#: "untested" nunca conta como "tested").
+#: Evidência de execução no doc (accept42 item 2, endurecido accept43):
+#: só formas frasais contam. Tokens isolados ("funciona", "tested",
+#: "working") casavam boilerplate do doc (chrome Discourse, texto sobre
+#: outro plugin) e forjavam "execução" para a integração citada — por isso
+#: saíram da lista. Formas normalizadas; lista revisável.
 _INTEROP_EXECUTION_MARKERS = (
     "teste executado",
     "test executed",
-    "tested",
     "test passed",
-    "funciona",
-    "working",
 )
 
 
@@ -657,7 +655,11 @@ def _has_interop_verb(sentence: str) -> bool:
 
 
 def _has_execution_evidence(doc_text: str) -> bool:
-    """True quando o doc mostra execução (teste/funcionamento)."""
+    """True quando o doc mostra execução (forma frasal explícita).
+
+    Só frases ("teste executado", ...) — token isolado em doc de 50KB é
+    boilerplate, não evidência da integração citada.
+    """
     try:
         norm = _norm_mention(doc_text)
     except Exception:
@@ -665,12 +667,8 @@ def _has_execution_evidence(doc_text: str) -> bool:
     if not norm:
         return False
     try:
-        toks = set(norm.split())
         for marker in _INTEROP_EXECUTION_MARKERS:
-            if " " in marker:
-                if marker in norm:
-                    return True
-            elif marker in toks:
+            if marker in norm:
                 return True
     except Exception:
         return False

@@ -424,5 +424,77 @@ class PoolFullLinkFollowingTest(unittest.TestCase):
                          "sem overlap e sem vitima: novo descartado")
 
 
+class TechnicalAnnexWriteTest(unittest.TestCase):
+    """Entrega separada: technical_annex.md ao lado de report.md.
+
+    O principal continua existindo igual (sem perda); o anexo carrega
+    os marcadores técnicos (transport failure, semantic boost, repo
+    minerado, tabela de rodadas, outside detalhado). Falha do renderer
+    nunca derruba a entrega nem toca o principal.
+    """
+
+    def _state(self):
+        st = _open_state()
+        st["plan"] = _pool_plan()
+        st["profile"] = "medium"
+        st["rounds"] = [
+            {"round": 0, "kind": "sweep", "target_gaps": ["c1"],
+             "new_evidence": 1, "delta": 0.5, "decision": "continuar"},
+            {"round": 1, "kind": "gap", "target_gaps": [],
+             "new_evidence": 0, "delta": 0.0, "decision": "encerrar"},
+        ]
+        st["stop"] = {"reason": "saturation", "partial": True,
+                      "detail": "d"}
+        st["notes"] = ["transport failure em webfetch: timeout",
+                       "semantic boost: selecao ordenada",
+                       "repo minerado: https://github.com/o/r (de x)"]
+        st["evidence"] = {"https://example.com/a": "AlphaWidget texto"}
+        st["counters"]["outside_corpus_citations"] = [
+            "https://example.com/fora"]
+        return st
+
+    def _verification(self):
+        return {"overall": {"status": "partial"},
+                "dimensions": {
+                    "support": {"dimension": "support", "status": "ok",
+                                "evidence": {"a": 1}, "notes": []}}}
+
+    def test_grava_annex_sem_tocar_principal(self):
+        import os
+        import tempfile
+        st = self._state()
+        with tempfile.TemporaryDirectory() as d:
+            main = os.path.join(d, "report.md")
+            with open(main, "w", encoding="utf-8") as f:
+                f.write("# Principal\n\ncorpo.\n")
+            annex = ac._write_technical_annex(d, st, self._verification())
+            self.assertEqual(annex, os.path.join(d, "technical_annex.md"))
+            with open(annex, encoding="utf-8") as f:
+                body = f.read()
+            for marker in ("transport failure", "semantic boost",
+                           "repo minerado", "| Rodada |",
+                           "https://example.com/fora"):
+                self.assertIn(marker, body,
+                              f"anexo sem marcador {marker!r}")
+            with open(main, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "# Principal\n\ncorpo.\n")
+
+    def test_falha_do_renderer_nunca_derruba_nem_toca_principal(self):
+        import os
+        import tempfile
+        st = self._state()
+        with tempfile.TemporaryDirectory() as d:
+            main = os.path.join(d, "report.md")
+            with open(main, "w", encoding="utf-8") as f:
+                f.write("# Principal\n")
+            annex = ac._write_technical_annex(
+                d, st, {"dimensions": ["quebrado"]})
+            self.assertEqual(annex, "")
+            self.assertTrue(any("annex failed" in str(n)
+                                for n in st.get("notes", [])))
+            with open(main, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "# Principal\n")
+
+
 if __name__ == "__main__":
     unittest.main()

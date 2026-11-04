@@ -167,6 +167,121 @@ class SeparacaoPrincipalAnexoTest(unittest.TestCase):
                          "§5 duplicou a justificativa da §3")
 
 
+def _coverage_state():
+    A = "https://alfa.example/doc"
+    B = "https://beta.example/doc"
+    bodies = {A: "Alfa gerencia fases no corpus.",
+              B: "Beta planeja antes no corpus."}
+    entities = [
+        {"id": "e1", "label": "Alfa", "source_url": A,
+         "discovered": True, "required": True},
+        {"id": "e2", "label": "Beta", "source_url": B,
+         "discovered": True, "required": True},
+    ]
+    criteria = [
+        {"id": "c0", "label": "Fontes", "state": "partial",
+         "justification": "Catálogo e repositório sustentam fontes.",
+         "references": [{"url": A}],
+         "examined_scope": "alcance examinado: t"},
+        {"id": "c1", "label": "Planejamento", "state": "partial",
+         "justification": "Alfa e Beta com evidência parcial.",
+         "references": [{"url": A}],
+         "examined_scope": "alcance examinado: t",
+         "entity_states": {"e1": "covered", "e2": "partial"}},
+        {"id": "c2", "label": "Testes", "state": "partial",
+         "justification": "Só Alfa cobre testes.",
+         "references": [{"url": A}],
+         "examined_scope": "alcance examinado: t",
+         "entity_states": {"e1": "covered", "e2": "insufficient"}},
+    ]
+    st = {
+        "question": "q matriz",
+        "profile": "light",
+        "plan": {"entities": entities,
+                 "criteria": [{"id": "c0", "label": "Fontes"},
+                              {"id": "c1", "label": "Planejamento"},
+                              {"id": "c2", "label": "Testes"}]},
+        "question_coverage": {"status": "partial", "proportion": 0.3,
+                              "criteria": criteria, "gaps": []},
+        "evidence": dict(bodies),
+        "qualification": {u: {"usable_text": t}
+                          for u, t in bodies.items()},
+        "report": {"selection": {"included_urls": [A]}},
+        "notes": [],
+        "rounds": [],
+        "stop": {},
+    }
+    return _with_counters(st, [A, B]), (A, B)
+
+class MatrizDeterministicaTest(unittest.TestCase):
+    def test_global_sem_entity_states_usa_estado_do_criterio(self):
+        st, (A, B) = _coverage_state()
+        out = rr.render_report(st, synthesis_text="Alfa e Beta no corpus.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        self.assertIn("| Fontes | parcial | parcial |", principal,
+                      "matriz divergiu do §3 no critério global")
+        rows = [ln for ln in principal.split("\n")
+                if ln.startswith("| Fontes |")]
+        self.assertTrue(rows and "não avaliado" not in rows[0],
+                        "fantasma 'não avaliado' na matriz")
+
+    def test_celulas_refletem_covered_partial_dos_states(self):
+        st, (A, B) = _coverage_state()
+        out = rr.render_report(st, synthesis_text="Alfa e Beta no corpus.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        self.assertIn("| Planejamento | coberto | parcial |", principal)
+        self.assertIn("| Testes | coberto | insuficiente |", principal)
+
+
+class RecomendacaoDeterministicaTest(unittest.TestCase):
+    def test_fallback_dispara_quando_sintese_sem_recomendacao(self):
+        st, (A, B, C) = _rich_state()
+        out = rr.render_report(st, synthesis_text="Alfa gerencia fases. "
+                               "Beta planeja antes.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        rec = principal.split("### Recomendação")[1].split("\n## ")[0]
+        self.assertIn("a partir dos achados", rec,
+                      "fallback não disparou sem recomendação na síntese")
+        self.assertIn("Alfa", rec)
+        self.assertIn("Beta", rec)
+        self.assertIn("[1]", rec,
+                      "fallback sem refs auditadas")
+
+    def test_fallback_dispara_quando_generica_sem_entidades(self):
+        st, (A, B, C) = _rich_state()
+        out = rr.render_report(st, synthesis_text="Recomendo revisar tudo "
+                               "com calma.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        rec = principal.split("### Recomendação")[1].split("\n## ")[0]
+        self.assertIn("a partir dos achados", rec,
+                      "genérica sem entidades não ganhou fallback")
+
+    def test_fallback_nao_dispara_quando_sintese_ja_recomenda(self):
+        st, (A, B, C) = _rich_state()
+        out = rr.render_report(st, synthesis_text="Recomendo Alfa para "
+                               "planejar. Recomendo Beta para testar.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        rec = principal.split("### Recomendação")[1].split("\n## ")[0]
+        self.assertNotIn("a partir dos achados", rec,
+                         "fallback indevido com recomendação válida")
+
+    def test_fallback_ranqueia_por_covered_partial_refs(self):
+        st, (A, B) = _coverage_state()
+        out = rr.render_report(st, synthesis_text="Alfa e Beta no corpus.",
+                               verifications=None)
+        principal = out.split("\n## 8.")[0]
+        rec = principal.split("### Recomendação")[1].split("\n## ")[0]
+        self.assertIn("a partir dos achados", rec,
+                      "fallback não disparou para ranquear")
+        self.assertLess(rec.index("Alfa"), rec.index("Beta"),
+                        "ranking covered>partial não respeitado")
+
+
 class ParesCombinacaoTest(unittest.TestCase):
     def test_par_sintese_fora_dos_achados_vira_reconciliacao(self):
         st, (A, B, C) = _rich_state()

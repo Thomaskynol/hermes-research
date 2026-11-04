@@ -611,7 +611,7 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             lines.append("|---|---|")
             for eid, est in entity_states.items():
                 lines.append(f"| {_labels_by_id.get(eid, eid)} | "
-                             f"{_state_label(labels, est)} |")
+                             f"{_state_label(labels, _cell_state(crit, eid))} |")
         if crit.get("examined_scope"):
             _scope = str(crit["examined_scope"])
             # G2: texto idêntico colapsa — o comum vive no bloco de
@@ -1297,6 +1297,25 @@ def _all_gaps(state: dict) -> list[dict]:
         return []
 
 
+def _cell_state(criterion: dict, entity_id) -> str:
+    """Estado exibido de UMA célula entidade×critério (fonte única).
+
+    Genérico, sem literais: entity_states manda quando a entidade foi
+    avaliada; sem avaliação por entidade (critério global), vale o
+    estado do critério — o mesmo que o §3 mostra no cabeçalho. §3 e
+    matriz usam esta função: matriz == §3 por construção, nunca
+    'não avaliado' fantasma onde o §3 registra veredito.
+    """
+    try:
+        es = (criterion or {}).get("entity_states") or {}
+        if isinstance(es, dict) and entity_id in es:
+            return str(es.get(entity_id) or "unevaluated")
+        return str((criterion or {}).get("state", "unevaluated")
+                   or "unevaluated")
+    except Exception:
+        return "unevaluated"
+
+
 def _combo_entities(state: dict) -> list[dict]:
     """Entidades com cobertura para cruzar pares (exigidas ou não).
 
@@ -1363,6 +1382,111 @@ def _combination_premises(state: dict, synthesis: str) -> list[str]:
         return []
 
 
+def _synthesis_recommends_entities(state: dict, synthesis: str) -> bool:
+    """A síntese já recomenda entidades exigidas (genérico, sem literais)?
+
+    Vale se há ≥2 frases de recomendação citando ≥1 exigido; sem isso
+    o template anexa o fallback determinístico a partir dos achados.
+    """
+    try:
+        import re as _re_r
+        req = _required_entities(state)
+        if not req:
+            return True
+        try:
+            import verification_report as _vr
+            _mentioned = _vr._entity_mentioned
+        except Exception:
+            _mentioned = None
+        recs = [s for s in _re_r.split(r"(?<=[.!?])\s+|\n+",
+                                        str(synthesis or ""))
+                if any(k in s.lower() for k in
+                       ("recomend", "suger", "próximo passo",
+                        "próximos passos"))]
+        if len(recs) < 2:
+            return False
+        for sent in recs:
+            for ent in req:
+                lb = str(ent.get("label") or ent.get("id") or "")
+                if not lb:
+                    continue
+                try:
+                    hit = bool(_mentioned(lb, ent.get("id"), sent)) \
+                        if _mentioned is not None else False
+                    if not hit:
+                        hit = lb.lower() in sent.lower()
+                except Exception:
+                    hit = lb.lower() in sent.lower()
+                if hit:
+                    return True
+        return False
+    except Exception:
+        return True
+
+
+def _recommendation_fallback(state: dict, labels: dict,
+                             numbers: dict) -> list[str]:
+    """Fallback determinístico da recomendação (genérico, sem literais).
+
+    Ranqueia os exigidos por (covered, partial, refs válidas) com 1
+    frase por entidade só com estados e refs já auditados — nenhum
+    fato novo, PT claro, sem jargão.
+    """
+    try:
+        import re as _re_f
+        block = state.get("question_coverage") or {}
+        criteria = [c for c in (block.get("criteria") or [])
+                    if isinstance(c, dict)]
+        req = _required_entities(state)
+        if not req or not criteria:
+            return []
+        ranked: list[tuple] = []
+        for ent in req:
+            eid = ent.get("id")
+            lb = str(ent.get("label") or eid or "")
+            cov_l: list[str] = []
+            par_l: list[str] = []
+            seen: set = set()
+            refs: list[str] = []
+            for crit in criteria:
+                cell = _cell_state(crit, eid)
+                if cell not in ("covered", "partial"):
+                    continue
+                if cell == "covered":
+                    cov_l.append(str(crit.get("label") or crit.get("id")))
+                else:
+                    par_l.append(str(crit.get("label") or crit.get("id")))
+                for r in crit.get("references") or []:
+                    u = (r.get("url", r.get("doc_id", ""))
+                         if isinstance(r, dict) else str(r or ""))
+                    if not u:
+                        continue
+                    try:
+                        _k, _n = _lookup_number(u, numbers)
+                    except Exception:
+                        _k, _n = None, None
+                    if _k is not None and _n not in seen:
+                        seen.add(_n)
+                        refs.append(str(_n))
+            ranked.append((-len(cov_l), -len(par_l), -len(refs), lb,
+                           cov_l, par_l, refs))
+        ranked.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+        lines = ["- Recomendação a partir dos achados:"]
+        for _, _, _, lb, cov_l, par_l, refs in ranked:
+            if not cov_l and not par_l:
+                lines.append(f"- {lb}: sem cobertura nos achados; "
+                             f"verificar fonte própria antes de usar.")
+                continue
+            _cov = ", ".join(cov_l[:3]) if cov_l else "nenhum critério"
+            _par = ", ".join(par_l[:3]) if par_l else "nenhum critério"
+            _rf = "[" + "][".join(refs[:4]) + "]" if refs else "—"
+            lines.append(f"- {lb}: coberto em {_cov}; parcial em {_par}; "
+                         f"fontes {_rf}.")
+        return lines
+    except Exception:
+        return []
+
+
 def _template_section(state: dict, labels: dict, numbers: dict,
                       synthesis: str) -> list[str]:
     """Template pós-processado do writer (genérico, sem literais).
@@ -1407,9 +1531,7 @@ def _template_section(state: dict, labels: dict, numbers: dict,
                                        for e in req) + " |")
             lines.append("|---" * (len(req) + 1) + "|")
             for crit in criteria:
-                es = crit.get("entity_states") or {}
-                cells = [_state_label(labels, es.get(ent.get("id"),
-                                                     "unevaluated"))
+                cells = [_state_label(labels, _cell_state(crit, ent.get("id")))
                          for ent in req]
                 lines.append(f"| {crit.get('label') or crit.get('id')} | "
                              + " | ".join(cells) + " |")
@@ -1452,13 +1574,15 @@ def _template_section(state: dict, labels: dict, numbers: dict,
             _tally: list[tuple] = []
             for ent in req:
                 n = sum(1 for c in criteria
-                        if (c.get("entity_states") or {}).get(ent.get("id"))
+                        if _cell_state(c, ent.get("id"))
                         in ("covered", "partial"))
                 _tally.append((n, str(ent.get("label") or ent.get("id"))))
             _tally.sort(reverse=True)
             _top = ", ".join(f"{lb} ({n})" for n, lb in _tally[:3])
             if _top:
                 lines.append(f"- Entidades com mais cobertura: {_top}.")
+        if not _synthesis_recommends_entities(state, synthesis):
+            lines.extend(_recommendation_fallback(state, labels, numbers))
         lines.append("")
         lines.append("### LACUNAs com alcance")
         if _open:
