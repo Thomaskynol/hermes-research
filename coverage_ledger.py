@@ -13,7 +13,8 @@ A semantic approval NEVER implies question coverage: a report can be fully
 sustained by its citations while leaving mandatory sub-questions
 uninvestigated. The two dimensions are recorded side by side, never merged.
 
-Rules enforced here (structure only — never semantic truth):
+Rules enforced here (structural checks and conservative scope guard — never
+a claim of semantic truth):
 
 - URL / mention / raw text is NOT coverage. Six entities with documents does
   NOT cover criteria: ``covered`` requires an explicit evaluation traceable
@@ -27,12 +28,15 @@ Rules enforced here (structure only — never semantic truth):
   with usable references showing the absence) CAN cover.
 - The ledger validates structure (stable ids, states, justification +
   origin + resolvable references). It never claims semantic truth.
+- N/A additionally needs an explicit, entity-linked exclusion of the named
+  axis. Unrecognized scope arguments remain insufficient, not disproved.
 
 No network, no model calls, stdlib only.
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 STATES = ("uninvestigated", "insufficient", "partial",
@@ -362,6 +366,47 @@ class Ledger:
                            f"({qual.get('status', '?')}): {url[:80]}")
         return True, ""
 
+    def _scope_exclusion_supported(self, crit: dict, entity_id: str,
+                                   references: list[dict]) -> bool:
+        """Accept a direct, entity-linked exclusion; absence of a feature is not one.
+
+        This conservative check recognizes explicit statements about helping,
+        relevance or applicability to the named criterion. Other scope
+        reasoning stays insufficient until reviewed; it is not evidence that
+        an exclusion is false. In particular, not executing an activity does
+        not prove that the candidate cannot help it indirectly.
+        """
+        from entity_identity import normalized, source_identity
+        entity = next((e for e in self.plan.get("entities", [])
+                       if e.get("id") == entity_id), {})
+        entity_name = normalized(re.sub(r"\([^)]*\)", "", str(entity.get("label") or "")))
+        label = normalized(crit.get("label") or "")
+        terms = [t for t in label.split() if len(t) >= 4]
+        if not entity or not entity_name or not terms:
+            return False
+        negation = re.compile(
+            r"\b(?:does not|cannot|never) (?:help|improve|contribute|benefit)\b"
+            r"|\b(?:is|are) not (?:applicable|relevant)\b"
+            r"|\bnao (?:ajuda|auxilia|contribui|melhora|se aplica)\b"
+            r"|\bnao (?:e|sao) (?:aplicavel|relevante)\b")
+        for ref in references:
+            if not isinstance(ref, dict) or not self._resolves(ref)[0]:
+                continue
+            url = ref.get("url", ref.get("doc_id", ""))
+            body = str((self._qualification.get(url) or {}).get("usable_text") or "")
+            identity = source_identity(entity, body, url)
+            if identity is False or (identity is None and
+                    normalized(entity.get("label") or "") not in normalized(body)):
+                continue
+            for sentence in re.split(r"[.!?;\n]+", body):
+                sentence = normalized(sentence)
+                if (re.search(r"(?:^| )" + re.escape(entity_name) + r"(?:$| )", sentence)
+                        and negation.search(sentence) and all(
+                        re.search(r"\b" + re.escape(t) + r"\b", sentence)
+                        for t in terms)):
+                    return True
+        return False
+
     def evaluate(self, criterion_id: str, state: str, justification: str,
                  origin: str, references: list[dict] | None = None,
                  entity_id: str | None = None) -> dict:
@@ -412,6 +457,14 @@ class Ledger:
         if not (origin or "").strip():
             raise ValueError("[COVERAGE] evaluation needs an origin "
                              "(de onde veio a justificativa)")
+        invalidated = None
+        if state == "not_applicable" and not self._scope_exclusion_supported(
+                crit, entity_id, refs):
+            invalidated = {"state": state, "justification": justification,
+                           "origin": origin, "references": refs}
+            state = "insufficient"
+            justification = ("A exclusão deste critério não foi demonstrada "
+                             "pelas fontes citadas; contribuição não verificada.")
         if state in ("covered", "partial"):
             if not refs:
                 raise ValueError(
@@ -433,6 +486,8 @@ class Ledger:
             "origin": origin,
             "references": refs,
         }
+        if invalidated:
+            self._evals[key]["invalidated_evaluation"] = invalidated
         return dict(self._evals[key])
 
     # -- computation ------------------------------------------------------

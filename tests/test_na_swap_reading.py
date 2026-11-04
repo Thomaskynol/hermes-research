@@ -49,7 +49,10 @@ class TestNALedger(unittest.TestCase):
     def test_na_excluded_from_denominator(self):
         p = plan2()
         lg = cl.Ledger(p, run_id="r1")
-        lg.set_corpus({A: "x" * 500, B: "y" * 500}, qual([A, B]))
+        # Scope exclusion must actually be present in the cited source.
+        source_b = "cand dois does not help with eixo um. " + "y" * 500
+        q = qual([A, B]); q[B]["usable_text"] = source_b
+        lg.set_corpus({A: "x" * 500, B: source_b}, q)
         lg.evaluate("c1", "covered", "cobre e1", "assessor",
                     [{"url": A}], "e1")
         lg.evaluate("c1", "not_applicable", "e2 declara escopo que "
@@ -280,15 +283,17 @@ class TestReading(unittest.TestCase):
     def test_renderer_shows_na_and_reading(self):
         p = plan2()
         lg = cl.Ledger(p, run_id="r1")
-        lg.set_corpus({A: "x" * 500, B: "y" * 500}, qual([A, B]))
+        source_b = "cand dois does not help with eixo um. " + "y" * 500
+        q = qual([A, B]); q[B]["usable_text"] = source_b
+        lg.set_corpus({A: "x" * 500, B: source_b}, q)
         lg.evaluate("c1", "covered", "cobre e1", "assessor",
                     [{"url": A}], "e1")
         lg.evaluate("c1", "not_applicable", "e2 declara escopo que "
                     "exclui o eixo", "assessor", [{"url": B}], "e2")
         st = state_api.new_state("Comparar dois candidatos")
         st["plan"] = p
-        st["evidence"] = {A: "x" * 500, B: "y" * 500}
-        st["qualification"] = qual([A, B])
+        st["evidence"] = {A: "x" * 500, B: source_b}
+        st["qualification"] = q
         st["question_coverage"] = lg.compute()
         st["reading"] = {"collected_chars": 1000, "excerpted_chars": 400,
                          "docs_collected": 2, "docs_excerpted": 2}

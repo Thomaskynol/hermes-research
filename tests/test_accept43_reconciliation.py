@@ -59,6 +59,85 @@ def state():
 
 
 class ScopeAndSelection(unittest.TestCase):
+    def test_na_needs_scope_exclusion_not_just_an_unrelated_function(self):
+        st = state()
+        st["plan"]["criteria"][1]["label"] = "Testing"
+        st["plan"]["criteria"][1]["description"] = "Help improve testing, including indirect contributions."
+        st["evidence"][B] = "# River Plan\nRiver Plan displays planning tickets. It does not execute testing."
+        st["qualification"][B]["usable_text"] = st["evidence"][B]
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        ev = led.evaluate("review", "not_applicable", "The planning scope excludes help with testing.",
+                          "assessor", [{"url": B}], "b")
+        self.assertEqual(ev["state"], "insufficient")
+        self.assertEqual(led.state_of("review", "b"), "insufficient")
+        self.assertEqual(led.compute()["na"], 0)
+        self.assertIn("not_applicable", str(ev.get("invalidated_evaluation")))
+
+    def test_explicit_scope_exclusion_is_not_rejected_indiscriminately(self):
+        st = state()
+        st["plan"]["criteria"][1]["label"] = "Testing"
+        st["evidence"][B] = "# River Plan\nRiver Plan does not help with testing in any way."
+        st["qualification"][B]["usable_text"] = st["evidence"][B]
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        ev = led.evaluate("review", "not_applicable", "The source explicitly excludes help with testing.",
+                          "assessor", [{"url": B}], "b")
+        self.assertEqual(ev["state"], "not_applicable")
+        self.assertEqual(led.compute()["na"], 1)
+
+    def test_stale_na_is_revalidated_and_archived_in_coordinator(self):
+        st = state()
+        st["plan"]["criteria"][1]["label"] = "Testing"
+        st["evidence"][B] = "# River Plan\nRiver Plan displays planning tickets."
+        st["qualification"][B]["usable_text"] = st["evidence"][B]
+        st["evaluations"] = [{"criterion_id":"review", "entity_id":"b", "state":"not_applicable",
+                              "justification":"Planning excludes testing.", "origin":"assessor",
+                              "references":[{"url":B}]}]
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        evaluations, block = ac._assess_round(st, lambda *args: [], led)
+        self.assertEqual(evaluations[0]["state"], "insufficient")
+        self.assertEqual(block["na"], 0)
+        self.assertEqual(st["historical_evaluations"][-1]["evaluation"]["state"], "not_applicable")
+
+    def test_scope_exclusion_for_another_project_is_not_attributed(self):
+        st = state(); st["plan"]["criteria"][1]["label"] = "Testing"
+        st["evidence"][A] = "# River Review\nRiver Review does not help with testing."
+        st["qualification"][A]["usable_text"] = st["evidence"][A]
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        ev = led.evaluate("review", "not_applicable", "Testing is outside the documented scope.",
+                          "assessor", [{"url": A}], "b")
+        self.assertEqual(ev["state"], "insufficient")
+
+    def test_exclusion_mentioned_in_own_source_still_needs_the_right_subject(self):
+        st = state(); st["plan"]["criteria"][1]["label"] = "Testing"
+        st["evidence"][B] = "# River Plan\nOther Tool does not help with testing."
+        st["qualification"][B]["usable_text"] = st["evidence"][B]
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        ev = led.evaluate("review", "not_applicable", "Testing is outside the documented scope.",
+                          "assessor", [{"url": B}], "b")
+        self.assertEqual(ev["state"], "insufficient")
+
+    def test_writer_includes_rare_source_detail_used_by_a_referenced_finding(self):
+        st = state()
+        body = "# River Plan\n" + ("planning review version license costs installation. " * 90)
+        body += "\nThe interface provides a spectrogram view for comparison.\n"
+        st["evidence"][B] = body
+        st["qualification"][B]["usable_text"] = body
+        st["evaluations"] = [{"criterion_id":"review", "entity_id":"b", "state":"covered",
+                              "justification":"River Plan provides a spectrogram view for comparison.",
+                              "origin":"assessor", "references":[{"url":B}]}]
+        seen = {}
+        def client(prompt):
+            seen["prompt"] = prompt
+            return "Resposta."
+        _, selection = ac.make_model_writer(client)(st)
+        self.assertIn("spectrogram view", selection["excerpts"][B])
+        self.assertIn("spectrogram view", seen["prompt"])
+        self.assertLessEqual(len(selection["excerpts"][B]), 2000)
+        # A finding attributed to a different source cannot direct B's cut.
+        st["evaluations"][0]["references"] = [{"url": A}]
+        _, other_selection = ac.make_model_writer(client)(st)
+        self.assertNotIn("spectrogram view", other_selection["excerpts"][B])
+
     def test_inference_is_not_promoted_to_unrelated_discovery_criterion(self):
         st = state();st["plan"]["criteria"].insert(0, {"id": "discovery", "label": "Identificar candidatos", "description": "Descobrir alternativas.", "required": True})
         led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
@@ -347,6 +426,22 @@ class Audit(unittest.TestCase):
 
 
 class Topic(unittest.TestCase):
+    def test_harness_origin_applies_to_ledger_justifications_too(self):
+        st = state()
+        st["user_context"] = {"origin": "harness", "facts": {"installed_version": "2.1.4"}}
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        led.evaluate("review", "partial", "Confronto com a versão instalada informada pelo usuário, 2.1.4, não prova compatibilidade.", "assessor", [{"url": A}], "a")
+        st["question_coverage"] = led.compute()
+        out = rr.render_report(st, synthesis_text="Resumo.")
+        self.assertNotIn("versão instalada informada pelo usuário", out)
+        self.assertIn("versão de referência da premissa controlada", out)
+
+    def test_user_version_is_not_relabelled_as_harness(self):
+        st = state()
+        st["user_context"] = {"origin": "user", "facts": {"installed_version": "2.1.4"}}
+        text = "A versão instalada informada pelo usuário é 2.1.4."
+        self.assertIn(text, rr.render_report(st, synthesis_text=text))
+
     def test_harness_version_keeps_origin_separate_from_observed_version(self):
         st = state();st["user_context"] = {"origin": "harness", "facts": {"installed_version": "2.1.4"}}
         st["environment_observations"] = [{"command": "tool --version", "value": "2.2.5", "at": "controlled"}]
@@ -415,6 +510,9 @@ class IntegratedEntry(unittest.TestCase):
                 auditor_fn=lambda *a: {"enabled": False, "accepted": False, "verdict_state": "não revisado semanticamente"},
                 overrides={"max_rounds": 0, "max_model_calls": 6}, clock=lambda: 0)
             out = Path(result["report_path"]).read_text()
+            self.assertNotIn("## 8. Anexo", out)
+            self.assertIn("## 8. Anexo", Path(result["annex_path"]).read_text())
+            self.assertIn("technical_annex.md", out)
             matrix = out.split("### Matriz entidade×critério")[1].split("###")[0]
             self.assertNotIn("RiverHost", matrix)
             self.assertNotIn("Combinações", matrix)

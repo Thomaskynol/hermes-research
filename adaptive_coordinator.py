@@ -1115,7 +1115,7 @@ def _relevant_excerpt(text: str, limit: int,
         if overlap:
             return False
         chunk = body[start:end]
-        sep_cost = 5 if parts else 0
+        sep_cost = len("\n[...]\n") if parts else 0
         if total + len(chunk) + sep_cost > limit:
             # Fill leftover budget with a truncated tail window (>=200
             # chars of new material) instead of leaving it empty. The
@@ -1294,6 +1294,16 @@ def _relevant_excerpt(text: str, limit: int,
                 while cursors[name] < len(ranked):
                     start = ranked[cursors[name]][2]
                     cursors[name] += 1
+                    if name.startswith("ancora:achado:"):
+                        # Keep the matched finding inside its window with
+                        # surrounding context; a hit at the last byte can
+                        # otherwise retain only a table key, not its meaning.
+                        hits = [low.find(t, start, start + cap)
+                                for t in norm_groups[name]]
+                        hits = [pos for pos in hits if pos >= 0]
+                        if hits:
+                            start = max(0, min(len(body) - cap,
+                                               min(hits) - cap // 2))
                     if take(start, cap):
                         progressed = True
                         break
@@ -4198,6 +4208,9 @@ def make_model_assessor(model_client, max_docs: int = 24,
             "citar evidência delimitadora de escopo (ex.: a fonte do "
             "candidato declara escopo que exclui o eixo); sem "
             "referência utilizável a célula cai para insufficient. "
+            "Uma função principal diferente, ou não executar uma atividade, "
+            "não prova ausência de contribuição indireta: sem exclusão "
+            "explícita do eixo, use insufficient, não not_applicable. "
             "Contribuição documentada ao eixo conta partial com a fonte "
             "da entidade (ex.: mecanismos de qualidade que afetam o "
             "eixo), sem exigir geração/execução autônoma demonstrada e "
@@ -4663,6 +4676,36 @@ def make_model_writer(model_client, max_chars: int = 12000):
             raw_len = len(text)
             chunk, _wstrip, _wwin = _relevant_excerpt(
                 text, per_doc, _wterms, groups=_wgroups)
+            # A cited finding can depend on a small passage that loses the
+            # general dimension ranking. Reserve at most two existing window
+            # slots for rare terms actually present in that source but absent
+            # from the first cut; the finding itself is never treated as
+            # evidence and references to other sources do not guide this cut.
+            _missing_groups = {}
+            _body_low, _chunk_low = text.lower(), chunk.lower()
+            for _ev in view.get("evaluations") or []:
+                if _ev.get("state") not in ("covered", "partial"):
+                    continue
+                _refs = _ev.get("references") or []
+                if not any(isinstance(_r, dict) and
+                           _r.get("url", _r.get("doc_id")) == url for _r in _refs):
+                    continue
+                _entity = next((e for e in plan.get("entities", [])
+                                if e.get("id") == _ev.get("entity_id")), None)
+                if _entity and not _evaluation_refs_have_identity(view, _entity, [{"url": url}]):
+                    continue
+                _terms = _norm_tokens(_ev.get("justification") or "", min_len=4)
+                _terms += _expand_terms_en(_terms)
+                _terms += [t[:-1] for t in _terms if t.endswith("s") and len(t) > 4]
+                _rare = sorted({t for t in _terms if 0 < _body_low.count(t) <= 3
+                                and t not in _chunk_low})
+                if _rare:
+                    _missing_groups[f"ancora:achado:{len(_missing_groups)}"] = _rare
+                if len(_missing_groups) == 2:
+                    break
+            if _missing_groups:
+                chunk, _wstrip, _wwin = _relevant_excerpt(
+                    text, per_doc, _wterms, groups={**_wgroups, **_missing_groups})
             if _wwin.startswith("relevancia"):
                 cuts.append(f"janela de relevancia {url}: {_wwin}")
             if raw_len > len(chunk):
@@ -5008,6 +5051,21 @@ def _only_user_context(ev: dict) -> bool:
     return all(isinstance(r, dict)
                and str(r.get("url", r.get("doc_id", ""))).startswith("user://")
                for r in refs)
+
+
+def _revalidate_evaluation(state: dict, ledger, previous: dict) -> dict:
+    """Keep invalidated exclusions as history and persist the actual ledger state."""
+    recorded = ledger.evaluate(previous["criterion_id"], previous.get("state", ""),
+                               previous.get("justification", ""), previous.get("origin", ""),
+                               previous.get("references", []), previous.get("entity_id"))
+    if recorded.get("state") != previous.get("state"):
+        state.setdefault("historical_evaluations", []).append({
+            "evaluation": dict(previous),
+            "reason": "scope exclusion not established by cited source"})
+        state.setdefault("notes", []).append(
+            f"N/A sem exclusão comprovada: {previous.get('criterion_id')}"
+            f"×{previous.get('entity_id')} -> insufficient")
+    return {**previous, **recorded}
 
 
 def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
@@ -5463,12 +5521,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         _final: list[dict] = []
         for _key, _ev in _merged.items():
             try:
-                ledger.evaluate(_ev["criterion_id"], _ev.get("state", ""),
-                                _ev.get("justification", ""),
-                                _ev.get("origin", ""),
-                                _ev.get("references", []),
-                                _ev.get("entity_id"))
-                _final.append(_ev)
+                _final.append(_revalidate_evaluation(state, ledger, _ev))
             except (ValueError, KeyError):
                 state["notes"].append(
                     f"assessor evaluation for {_ev.get('criterion_id')} "
@@ -5698,10 +5751,7 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
         kept = []
         for prev in state.get("evaluations", []):
             try:
-                fresh.evaluate(prev["criterion_id"], prev.get("state", "insufficient"),
-                               prev.get("justification", ""), prev.get("origin", ""),
-                               prev.get("references", []), prev.get("entity_id"))
-                kept.append(prev)
+                kept.append(_revalidate_evaluation(state, fresh, prev))
             except (ValueError, KeyError):
                 pass
         state["evaluations"] = kept
@@ -5797,13 +5847,7 @@ def _do_substitute(state: dict, ledger, old_id: str, new_id: str,
                     "reason": f"selection changed: {old_id} -> {new_id}"})
                 continue
             try:
-                fresh.evaluate(prev["criterion_id"],
-                               prev.get("state", "insufficient"),
-                               prev.get("justification", ""),
-                               prev.get("origin", ""),
-                               prev.get("references", []),
-                               prev.get("entity_id"))
-                kept.append(prev)
+                kept.append(_revalidate_evaluation(state, fresh, prev))
             except (ValueError, KeyError):
                 pass
         state["evaluations"] = kept
@@ -6061,10 +6105,7 @@ def _promote_evaluated(state: dict, ledger) -> bool:
         _dropped: list = []
         for prev in state.get("evaluations", []):
             try:
-                fresh.evaluate(prev["criterion_id"], prev.get("state", "insufficient"),
-                               prev.get("justification", ""), prev.get("origin", ""),
-                               prev.get("references", []), prev.get("entity_id"))
-                kept.append(prev)
+                kept.append(_revalidate_evaluation(state, fresh, prev))
             except (ValueError, KeyError) as _exc:
                 # Cobertura perdida nunca invisível: registra quantas e porquê.
                 try:
@@ -6764,10 +6805,7 @@ def run_adaptive(question: str, *, profile: str = "light",
         kept = []
         for prev in state.get("evaluations", []):
             try:
-                ledger.evaluate(prev["criterion_id"], prev.get("state", "insufficient"),
-                                prev.get("justification", ""), prev.get("origin", ""),
-                                prev.get("references", []), prev.get("entity_id"))
-                kept.append(prev)
+                kept.append(_revalidate_evaluation(state, ledger, prev))
             except (ValueError, KeyError):
                 pass
         state["evaluations"] = kept
@@ -8588,7 +8626,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                                           report_text=None)
         report_markdown = _renderer.render_report(
             state, synthesis_text=report_text or "", verifications=verification,
-            quantitative=quantitative_results or None)
+            quantitative=quantitative_results or None, include_annex=run_dir is None)
         state["verification"] = verification
         cited_urls = list(getattr(_renderer.render_report,
                                   "last_cited_urls", []) or [])
@@ -8671,7 +8709,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             _final_markdown = _renderer.render_report(
                 state, synthesis_text=report_text or "",
                 verifications=verification,
-                quantitative=quantitative_results or None)
+                quantitative=quantitative_results or None, include_annex=run_dir is None)
             report_markdown = _final_markdown
             cited_urls = list(getattr(_renderer.render_report,
                                       "last_cited_urls", []) or [])

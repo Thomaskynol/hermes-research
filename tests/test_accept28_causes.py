@@ -214,7 +214,10 @@ class DescCGuardTest(unittest.TestCase):
                           "per_candidate": True,
                           "applies_to": ["w1", "w2"], "description": "Eixo axis: o que conta como evidencia operacional para este eixo, com exemplos e condicoes de aceite."}],
         })
-        st = base_state(plan, {URL_A: DOC_A, URL_B: DOC_B})
+        # The historical transition guard is about a *valid* N/A. A
+        # description of distribution alone does not exclude indirect help.
+        st = base_state(plan, {URL_A: DOC_A,
+                               URL_B: DOC_B + " Widget Beta does not help with axis."})
         led = ledger_mod.Ledger(plan, run_id="t")
         led.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
         na = led.evaluate(

@@ -1797,7 +1797,7 @@ def render_technical_annex(state: dict,
 def render_report(state: dict, *, synthesis_text: str,
                   verifications: dict | None = None,
                   quantitative: list | None = None,
-                  language: str = "pt-BR") -> str:
+                  language: str = "pt-BR", include_annex: bool = True) -> str:
     """Render the delivery Markdown from the real run state."""
     labels = _labels(language)
     verbose = str(state.get("profile", "")).lower() in ("hard", "deep")
@@ -1943,12 +1943,24 @@ def render_report(state: dict, *, synthesis_text: str,
     lines.append("")
     lines.extend(_sources_section(state, labels))
     lines.append("")
-    lines.append(render_technical_annex(
-        state, verifications, verbose, language, cited))
+    if include_annex:
+        lines.append(render_technical_annex(
+            state, verifications, verbose, language, cited))
+    else:
+        overall = (verifications or {}).get("overall", "not_run")
+        review = (((verifications or {}).get("dimensions") or {}).get("review") or {}).get("evidence") or {}
+        states = {"failed": "falhou", "partial": "parcial", "ok": "concluída", "not_run": "não executada"}
+        lines.append(f"**Verificação:** {states.get(overall, overall)}. "
+                     f"Revisão: {review.get('verdict_state') or 'não informada'}. "
+                     "[Detalhes técnicos](technical_annex.md).")
     lines.append("")
     render_report.last_cited_urls = sorted(cited)  # type: ignore[attr-defined]
     render_report.last_numbers = dict(numbers)  # type: ignore[attr-defined]
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    if (state.get("user_context") or {}).get("origin") == "harness":
+        result = re.sub(r"(?i)vers[aã]o instalada informada pelo usu[aá]rio",
+                        "versão de referência da premissa controlada", result)
+    return result
 
 
 render_report.last_cited_urls = []  # type: ignore[attr-defined]

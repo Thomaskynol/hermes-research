@@ -329,14 +329,18 @@ class ReportTest(unittest.TestCase):
             state = state_api.load(tmp, "core-run")
             markdown = result["report_markdown"]
             for section in ("1. Resposta direta", "2. Escopo", "3. Achados",
-                            "5. Limitações", "6. Conclusão", "7. Fontes",
-                            "8. Anexo", "9. Encerramento"):
+                            "5. Limitações", "6. Conclusão", "7. Fontes"):
                 self.assertIn(section, markdown)
+            annex = (Path(tmp) / "technical_annex.md").read_text()
+            self.assertIn("8. Anexo", annex)
+            self.assertIn("9. Encerramento", annex)
+            self.assertNotIn("8. Anexo", markdown)
+            self.assertIn("technical_annex.md", markdown)
             self.assertIn("Motivo de parada", markdown)
             self.assertIn("rounds", markdown.lower())
             self.assertIn("[1]", markdown)
-            self.assertIn("discovered", markdown)  # counters table
-            self.assertIn("execution", markdown)   # verifications table
+            self.assertIn("discovered", annex)  # counters table
+            self.assertIn("execution", annex)   # verifications table
             sources_block = markdown.split("## 7. Fontes", 1)[1].split(
                 "## 8.", 1)[0]
             self.assertNotIn(OUTSIDE, sources_block,
@@ -366,7 +370,7 @@ class ReportTest(unittest.TestCase):
         self.assertLess(len(light["report_markdown"]),
                         len(deep["report_markdown"]))
         self.assertIn("Limitações", light["report_markdown"])
-        self.assertIn("Parcial", light["report_markdown"])
+        self.assertIn("parcial", light["report_markdown"].lower())
 
 
 class VerificationTest(unittest.TestCase):

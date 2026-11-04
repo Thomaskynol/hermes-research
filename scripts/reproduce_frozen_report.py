@@ -103,8 +103,8 @@ def main():
             ac._counters.record_usable(st, u, st["qualification"].get(u))
     led = cl.Ledger(st["plan"], run_id=st["run_id"])
     led.set_corpus(st["evidence"], st["qualification"])
-    for ev in st["evaluations"]:
-        led.evaluate(ev["criterion_id"], ev["state"], ev["justification"], ev.get("origin", ""), ev.get("references", []), ev.get("entity_id"))
+    st["evaluations"] = [ac._revalidate_evaluation(st, led, ev)
+                         for ev in st["evaluations"]]
     # Selection decisions consume historical assessments, not fake rounds.
     st["rounds"] = copy.deepcopy(original["rounds"])
     ac._maybe_substitute(st, led)
