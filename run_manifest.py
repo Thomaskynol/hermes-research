@@ -23,6 +23,7 @@ OWN_MODULES = (
     "report_renderer.py", "verification_report.py", "run_manifest.py",
     "depth_profiles.py", "run_budget.py", "semantic_review.py",
     "gpt_researcher_integration.py", "agent_reach.py", "academic_search.py",
+    "entity_identity.py",
 )
 
 _SECRET_HINTS = ("key", "token", "secret", "password", "authorization",

@@ -219,12 +219,13 @@ class MatrizDeterministicaTest(unittest.TestCase):
         out = rr.render_report(st, synthesis_text="Alfa e Beta no corpus.",
                                verifications=None)
         principal = out.split("\n## 8.")[0]
-        self.assertIn("| Fontes | parcial | parcial |", principal,
-                      "matriz divergiu do §3 no critério global")
+        # Reconciliacao accept43: fonte atual é obrigação global, não
+        # duas células artificiais na matriz. Estado continua visível 1x.
+        self.assertNotIn("| Fontes |", principal)
+        self.assertIn("**Fontes** — parcial", principal)
         rows = [ln for ln in principal.split("\n")
                 if ln.startswith("| Fontes |")]
-        self.assertTrue(rows and "não avaliado" not in rows[0],
-                        "fantasma 'não avaliado' na matriz")
+        self.assertEqual(rows, [])
 
     def test_celulas_refletem_covered_partial_dos_states(self):
         st, (A, B) = _coverage_state()

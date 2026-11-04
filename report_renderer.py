@@ -12,6 +12,7 @@ detail and every note; ``light`` stays concise without hiding uncertainties.
 from __future__ import annotations
 
 import time
+import re
 
 import research_counters as _counters
 
@@ -305,7 +306,10 @@ def _sanitize_body_text(text: str, entity_labels: dict | None = None,
     user paraphrase. Stored state is never rewritten — only the line.
     """
     try:
-        out = _replace_entity_ids(str(text or ""), entity_labels or {})
+        # Operational residue is retained in the raw synthesis/technical
+        # artifact, never echoed as a research finding in the delivery.
+        clean = re.sub(r"(?im)^\s*(?:ponytail|agent[_ -]?notes?|internal[_ -]?notes?)\s*:.*(?:\n|$)", "", str(text or ""))
+        out = _replace_entity_ids(clean, entity_labels or {})
     except Exception:
         out = str(text or "")
     try:
@@ -536,6 +540,15 @@ def _method_section(state: dict, labels: dict, verbose: bool) -> list[str]:
              f"- **{labels['criteria']}:** {len(criteria)} | "
              f"**{labels['entities']}:** {len(entities)}",
              _channel_line(state, labels), ""]
+    if state.get("reproduction"):
+        lines.append("**Reprodução de corpus congelado:** " + str(state["reproduction"].get("description", "sem nova coleta")))
+    uc = state.get("user_context") or {}
+    if uc.get("origin") == "harness":
+        lines.append("**Premissas controladas do experimento (harness):** "
+                     + "; ".join(f"{k}={v}" for k, v in (uc.get("facts") or {}).items())
+                     + ". Não constituem observação do ambiente.")
+    for obs in state.get("environment_observations") or []:
+        lines.append(f"**Observação local separada:** {obs.get('command')} → {obs.get('value')} ({obs.get('at')}).")
     common_scope, common_n = _common_examined_scope(state)
     if common_scope:
         body = common_scope.strip()
@@ -593,10 +606,12 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
                 "en" if labels is _EN else "pt-BR")
         except Exception:
             pass
-        lines.append(justification)
-        refs = _refs(crit, numbers, labels, cited)
-        if refs:
-            lines.append(f"{labels['references']}: {refs}")
+        cell_evals = crit.get("entity_evaluations") or {}
+        if not cell_evals:
+            lines.append(justification)
+            refs = _refs(crit, numbers, labels, cited)
+            if refs:
+                lines.append(f"{labels['references']}: {refs}")
         entity_states = crit.get("entity_states")
         try:
             _labels_by_id = {
@@ -607,11 +622,21 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             _labels_by_id = {}
         if entity_states:
             lines.append("")
-            lines.append("| Entidade | Estado |")
-            lines.append("|---|---|")
+            lines.append("| Entidade | Estado | Evidência e limites |")
+            lines.append("|---|---|---|")
             for eid, est in entity_states.items():
+                ev = cell_evals.get(eid) or {}
+                detail = _sanitize_body_text(str(ev.get("justification") or labels["not_investigated"]), _entity_labels(state))
+                refs = _refs(ev, numbers, labels, cited)
                 lines.append(f"| {_labels_by_id.get(eid, eid)} | "
-                             f"{_state_label(labels, _cell_state(crit, eid))} |")
+                             f"{_state_label(labels, _cell_state(crit, eid))} | "
+                             f"{detail.replace('|', '/').replace(chr(10), ' ')} {refs} |")
+        elif cell_evals:
+            for eid, ev in cell_evals.items():
+                lines.append(_sanitize_body_text(ev.get("justification") or labels["not_investigated"], _entity_labels(state)))
+                refs = _refs(ev, numbers, labels, cited)
+                if refs:
+                    lines.append(f"{labels['references']}: {refs}")
         if crit.get("examined_scope"):
             _scope = str(crit["examined_scope"])
             # G2: texto idêntico colapsa — o comum vive no bloco de
@@ -1274,8 +1299,8 @@ def _veto_outside_corpus(state: dict, synthesis: str) -> str:
 def _required_entities(state: dict) -> list[dict]:
     """Entidades exigidas pelo plano (genérico, sem literais)."""
     try:
-        return [e for e in (state.get("plan") or {}).get("entities", [])
-                if isinstance(e, dict) and e.get("required", True)]
+        from entity_identity import comparison_entities
+        return comparison_entities(state.get("plan") or {})
     except Exception:
         return []
 
@@ -1307,6 +1332,9 @@ def _cell_state(criterion: dict, entity_id) -> str:
     'não avaliado' fantasma onde o §3 registra veredito.
     """
     try:
+        applies = (criterion or {}).get("applies_to")
+        if applies and entity_id not in applies:
+            return "not_applicable"
         es = (criterion or {}).get("entity_states") or {}
         if isinstance(es, dict) and entity_id in es:
             return str(es.get(entity_id) or "unevaluated")
@@ -1440,7 +1468,7 @@ def _recommendation_fallback(state: dict, labels: dict,
         req = _required_entities(state)
         if not req or not criteria:
             return []
-        ranked: list[tuple] = []
+        lines = ["- Adequação ao pedido a partir dos achados por candidato (sem ranking por contagens):"]
         for ent in req:
             eid = ent.get("id")
             lb = str(ent.get("label") or eid or "")
@@ -1468,11 +1496,11 @@ def _recommendation_fallback(state: dict, labels: dict,
                     if _k is not None and _n not in seen:
                         seen.add(_n)
                         refs.append(str(_n))
-            ranked.append((-len(cov_l), -len(par_l), -len(refs), lb,
-                           cov_l, par_l, refs))
-        ranked.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
-        lines = ["- Recomendação a partir dos achados:"]
-        for _, _, _, lb, cov_l, par_l, refs in ranked:
+            details = []
+            for crit in criteria:
+                ev = (crit.get("entity_evaluations") or {}).get(eid) or {}
+                if ev.get("state") in ("covered", "partial") and ev.get("justification"):
+                    details.append(f"{crit.get('label')}: {ev['justification']} {_refs(ev, numbers, labels, set())}")
             if not cov_l and not par_l:
                 lines.append(f"- {lb}: sem cobertura nos achados; "
                              f"verificar fonte própria antes de usar.")
@@ -1480,8 +1508,12 @@ def _recommendation_fallback(state: dict, labels: dict,
             _cov = ", ".join(cov_l[:3]) if cov_l else "nenhum critério"
             _par = ", ".join(par_l[:3]) if par_l else "nenhum critério"
             _rf = "[" + "][".join(refs[:4]) + "]" if refs else "—"
-            lines.append(f"- {lb}: coberto em {_cov}; parcial em {_par}; "
-                         f"fontes {_rf}.")
+            if details:
+                lines.append(f"- **{lb}**: " + " ".join(details[:2])
+                             + " Adoção condicionada às dependências, compatibilidade e limitações abaixo.")
+            else:
+                lines.append(f"- {lb}: coberto em {_cov}; parcial em {_par}; fontes {_rf}. "
+                             "Sem justificativa funcional por candidato para recomendar adoção.")
         return lines
     except Exception:
         return []
@@ -1504,6 +1536,11 @@ def _template_section(state: dict, labels: dict, numbers: dict,
         criteria = [c for c in (block.get("criteria") or [])
                     if isinstance(c, dict)]
         req = _required_entities(state)
+        req_ids = {e.get("id") for e in req}
+        scoped = [c for c in criteria if c.get("per_candidate")
+                  or set(c.get("entity_states") or {}) & req_ids
+                  or set(c.get("applies_to") or []) & req_ids]
+        global_criteria = [c for c in criteria if c not in scoped]
         lines.append("### Resposta direta")
         _rd = [f"- **Veredito:** "
                f"{_state_label(labels, block.get('status', 'unevaluated'))} "
@@ -1511,7 +1548,7 @@ def _template_section(state: dict, labels: dict, numbers: dict,
         for ent in req[:12]:
             eid = ent.get("id")
             cov = par = sem = 0
-            for crit in criteria:
+            for crit in scoped:
                 es = (crit.get("entity_states") or {}).get(eid)
                 if es == "covered":
                     cov += 1
@@ -1521,7 +1558,7 @@ def _template_section(state: dict, labels: dict, numbers: dict,
                     sem += 1
             _rd.append(f"- {ent.get('label') or eid}: {cov} coberto(s), "
                        f"{par} parcial(is), {sem} sem cobertura de "
-                       f"{len(criteria)} critério(s)")
+                       f"{len(scoped)} critério(s)")
         lines.extend(_rd[:15])
         lines.append("")
         lines.append("### Matriz entidade×critério")
@@ -1530,11 +1567,24 @@ def _template_section(state: dict, labels: dict, numbers: dict,
                          + " | ".join(str(e.get("label") or e.get("id"))
                                        for e in req) + " |")
             lines.append("|---" * (len(req) + 1) + "|")
-            for crit in criteria:
-                cells = [_state_label(labels, _cell_state(crit, ent.get("id")))
-                         for ent in req]
+            for crit in scoped:
+                cells = []
+                for ent in req:
+                    eid = ent.get("id")
+                    ev = (crit.get("entity_evaluations") or {}).get(eid) or {}
+                    detail = _cut_at_sentence(str(ev.get("justification") or ""), 210)
+                    refs = _refs(ev, numbers, labels, set())
+                    cells.append((_state_label(labels, _cell_state(crit, eid))
+                                  + (f": {detail} {refs}" if detail else "")).replace("|", "/").replace("\n", " "))
                 lines.append(f"| {crit.get('label') or crit.get('id')} | "
                              + " | ".join(cells) + " |")
+        if global_criteria:
+            lines.extend(["", "### Critérios globais e contexto", ""])
+            for crit in global_criteria:
+                lines.append(f"- **{crit.get('label') or crit.get('id')}** — "
+                             f"{_state_label(labels, crit.get('state'))}: "
+                             f"{_sanitize_body_text(crit.get('justification') or labels['not_investigated'], _entity_labels(state))} "
+                             f"{_refs(crit, numbers, labels, set())}")
         try:
             _by_id = {e.get("id"): (e.get("label") or e.get("id"))
                        for e in (state.get("plan") or {}).get("entities", [])
@@ -1763,6 +1813,9 @@ def render_report(state: dict, *, synthesis_text: str,
              f"(proportion={block.get('proportion')}) · "
              f"**{labels['stop']}:** {_fmt((state.get('stop') or {}).get('reason'))}",
              ""]
+    if state.get("reproduction"):
+        lines[2:2] = ["**REPRODUÇÃO — corpus congelado, sem nova coleta.** "
+                      + str(state["reproduction"].get("description", "")), ""]
     # Definição estável da cobertura: numerador/denominador explícitos para
     # que o percentual seja auditável contra o plano final (M6). Ausente em
     # runs antigas -> linha omitida, nunca inventada.

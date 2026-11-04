@@ -15,6 +15,7 @@ corpus NEVER counts as support. Unknown stays unknown, never 0.
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
 import json
 import re
 import time
@@ -226,12 +227,25 @@ def _claims_version_functionally(sentence: str) -> bool:
 
 
 def _is_user_premise(sentence: str) -> bool:
-    """True quando a frase cita o fato do usuario como premissa explicita."""
+    """Only a version premise/comparison, never an entire mixed assertion.
+
+    A marker inside an inference's caveat does not change the origin of
+    its functional premises. Those must follow the ordinary evidence gate.
+    """
     try:
         low = str(sentence or "").lower()
     except Exception:
         return False
-    return any(m.lower() in low for m in _USER_CONTEXT_MARKERS)
+    if not any(m.lower() in low for m in _USER_CONTEXT_MARKERS):
+        return False
+    if _has_inference_marker(sentence):
+        return False
+    if not _text_exact_versions(sentence):
+        return False
+    if _is_numeric_comparison(sentence):
+        return True
+    return bool(re.match(r"^\s*[-*]?\s*(?:premissa[^:]*:\s*)?vers[aã]o\s+(?:instalada|informada)", low)
+                and not _claims_version_functionally(sentence))
 
 
 def _window_hash(text: str) -> str:
@@ -302,6 +316,7 @@ def _selection_window(state: dict) -> dict:
     return {"urls": urls, "hashes": hashes, "hash_source": hash_source}
 
 
+@lru_cache(maxsize=256)
 def _norm_mention(text) -> str:
     """Accent-insensitive, separator-normalized mention form."""
     import unicodedata as _ud
@@ -706,9 +721,16 @@ def _is_plan_enumeration(sentence: str, strict_named) -> bool:
         return False
 
 
+@lru_cache(maxsize=128)
+def _support_doc_tokens(doc_text: str):
+    # Repeated claims consult the same frozen full text. Immutable cached
+    # tokens preserve content identity without re-normalizing megabytes.
+    return frozenset(_content_tokens(doc_text))
+
+
 def _sentence_supported(sentence_tokens: set[str], doc_text: str,
                         named_entities: list,
-                        sentence_raw: str = "") -> tuple[bool, str]:
+                        sentence_raw: str = "", identity_fn=None) -> tuple[bool, str]:
     """(supported, reason) for one sentence against one cited document.
 
     ``named_entities`` holds (tokens, label, entity_id) per plan entity.
@@ -716,7 +738,15 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     separadas (razoes distintas, nunca o mesmo "sem sobreposição").
     A named cell entity must occur in its full form.
     """
-    doc_tokens = set(_content_tokens(doc_text))
+    mention = identity_fn or _entity_mentioned
+    if sentence_raw:
+        clean = re.sub(r"\([^)]*(?:vers[aã]o instalada|installed.version)[^)]*\)",
+                       lambda m: "" if any(k in m[0].lower() for k in _USER_CONTEXT_MARKERS) else m[0],
+                       sentence_raw, flags=re.I)
+        if clean != sentence_raw:
+            sentence_raw = clean
+            sentence_tokens = set(_content_tokens(clean))
+    doc_tokens = _support_doc_tokens(doc_text)
     if not sentence_tokens:
         return False, "sem sobreposição"
     # Gate separado tag exata vs familia funcional: ausencia de cada uma
@@ -769,7 +799,7 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
                            "declarada/LACUNA, nunca integração testada)")
     except Exception:
         pass
-    if named and not any(_entity_mentioned(label, eid, doc_text)
+    if named and not any(mention(label, eid, doc_text)
                          for label, eid in named):
         return False, "entidade não mencionada no doc"
     if ratio < 0.35 and len(rare) < 2:
@@ -942,7 +972,7 @@ def _window_scope_for(sentence: str) -> str:
 
 
 def _audit_inference(anchor: str, relation: str, doc_text: str,
-                     named_anchor: list, named_relation: list) -> tuple[bool, bool, str, str]:
+                     named_anchor: list, named_relation: list, identity_fn=None) -> tuple[bool, bool, str, str]:
     """Audita ancora E relacao separadamente contra um doc.
 
     Retorna (anchor_ok, relation_ok, anchor_reason, relation_reason).
@@ -954,6 +984,7 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
     # paráfrase sem forma cheia nunca sustenta relação — LACUNA explícita,
     # nunca supported/integração testada, em qualquer espelho que use este
     # auditor.
+    mention = identity_fn or _entity_mentioned
     try:
         _capped = bool(_has_polarity_ceiling(relation)
                        or _has_polarity_ceiling(anchor))
@@ -969,7 +1000,7 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
         anchor_ok, anchor_reason = False, "sem sobreposição"
     else:
         anchor_ok, anchor_reason = _sentence_supported(
-            anchor_tokens, doc_text, named_anchor, anchor)
+            anchor_tokens, doc_text, named_anchor, anchor, identity_fn=identity_fn)
     if not relation_tokens:
         relation_ok, relation_reason = False, "sem sobreposição"
     else:
@@ -977,13 +1008,13 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
         if named_relation:
             _mentioned = sum(
                 1 for _toks, label, eid in named_relation
-                if _entity_mentioned(label, eid, doc_text))
+                if mention(label, eid, doc_text))
             if len(named_relation) >= 2 and _mentioned < 2:
                 return anchor_ok, False, anchor_reason, \
                     "inferência sem citação de interoperabilidade " \
                     "(complementaridade plausível, não integração testada)"
         relation_ok, relation_reason = _sentence_supported(
-            relation_tokens, doc_text, named_relation, relation)
+            relation_tokens, doc_text, named_relation, relation, identity_fn=identity_fn)
         if not relation_ok and "não mencionada" in relation_reason:
             relation_reason = (
                 "inferência sem citação de interoperabilidade "
@@ -1025,10 +1056,15 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     text = str(synthesis_text or "")
     n_to_url = _n_to_url(numbers)
     docs: dict[str, str] = {}
+    class SourcedText(str):
+        def __new__(cls, body, url):
+            obj = super().__new__(cls, body)
+            obj.source_url = url
+            return obj
     if isinstance(corpus, dict):
         for url, value in corpus.items():
             if isinstance(url, str):
-                docs[url] = _doc_text(value)
+                docs[url] = SourcedText(_doc_text(value), url)
     elif isinstance(corpus, (list, tuple, set)):
         docs = {str(u): "" for u in corpus}
     norm_docs = {}
@@ -1052,6 +1088,19 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         return ""
 
     entities: list[tuple[set[str], object, object]] = []
+    entity_map = {e.get("id"): e for e in (plan or {}).get("entities", []) if isinstance(e, dict)}
+    original_mention = globals()["_entity_mentioned"]
+    doc_urls = {body: url for url, body in docs.items() if body}
+
+    def _entity_mentioned(label, eid, body):
+        from entity_identity import source_identity
+        url = getattr(body, "source_url", None) or doc_urls.get(body)
+        if url and eid in entity_map:
+            proven = source_identity(entity_map[eid], body, url)
+            if proven is not None:
+                return proven
+        return original_mention(label, eid, body)
+
     for ent in (plan or {}).get("entities", []) or []:
         if not isinstance(ent, dict):
             continue
@@ -1274,7 +1323,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     continue
                 _std_docs.append(_doc)
                 a_ok, r_ok, _a_r, r_r = _audit_inference(
-                    _anchor, _relation, _doc, _named_anchor, _named_rel)
+                    _anchor, _relation, _doc, _named_anchor, _named_rel,
+                    identity_fn=_entity_mentioned)
                 if a_ok:
                     _anchor_any_ok = True
                 if a_ok and r_ok:
@@ -1373,7 +1423,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 reasons.append("citação fora do corpus")
                 continue
             good, reason = _sentence_supported(
-                sent_tokens, _doc, named, factual)
+                sent_tokens, _doc, named, factual, identity_fn=_entity_mentioned)
             if good:
                 ok = True
                 break
@@ -1710,6 +1760,10 @@ def verify_review(state: dict, audit: dict | None = None) -> dict:
         "technical_failure_votes": summary.get("technical_failure_votes",
                                                 "unknown"),
         "unsupported_claims": unsupported,
+        "judgment_counts": {k: sum(v.get("verdict") == k for v in verdicts)
+                            for k in ("sustained", "partial", "gap", "unsupported", "disputed_tie", "review_incomplete")},
+        "extraction_complete": coverage.get("coverage_complete", "unknown"),
+        "incomplete_extractions": counts.get("claims_incomplete", "unknown"),
         "batches": {"blocks_total": counts.get("blocks_total"),
                     "blocks_processed": counts.get("blocks_processed"),
                     "blocks_incomplete": counts.get("blocks_incomplete")},

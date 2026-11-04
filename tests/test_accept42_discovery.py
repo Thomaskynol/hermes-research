@@ -308,13 +308,16 @@ class SubstitutionEvidenceTest(unittest.TestCase):
         st["rounds"] = [{"round": 0}, {"round": 1}]
         return st
 
-    def test_fraco_travado_cede_a_alternativa_com_3_fontes_proprias(self):
+    def test_fraco_travado_cede_a_alternativa_com_fonte_primaria_substancial(self):
         plan = self._plan()
         ev = {f"https://example.com/fraco{i}": f"Fraco{i} texto. " * 20
               for i in range(1, 6)}
         ev.update({f"https://example.com/zeta{i}":
                    "ZetaWidget eixo um com detalhes. " * 20
                    for i in range(1, 4)})
+        # Three repeated mentions were never primary evidence. This case
+        # now exercises a documented primary source, as the product requires.
+        ev["https://example.com/zeta1"] = "# ZetaWidget\n\nEixo um: funcionamento documentado, exemplo de uso e limitações."
         st = self._state(plan, ev)
         led = cl.Ledger(plan, run_id=st["run_id"])
         led.set_corpus(dict(ev), {u: _qual(t) for u, t in ev.items()})

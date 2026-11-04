@@ -604,6 +604,9 @@ class Ledger:
             # per-entity eval, else the aggregate one.
             ev = {}
             applies = c.get("applies_to", None)
+            all_applies = applies
+            if applies:
+                applies = [eid for eid in applies if eid in self._required_entity_ids()]
             if applies and len(applies) > 1:
                 for eid in applies:
                     cand = self._evals.get((c["id"], eid))
@@ -633,6 +636,7 @@ class Ledger:
                 "label": c.get("label", c["id"]),
                 "required": bool(c.get("required", True)),
                 "applies_to": c.get("applies_to", None),
+                "per_candidate": bool(c.get("per_candidate")),
                 "state": state,
                 "justification": ev.get("justification", ""),
                 "origin": ev.get("origin", ""),
@@ -641,6 +645,9 @@ class Ledger:
             }
             if entity_states is not None:
                 entry["entity_states"] = entity_states
+            if applies:
+                entry["entity_evaluations"] = {
+                    eid: dict(self._evals.get((c["id"], eid), {})) for eid in applies}
             entry["na_cells"] = [nc for nc in na_cells
                                  if nc["criterion_id"] == c["id"]]
             criteria_out.append(entry)
@@ -668,7 +675,7 @@ class Ledger:
                 try:
                     _emap = {e.get("id"): e for e in
                              self.plan.get("entities", []) if isinstance(e, dict)}
-                    for _eid in applies or []:
+                    for _eid in all_applies or []:
                         _ent = _emap.get(_eid) or {}
                         if not (_ent.get("required", True)
                                 or _ent.get("discovered")):

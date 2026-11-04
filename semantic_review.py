@@ -1493,7 +1493,12 @@ def extract_claims(report: str, evidence: dict[str, str],
                    lambda m: m.group(0).replace("|", " · ").strip(" ·"),
                    prose, flags=re.M)
     # Hard-wrapped prose is one sentence split across lines.
-    prose = re.sub(r"(?<![.!?:;])\n(?=[ \t]*\S)", " ", prose)
+    # Preserve headings, bullets and blank paragraphs as claim boundaries.
+    # Only actual hard-wrapped prose may join the next line. Previously a
+    # heading swallowed every bullet without a final period, then `continue`
+    # discarded their factual content as if it were the heading itself.
+    prose = re.sub(r"(?m)^(#{1,6}\s[^\n]*)\n", r"\1\n\n", prose)
+    prose = re.sub(r"(?m)(?<![.!?:;\n])\n(?=[ \t]*(?!(?:[-*]\s|#{1,6}\s|\d+[.)]\s))\S)", " ", prose)
     prose = re.sub(r"[ \t]{2,}", " ", prose)
     sentences = re.split(r"(?<=[.!?])(?<![0-9])\s+|\n", prose)
     seen: set[str] = set()
@@ -1600,7 +1605,11 @@ def extract_claims(report: str, evidence: dict[str, str],
             _register_dropped(_bid, s, "rótulo editorial/ordenação", "dropped")
             continue
 
-        if not (pkgs or lics) or (not is_free and not pkgs):
+        # A factual free-tier assertion with its source URL stays in
+        # scope even if no package name occurs in this bullet. Missing
+        # source evidence is a gap to review, never a reason to drop it.
+        free_cited = is_free and bool(re.search(r"\[\d+\]|https?://", s))
+        if not (pkgs or free_cited) and not (lics and is_free):
             if generic:
                 _g_anchors, _g_evidence_text = _select_evidence(
                     [], s, evidence or {}, _spoken or _last_spoken)

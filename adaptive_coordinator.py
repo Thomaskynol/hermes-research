@@ -761,6 +761,7 @@ _PT_EN_RESEARCH: dict[str, tuple[str, ...]] = {
     # aid so excerpt windows can land on the English sections that answer
     # Portuguese criteria. Keys are accent-normalized in lookup.
     "falha": ("failure",), "falhas": ("failure", "failures"),
+    "erro": ("error", "failure"), "producao": ("production",),
     "modo": ("mode",), "modos": ("mode", "modes"),
     "limitacao": ("limitation",), "limitacoes": ("limitation", "limitations"),
     "declarada": ("stated", "reported"), "declaradas": ("stated", "reported"),
@@ -1551,6 +1552,67 @@ def _pool_entry_has_identity(state: dict, url: str) -> bool:
     return False
 
 
+def _bind_source_identities(state: dict) -> None:
+    """Resolve a catalog seed's explicit repo link, preserving provenance.
+
+    A unique matching slug in the obtained seed binds the owner. Several
+    competing owners remain unresolved. A copied fork README cannot create
+    this association, and a URL alone still never proves functionality.
+    """
+    from entity_identity import repo_key, normalized
+    for ent in (state.get("plan") or {}).get("entities", []):
+        seed = ent.get("source_url")
+        if not seed or repo_key(seed) or ent.get("canonical_source_url"):
+            continue
+        body = (state.get("evidence") or {}).get(seed, "")
+        base = normalized(re.sub(r"\([^)]*\)", "", str(ent.get("label") or "")))
+        matches = {repo_key(m[0]) for m in _REPO_URL_RE.finditer(body)
+                   if repo_key(m[0]) and normalized(repo_key(m[0])[1]) == base}
+        if len(matches) == 1:
+            owner, repo = matches.pop()
+            ent["canonical_source_url"] = f"https://github.com/{owner}/{repo}"
+            state.setdefault("identity_bindings", []).append({"entity_id": ent.get("id"),
+                "seed_url": seed, "canonical_source_url": ent["canonical_source_url"],
+                "basis": "unique explicit repository link in obtained seed; body title still required"})
+
+
+def _source_quality(state: dict, ent: dict, url: str) -> tuple:
+    """Prefer identified primary documents and criterion substance to mentions.
+
+    A catalog's source_url is a discovery seed, not authority over every
+    named project. Count dimensions near the name, never URLs mentioning it.
+    """
+    from entity_identity import repo_key, normalized
+    q = (state.get("qualification") or {}).get(url) or {}
+    if q.get("excluded"):
+        return (0, 0, 0)
+    body, _ = _substantive_body(_audited_source_body(state, url))
+    if not _identity_matches(ent, body, source_url=url):
+        return (0, 0, 0)
+    repo = repo_key(url)
+    base = normalized(re.sub(r"\([^)]*\)", "", str(ent.get("label") or "")))
+    title = next((line.strip("# ") for line in body.splitlines() if line.strip()), "")
+    title_names = bool(base and base in normalized(title))
+    primary = bool(repo and (normalized(repo[1]) == base or title_names))
+    primary = primary or bool(url == ent.get("source_url") and title_names
+                              and re.search(r"(?m)^#{1,3} ", body))
+    html_title = re.search(r"<title[^>]*>(.*?)</title>", str(_audited_source_body(state, url)), re.I | re.S)
+    if html_title and url == ent.get("source_url") and base in normalized(html_title[1]):
+        primary = True
+    terms = _criterion_terms(state.get("plan") or {})
+    low = _span_norm(body)
+    dimensions = sum(bool(any(_term_positions(low, _span_norm(t).strip()) for t in ts))
+                     for ts in terms.values())
+    # Repeated catalog entries cannot outweigh a primary document. Within
+    # a class prefer breadth of relevant detail, then distinct content.
+    return (int(primary), dimensions, len(set(_norm_tokens(body))))
+
+
+def _candidate_evidence_quality(state: dict, ent: dict) -> tuple:
+    return max((_source_quality(state, ent, u) for u in state.get("evidence", {})
+                if not str(u).startswith("user://")), default=(0, 0, 0))
+
+
 def _own_mentioned_count(state: dict, ent: dict) -> int:
     """Fontes próprias mencionadas: URLs do corpus cujo corpo nomeia a entidade.
 
@@ -1576,7 +1638,7 @@ def _own_mentioned_count(state: dict, ent: dict) -> int:
             continue
         try:
             if _identity_matches(ent, _audited_source_body(state, _u),
-                                 single_ok=_single, generic=_generic):
+                                 single_ok=_single, generic=_generic, source_url=_u):
                 _n += 1
         except Exception:
             continue
@@ -1719,6 +1781,18 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
                 round_no: int, qualification: dict | None = None) -> str:
     """Add obtained material; returns the classification. Duplicates are
     reported, not stored twice; distinct excerpts accumulate."""
+    op = next((o for o in state.get("pending_ops", []) if o.get("op_id") == op_id), {})
+    irrelevant = False
+    crit = next((c for c in (state.get("plan") or {}).get("criteria", [])
+                 if c.get("id") == op.get("criterion_id")), None)
+    if (op.get("kind") == "gap_query" and not op.get("entity_id")
+            and crit is not None and not crit.get("applies_to") and not crit.get("per_candidate")):
+        visible, _ = _substantive_body(str((qualification or {}).get("usable_text") or text or ""))
+        irrelevant = _hit_gated_by_snippet(state, op, {"url": url, "snippet": visible})
+        if irrelevant:
+            qualification = dict(qualification or {})
+            qualification.update(excluded=True, status="irrelevant",
+                                 reason="conteúdo obtido sem vínculo com o assunto da pergunta")
     kind = classify_hit(state, url, text or "")
     if kind in ("new_useful", "confirmed"):
         prior = [s for s in state["segments"] if s.get("url") == url]
@@ -1784,7 +1858,7 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
                 state, url, same.get("url", ""), "duplicate",
                 "bytes idênticos em outra URL (republicação; independência "
                 "desconhecida)")
-    return kind
+    return "nogain" if irrelevant else kind
 
 
 _USEFUL_OUTCOMES = frozenset(("new_useful", "confirmed"))
@@ -1942,7 +2016,7 @@ def _examined_urls(state: dict) -> set[str]:
 
 
 def _identity_matches(entity: dict, text: str, *,
-                      single_ok: bool = True, generic=None) -> bool:
+                      single_ok: bool = True, generic=None, source_url=None) -> bool:
     """Strict entity aboutness for selection (identity as concept).
 
     One shared word ("planning", "memory") is not aboutness, and neither
@@ -1960,10 +2034,11 @@ def _identity_matches(entity: dict, text: str, *,
     body = str(text or "")
     if not label or not body:
         return False
-    def _norm(_s: str) -> str:
-        _n = "".join(c for c in _ud2.normalize(
-            "NFKD", str(_s or "").lower()) if not _ud2.combining(c))
-        return _re2.sub(r"[^a-z0-9]+", " ", _n).strip()
+    from entity_identity import source_identity
+    proven = source_identity(entity, body, source_url)
+    if proven is not None:
+        return proven
+    from entity_identity import normalized as _norm
     _phrase = _norm(label)
     _doc = _norm(body)
     # Fronteira: forma cheia com separador, não prefixo de palavra maior
@@ -1974,7 +2049,8 @@ def _identity_matches(entity: dict, text: str, *,
         return True
     distinctive = [t for t in _entity_distinctive_tokens(entity or {},
                                                           generic)]
-    if single_ok and len(distinctive) == 1 and distinctive[0] in _doc:
+    if single_ok and len(distinctive) == 1 and _re2.search(
+            r"(^| )" + _re2.escape(distinctive[0]) + r"($| )", _doc):
         return True
     return False
 
@@ -1999,10 +2075,9 @@ def _singleton_rare(entity: dict, texts: list[str],
     tok = distinctive[0]
     n = 0
     for _t in texts or []:
-        _d = "".join(c for c in _ud3.normalize(
-            "NFKD", str(_t or "").lower()) if not _ud3.combining(c))
-        _d = _re3.sub(r"[^a-z0-9]+", " ", _d)
-        if tok in _d:
+        from entity_identity import normalized
+        _d = normalized(str(_t or ""))
+        if _re3.search(r"(^| )" + _re3.escape(tok) + r"($| )", _d):
             n += 1
     total = len(texts or [])
     return n <= max(2, total // 10)
@@ -2035,7 +2110,7 @@ def _entity_corpus_docs(entity: dict, evidence: dict,
     for url, body in bodies.items():
         try:
             if _identity_matches(entity, body, single_ok=single_ok,
-                                 generic=generic):
+                                 generic=generic, source_url=url):
                 out.append(url)
         except Exception:
             pass
@@ -2084,7 +2159,7 @@ def _ref_has_identity(state: dict, entity: dict, ref,
         if not _body:
             return False
         return bool(_identity_matches(entity, _body, single_ok=single_ok,
-                                      generic=generic))
+                                      generic=generic, source_url=_u))
     except Exception:
         return False
 
@@ -2370,6 +2445,23 @@ def _looks_like_local_path(text) -> bool:
         re.match(r"^[A-Za-z]:[\\/]", t))
 
 
+def _question_topic_terms(question: str) -> list[str]:
+    """Retain the object of the request, even without a capitalized name.
+
+    The first sentence gives a bounded topic prefix. Criterion words
+    alone (combinations, costs, maintenance) cannot disambiguate a topic.
+    """
+    first = re.split(r"[.!?]", str(question or ""))[0]
+    subject = re.split(r"\b(?:para|for)\b", first, maxsplit=1, flags=re.I)[0]
+    stop = set(_ANCHOR_STOPWORDS) | {
+        "compare", "comparar", "descubra", "descobrir", "investigue", "investigar",
+        "considere", "considerar", "justifique", "quais", "cinco", "five", "three",
+        "para", "sobre", "como", "entre", "com", "dos", "das", "the", "and",
+        "for", "with", "find", "discover", "improve", "melhorar", "use", "using",
+    }
+    return list(dict.fromkeys(t for t in (_norm_tokens(subject) + _question_anchors(first)) if t not in stop))[:12]
+
+
 def _short_gap_query(state: dict, gap: dict) -> str:
     """Short search query for a gap (never the whole question).
 
@@ -2410,6 +2502,11 @@ def _short_gap_query(state: dict, gap: dict) -> str:
     except Exception:
         ent = ""
     short = f"{ent} {label}".strip()
+    if not ent:
+        # Global gaps need the question's subject, not just a generic
+        # criterion plus the platform name.
+        topic = _question_topic_terms(state.get("question") or "")
+        short = " ".join(dict.fromkeys(topic + _norm_tokens(label)))
     if len(short) >= 12:
         # Distinctive anchors: append question proper nouns missing from
         # the short query (accept3: plan-only queries lost 'OpenCode' and
@@ -3717,7 +3814,16 @@ def make_model_assessor(model_client, max_docs: int = 24,
                 continue
             if _prior_states and _e.get("id") not in _open_set:
                 continue
-            _push(_e.get("source_url"))
+            # A seed catalog cannot monopolize a candidate's reserved slot
+            # when an identified primary document is already available.
+            _choices = [u for u in evidence if u not in _picked
+                        and not str(u).startswith("user://")]
+            _qstate = {"plan": plan, "evidence": evidence, "qualification": qualification}
+            _best = max(_choices, key=lambda u: _source_quality(_qstate, _e, u), default=None)
+            if _best and _source_quality(_qstate, _e, _best)[0]:
+                _push(_best)
+            else:
+                _push(_e.get("source_url"))
         # Reserva por entidade (genus3: entidades predefinidas nunca são
         # discovered e seus docs perdiam todos os slots para o prefixo do
         # corpus; 15 células selection_context com 31 docs Flask no corpus).
@@ -3907,7 +4013,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
                                 _ent, _audited_source_body(
                                     _aud_state, _url),
                                 single_ok=_rare_cache.get(_eid, True),
-                                generic=_terms_generic):
+                                generic=_terms_generic, source_url=_url):
                             for _tok in _entity_distinctive_tokens(
                                     _ent, _terms_generic):
                                 if _tok and _tok not in _out:
@@ -4034,6 +4140,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
                         f"{len(_resend_urls)} doc(s) em {len(_rr_cells)} "
                         f"célula(s)")
         selection = {"urls": [i["url"] for i in items],
+                     "excerpts": {i["url"]: i["excerpt"] for i in items},
                      "hashes": {i["url"]: i["sha"] for i in items},
                      "raw_chars": {i["url"]: i["raw_chars"] for i in items},
                      "cuts": "; ".join(cuts) if cuts else "sem cortes",
@@ -4074,7 +4181,7 @@ def make_model_assessor(model_client, max_docs: int = 24,
         prompt = (
             "Você avalia evidências contra um plano. Retorne SOMENTE JSON: "
             "uma lista de avaliações.\n"
-            f"Plano: {_json.dumps(plan, ensure_ascii=False)[:6000]}\n"
+            f"Plano: {_json.dumps(plan, ensure_ascii=False)}\n"
             f"Material selecionado: {_json.dumps(items, ensure_ascii=False)}\n"
             f"Tentativas: {_redact_internal_urls(_json.dumps(attempts, ensure_ascii=False)[:3000])}\n"
             "Cada avaliação: {criterion_id, entity_id?, state "
@@ -4309,7 +4416,7 @@ def _candidate_corpus_status(evidence: dict, entity: dict,
         single_ok = _singleton_rare(entity, list(bodies.values()), generic)
         mentioning = [u for u, b in bodies.items()
                       if _identity_matches(entity, b, single_ok=single_ok,
-                                           generic=generic)]
+                                           generic=generic, source_url=u)]
         src = str((entity or {}).get("source_url") or "")
         if src and src in mentioning:
             return ("fonte própria", [src])
@@ -4398,6 +4505,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             pass
 
     def write(view: dict):
+        _bind_source_identities(view)
         question = view.get("question", "")
         cov = view.get("question_coverage", {}) or {}
         plan = view.get("plan", {}) or {}
@@ -4446,8 +4554,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
         # (LACUNA honesta, nunca preenchida por vizinho alfabético).
         _sem_note = ""
         try:
-            _req_ents = [e for e in (plan.get("entities") or [])
-                         if isinstance(e, dict) and e.get("required", True)]
+            from entity_identity import comparison_entities
+            _req_ents = comparison_entities(plan)
             try:
                 _floor_generic = _plan_shared_tokens(
                     plan, question)
@@ -4484,7 +4592,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         if not _identity_matches(
                                 _ent, _body,
                                 single_ok=_single_ok,
-                                generic=_floor_generic):
+                                generic=_floor_generic, source_url=_u):
                             continue
                     except Exception:
                         continue
@@ -4492,7 +4600,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
                     # que nomeia a entidade no corpo vence qualquer listagem,
                     # qualquer que seja o ref_count (a listagem nunca desloca
                     # a fonte própria do prompt).
-                    _key = (_u == (_ent.get("source_url") or ""),
+                    _key = (_source_quality(view, _ent, _u),
                             _ref_count.get(_u, 0))
                     if _best_key is None or _key > _best_key:
                         _best, _best_key = _u, _key
@@ -4547,6 +4655,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
         if _sem_note:
             cuts.append(_sem_note)
         parts = []
+        excerpts = {}
         total = 0
         sep = "\n\n"
         for url in corpus_urls:
@@ -4574,6 +4683,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
                                 f"{len(corpus_urls)-len(included)} fontes fora")
                     break
             parts.append(block)
+            excerpts[url] = chunk
             included.append(url)
             total += len(block) + (len(sep) if parts else 0)
             if total >= budget:
@@ -4588,6 +4698,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
             ctx_s = ("\nContexto informado pelo usuário (NÃO evidência "
                      "coletada; ao usar, rotule como informado pelo "
                      "usuário):\n" + "\n".join(ctx_lines) + "\n")
+        if ctx_urls and (view.get("user_context") or {}).get("origin") == "harness":
+            ctx_s = ("\nPremissas controladas do experimento (origem: harness; "
+                     "NÃO versão observada no computador, NÃO evidência coletada):\n"
+                     + "\n".join(ctx_lines) + "\n")
         # Sem corte arbitrário no JSON/serialização: unidades completas;
         # qualquer teto já foi aplicado por bloco acima e registrado.
         # Candidatos exigidos pelo plano (G5): alinha o conjunto comparado
@@ -4617,6 +4731,9 @@ def make_model_writer(model_client, max_chars: int = 12000):
                         evidence, _ce, _st_generic, qualification)
                     _tag = str(_ce.get("label") or _ce.get("id"))
                     _src = str((_ce or {}).get("source_url") or "")
+                    _primary = max(corpus_urls, key=lambda u: _source_quality(view, _ce, u), default=None)
+                    if _primary and _source_quality(view, _ce, _primary)[0]:
+                        _src, _st, _st_urls = _primary, "fonte primária identificada", [_primary]
                     _sel = (_src and _src in included)
                     if _st == "fonte própria" and _src and not _sel:
                         _cand_items.append(
@@ -4640,11 +4757,6 @@ def make_model_writer(model_client, max_chars: int = 12000):
                 _t = ", ".join(str(t) for t in _targets[:8])
                 _targets_s = (f"Alvos do usuário (user_context.targets, "
                               f"exigência real do pedido): {_t}. ")
-            elif isinstance(view.get("user_context"), dict) and view.get(
-                    "user_context"):
-                _targets_s = ("Alvos do usuário em user_context (exigência "
-                              "real do pedido); seleção do processo abaixo "
-                              "pode diferir por evidência. ")
         except Exception:
             _targets_s = ""
         _cand_s = ("Seleção do processo (candidatos exigidos pelo plano; "
@@ -4705,6 +4817,11 @@ def make_model_writer(model_client, max_chars: int = 12000):
             _unexp_s = ""
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
+            "Recomende opções pela utilidade das funções para o pedido e pelos limites "
+            "da evidência, nunca apenas por contagens de cobertura ou fontes. "
+            "Uma ferramenta que ajuda uma etapa não precisa executá-la autonomamente. "
+            "Contexto de versão/plataforma não é candidato. Não repita o plano inteiro "
+            "nem instruções internas do agente; escreva uma comparação útil e concisa. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
             "coloque a citação [n]/URL na mesma linha da afirmação que ela "
             "sustenta (nunca só em linha 'Fontes:' separada); "
@@ -4748,6 +4865,8 @@ def make_model_writer(model_client, max_chars: int = 12000):
         if not text.strip():
             raise TransportError("writer returned empty text")
         selection = {"included_urls": included,
+                     "excerpts": excerpts,
+                     "hashes": {u: _content_hash(t) for u, t in excerpts.items()},
                      "cuts": "; ".join(cuts) if cuts else "sem cortes",
                      "fallback": False,
                      "chars": len(corpus_s)}
@@ -4881,6 +5000,7 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
     ledger.set_corpus(dict(state["evidence"]), dict(state["qualification"]))
     _update_ledger_counts(state, ledger)
     # Default assessor uses no model: never spends budget, never blocked.
+    _bind_source_identities(state)
     is_default_assessor = (assess_fn is _default_assess)
     if not is_default_assessor and resolved is not None and not _check_model_budget(
             state, resolved):
@@ -5015,6 +5135,8 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
             "cells_returned": int(_stats.get("cells_returned") or 0),
             "missing_cells": list(_stats.get("missing_cells") or []),
             "cuts": _cuts,
+            "excerpts": dict((getattr(assess_fn, "last_selection", None) or {}).get("excerpts") or {}),
+            "hashes": dict((getattr(assess_fn, "last_selection", None) or {}).get("hashes") or {}),
         })
     except Exception:
         pass
@@ -5444,9 +5566,9 @@ def _apply_discovery(state: dict, ledger, proposal: dict, ev: dict) -> None:
                 # Mesmo corpo auditado da seleção (usable_text quando há
                 # qualificação; fallback raw) — nunca a URL.
                 _supported = _identity_matches(
-                    {"label": _gate_label, "id": eid},
+                    {"label": _gate_label, "id": eid, "source_url": source_url},
                     _audited_source_body(state, source_url),
-                    single_ok=False)
+                    single_ok=False, source_url=source_url)
             except Exception:
                 _supported = any(t in str(_ev[source_url]).lower()
                                  for t in _label_tokens)
@@ -5615,6 +5737,17 @@ def _do_substitute(state: dict, ledger, old_id: str, new_id: str,
                          dict(state["qualification"]))
         kept = []
         for prev in state.get("evaluations", []):
+            criterion = next((c for c in new_plan.get("criteria", [])
+                              if c.get("id") == prev.get("criterion_id")), {})
+            if prev.get("entity_id") == old_id or not criterion.get("applies_to"):
+                # Global conclusions depended on the previous selection.
+                # Preserve them explicitly as history, never as current
+                # findings about the replacement. Other candidates' cells
+                # retain their evidence and need no arbitrary reset.
+                state.setdefault("historical_evaluations", []).append({
+                    "evaluation": dict(prev), "plan_version": plan.get("version"),
+                    "reason": f"selection changed: {old_id} -> {new_id}"})
+                continue
             try:
                 fresh.evaluate(prev["criterion_id"],
                                prev.get("state", "insufficient"),
@@ -5822,7 +5955,7 @@ def _promote_evaluated(state: dict, ledger) -> bool:
                         if isinstance(u, str)], _eval_generic)
                 if not _identity_matches(
                         e, _audited_source_body(state, _src),
-                        single_ok=_ok, generic=_eval_generic):
+                        single_ok=_ok, generic=_eval_generic, source_url=_src):
                     continue
             except Exception:
                 continue
@@ -5941,6 +6074,7 @@ def _maybe_substitute(state: dict, ledger) -> bool:
     never swap. One swap per call.
     """
     try:
+        _bind_source_identities(state)
         if _promote_evaluated(state, ledger):
             return True
         if len(state.get("rounds", []) or []) < 2:
@@ -5978,7 +6112,7 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                           if isinstance(u, str)], _sup_generic)
                 return _identity_matches(
                     ent, _audited_source_body(state, src),
-                    single_ok=_ok, generic=_sup_generic)
+                    single_ok=_ok, generic=_sup_generic, source_url=src)
             except Exception:
                 return False
 
@@ -6046,7 +6180,7 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                 if not cells:
                     continue
                 oc, op = _cell_counts(eid)
-                if oc == 0 and op <= 1:
+                if oc == 0 and (op <= 1 or not _candidate_evidence_quality(state, ent)[0]):
                     olds_c.append(eid)
             news_c = []
             for e in entities:
@@ -6054,6 +6188,9 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                     continue
                 if not _supported(e):
                     continue
+                # A few catalog partials cannot freeze a slot against
+                # demonstrably relevant primary evidence. Both quality
+                # and an assessed function are required for this route.
                 nc, np = _own_ref_counts(str(e.get("id")))
                 if nc >= 1 or np >= 2:
                     news_c.append(e)
@@ -6064,6 +6201,8 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                     nid = str(ne.get("id"))
                     if nid == oid:
                         continue
+                    if op > 1 and not _candidate_evidence_quality(state, ne)[0]:
+                        continue
                     nc, np = _own_ref_counts(nid)
                     # Dominância estrita nos essenciais (lexicográfica).
                     if not (nc > oc or (nc == oc and np > op)):
@@ -6071,7 +6210,9 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                     pairs.append((nc - oc, np - op, oid, nid, oc, op,
                                   nc, np))
             # Ordenação por (delta_covered, delta_partial, id); 1 troca.
-            pairs.sort(key=lambda t: (-t[0], -t[1], t[2], t[3]))
+            pairs.sort(key=lambda t: (
+                tuple(-v for v in _candidate_evidence_quality(state, emap[t[3]])),
+                -t[0], -t[1], t[2], t[3]))
             return pairs
 
         def _hysteresis_blocked(oid: str, nid: str) -> bool:
@@ -6154,22 +6295,21 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                 if _src_news and _src_olds:
                     _own_cache: dict = {}
                     for _e2 in _src_news:
-                        _own_cache[str(_e2.get("id"))] = _own_mentioned_count(
+                        _own_cache[str(_e2.get("id"))] = _candidate_evidence_quality(
                             state, _e2)
                     for _oid2 in _src_olds:
-                        _own_cache[_oid2] = _own_mentioned_count(
+                        _own_cache[_oid2] = _candidate_evidence_quality(
                             state, emap.get(_oid2) or {"id": _oid2})
                     _ranked_news = sorted(
                         [str(_e2.get("id")) for _e2 in _src_news],
-                        key=lambda _i: (-_own_cache.get(_i, 0), _i))
+                        key=lambda _i: (_own_cache.get(_i, (0, 0, 0)), _i), reverse=True)
                     _ranked_olds = sorted(
                         _src_olds,
-                        key=lambda _i: (_own_cache.get(_i, 0), _i))
+                        key=lambda _i: (_own_cache.get(_i, (0, 0, 0)), _i))
                     for _o in _ranked_olds:
                         for _n in _ranked_news:
-                            if _n != _o and _own_cache.get(_n, 0) >= max(
-                                    _SUBSTITUTE_MIN_OWN_SOURCES,
-                                    _own_cache.get(_o, 0) + 1):
+                            if (_n != _o and _own_cache.get(_n, (0, 0, 0))[0]
+                                    and _own_cache[_n] > _own_cache[_o]):
                                 _src_pairs.append((_o, _n))
                                 break
                         if _src_pairs:
@@ -6194,10 +6334,10 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                 except Exception:
                     _n_own = _SUBSTITUTE_MIN_OWN_SOURCES
                 reason = (
-                    f"old-vs-novo em fontes próprias mencionadas: "
+                    f"qualidade da evidência primária e pertinência: "
                     f"{_oid} ALL-insufficient/sem refs após "
                     f"{len(state.get('rounds', []))} rounds; {_nid} com "
-                    f"{_n_own} fontes próprias mencionadas")
+                    f"qualidade {_own_cache[_nid]} (quantidade de URLs não decide)")
                 ok = _do_substitute(state, ledger, _oid, _nid, reason)
                 if ok:
                     try:
@@ -7259,6 +7399,21 @@ def _hit_gated_by_snippet(state: dict, op: dict, hit) -> bool:
              if isinstance((v := hit.get(k)), str) and v.strip()]
     if not parts:
         return False
+    if op.get("kind") == "gap_query" and not op.get("entity_id"):
+        # Query engines may ignore terms. Demand topic evidence in the
+        # returned title/snippet; matching only the criterion is insufficient.
+        topic = set(_question_topic_terms(state.get("question") or ""))
+        topic |= set(_expand_terms_en(list(topic)))
+        criterion = set(_norm_tokens(op.get("target") or ""))
+        crit = next((c for c in (state.get("plan") or {}).get("criteria", [])
+                     if c.get("id") == op.get("criterion_id")), {})
+        criterion |= set(_norm_tokens(crit.get("label") or ""))
+        anchors = topic - set(_norm_tokens(crit.get("label") or ""))
+        hay_topic = set(_norm_tokens(" ".join(parts)))
+        if anchors and not anchors & hay_topic:
+            state.setdefault("notes", []).append(
+                f"op {op.get('op_id')}: hit ignorado por irrelevância (assunto ausente) {hit.get('url', '')}")
+            return True
     terms = _hit_relevance_terms(state, op)
     if not terms:
         return False
