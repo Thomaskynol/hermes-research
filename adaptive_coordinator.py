@@ -1365,6 +1365,89 @@ _REPO_URL_RE = re.compile(
     r"https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)")
 
 
+# Barreira de admissão (accept42 H2): o minerador prometia o que o leitor
+# recusa. Caminhos de asset, placeholders e extensões de arquivo nunca
+# viram candidate; e nada que repo_readme.raw_readme_url recusa é admitido.
+_NON_REPO_OWNERS = frozenset({"user-attachments", "identicons"})
+_PLACEHOLDER_SEGMENTS = frozenset({
+    "seu_usuario", "seu-usuario", "your-username", "your_username",
+    "your-repo", "your_repo", "my-username", "my_username",
+    "example", "placeholder", "changeme", "yourname", "username",
+    "owner", "repo", "repository", "foo", "bar", "foobar", "xxx",
+})
+_ASSET_EXTENSIONS = frozenset({
+    "png", "jpg", "jpeg", "gif", "svg", "ico", "webp", "bmp", "avif",
+    "mp4", "mov", "avi", "mkv", "webm", "mp3", "wav", "ogg", "flac",
+    "pdf", "zip", "tar", "gz", "bz2", "xz", "rar", "7z",
+    "exe", "msi", "dmg", "pkg", "deb", "rpm",
+    "ttf", "otf", "woff", "woff2", "eot",
+})
+# Espelho de repo_readme.RESERVED_OWNERS + _NAME_RE, usado só quando o
+# módulo não é importável (ele é o canônico sempre que presente).
+_FALLBACK_RESERVED_OWNERS = frozenset({
+    "about", "apps", "collections", "contact", "dashboard", "enterprise",
+    "events", "features", "issues", "join", "login", "marketplace", "new",
+    "notifications", "orgs", "premium", "pricing", "pulls", "readme",
+    "search", "security", "settings", "sponsors", "stars", "topics",
+    "trending", "users",
+})
+_FALLBACK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _readable_github_url(url: str) -> bool:
+    """True quando o leitor honra a URL (repo_readme.raw_readme_url).
+
+    Pura e offline (sem rede); o módulo repo_readme é o canônico. Sem
+    ele, aplica a mesma recusa localmente (fail-closed, nunca admite
+    às cegas).
+    """
+    try:
+        from repo_readme import raw_readme_url
+        return raw_readme_url(url) is not None
+    except Exception:
+        pass
+    try:
+        parts = urlsplit(str(url or "").strip())
+    except Exception:
+        return False
+    if parts.scheme.lower() not in ("http", "https"):
+        return False
+    if (parts.hostname or "").lower() not in ("github.com",
+                                              "www.github.com"):
+        return False
+    segs = [s for s in parts.path.split("/") if s]
+    if len(segs) < 2:
+        return False
+    owner, repo = segs[0], segs[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if (owner.lower() in _FALLBACK_RESERVED_OWNERS
+            or not _FALLBACK_NAME_RE.match(owner)
+            or not _FALLBACK_NAME_RE.match(repo)):
+        return False
+    if len(segs) > 2 and (len(segs) < 5 or segs[2] != "blob"):
+        return False
+    return True
+
+
+def _admits_repo_candidate(owner: str, repo: str) -> bool:
+    """True quando owner/repo minerado pode virar candidate."""
+    o = (owner or "").strip()
+    r = (repo or "").strip()
+    if not o or not r:
+        return False
+    lo, lr = o.lower(), r.lower()
+    if lo in _NON_REPO_OWNERS:
+        return False
+    if o == "-" or r == "-":
+        return False
+    if lo in _PLACEHOLDER_SEGMENTS or lr in _PLACEHOLDER_SEGMENTS:
+        return False
+    if "." in r and lr.rsplit(".", 1)[-1] in _ASSET_EXTENSIONS:
+        return False
+    return _readable_github_url(f"https://github.com/{o}/{r}")
+
+
 def _strip_fetch_suffix(url: str) -> str:
     """Remove o sufixo de dedupe intra-lote (' #1', ' #2') do alvo.
 
@@ -1383,6 +1466,174 @@ def _normalize_fetch_key(url: str) -> str:
     if not match:
         return base.lower()
     return (match.group(1) or "").lower() + (match.group(2) or "")
+
+
+def _candidate_identity(url: str) -> str:
+    """Identidade p/ dedupe: sem ' #N' + minúscula + sem '/' final + sem '.git'.
+
+    `owner/repo.git` é o mesmo repositório que `owner/repo` (repo_readme
+    descarta o `.git`); sem isso o próprio repo já obtido voltava ao pool
+    e gastava uma extração.
+    """
+    key = _normalize_fetch_key(url).rstrip("/").lower()
+    if key.endswith(".git"):
+        key = key[:-4]
+    return key
+
+
+def _touched_identities(state: dict, outcomes=None) -> set:
+    """Identidades já tocadas: evidência + alvos de tentativa.
+
+    outcomes=None conta qualquer tentativa; ("failed", "nogain") só as
+    sem ganho (re-leitura nunca reabre essas variantes). Normalizada
+    via _candidate_identity ('.git'/barra final não reabrem).
+    """
+    out: set = set()
+    try:
+        for _u in (state.get("evidence") or {}):
+            if isinstance(_u, str):
+                out.add(_candidate_identity(_u))
+    except Exception:
+        pass
+    try:
+        for _al in (state.get("attempts") or {}).values():
+            for _a in _al or []:
+                if not isinstance(_a, dict):
+                    continue
+                if outcomes is not None \
+                        and _a.get("outcome") not in outcomes:
+                    continue
+                if _a.get("target"):
+                    out.add(_candidate_identity(_a["target"]))
+    except Exception:
+        pass
+    return out
+
+
+def _pool_overlap(url: str, gaps, state: dict) -> int:
+    """Maior sobreposição de termos entre a URL e os gaps abertos."""
+    toks = _url_tokens(url)
+    best = 0
+    for _g in gaps or []:
+        if not isinstance(_g, dict):
+            continue
+        try:
+            _terms = _gap_overlap_terms(state, _g)
+        except Exception:
+            continue
+        _n = sum(1 for _t in _terms if _t in toks)
+        if _n > best:
+            best = _n
+    return best
+
+
+def _pool_entry_has_identity(state: dict, url: str) -> bool:
+    """True quando a URL menciona alguma entidade do plano (conservador).
+
+    Proteção da evicção: entrada que nomeia entidade nunca sai — só sai
+    quem não menciona ninguém. Mesma aboutness da seleção/auditoria,
+    aplicada à URL (pool não tem corpo).
+    """
+    try:
+        _generic = _plan_shared_tokens(state.get("plan"),
+                                       state.get("question"))
+    except Exception:
+        _generic = frozenset()
+    for _e in (state.get("plan") or {}).get("entities", []) or []:
+        if not isinstance(_e, dict):
+            continue
+        try:
+            if _identity_matches(_e, str(url), single_ok=True,
+                                 generic=_generic):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _own_mentioned_count(state: dict, ent: dict) -> int:
+    """Fontes próprias mencionadas: URLs do corpus cujo corpo nomeia a entidade.
+
+    Mesma aboutness da seleção/auditoria (_identity_matches + raridade
+    corpus-relativa); conta TODAS as fontes do corpus, não só source_url.
+    Sem rede/modelo.
+    """
+    try:
+        _generic = _plan_shared_tokens(state.get("plan"),
+                                       state.get("question"))
+    except Exception:
+        _generic = frozenset()
+    try:
+        _bodies = [_audited_source_body(state, _u)
+                   for _u in (state.get("evidence") or {})
+                   if isinstance(_u, str)]
+        _single = _singleton_rare(ent, _bodies, _generic)
+    except Exception:
+        _single = True
+    _n = 0
+    for _u in (state.get("evidence") or {}):
+        if not isinstance(_u, str):
+            continue
+        try:
+            if _identity_matches(ent, _audited_source_body(state, _u),
+                                 single_ok=_single, generic=_generic):
+                _n += 1
+        except Exception:
+            continue
+    return _n
+
+
+def _admit_pool_candidate(state: dict, cands: list, seen: set, link: str,
+                          url: str, kind: str) -> str:
+    """Admite um link no pool (dedupe + teto com evicção).
+
+    Mesmo gate para link-following e mineração: duplicado pula; com pool
+    cheio o novo entra só com overlap>0 e vítima (overlap 0 ∧ nunca
+    tocada ∧ sem identidade) — sem vítima, o novo é descartado. ``kind``
+    só rotula a nota ("link-following"/"repo minerado"). Teto intacto.
+    Retorna "ok" | "dup" | "full" ("full" = pool cheio, parar o laço).
+    """
+    ident = _candidate_identity(link)
+    if ident in seen:
+        return "dup"  # já obtido (inclui '.git' do próprio repo)
+    if len(cands) < _DISCOVERY_CANDIDATE_CAP:
+        seen.add(ident)
+        cands.append(link)
+        state["notes"].append(f"{kind}: {link[:80]} (de {url[:60]})")
+        return "ok"
+    # Pool cheio: o recém-chegado entra se tem overlap>0 com gap aberto
+    # e há vítima evictável; nunca se evicta por nome. Sem vítima,
+    # mantém o descarte do novo.
+    if _pool_overlap(link, state.get("gaps"), state) <= 0:
+        state["notes"].append(
+            f"discovery cheio ({_DISCOVERY_CANDIDATE_CAP}): "
+            f"{link[:60]} ignorado")
+        return "full"
+    _touched = _touched_identities(state)
+    _victim = None
+    for _i, _e in enumerate(cands):
+        if _pool_overlap(_e, state.get("gaps"), state) > 0:
+            continue
+        if _candidate_identity(_e) in _touched:
+            continue
+        if _pool_entry_has_identity(state, _e):
+            continue
+        _victim = _i
+        break
+    if _victim is None:
+        state["notes"].append(
+            f"discovery cheio ({_DISCOVERY_CANDIDATE_CAP}): "
+            f"{link[:60]} ignorado")
+        return "full"
+    _out = cands.pop(_victim)
+    seen.discard(_candidate_identity(_out))
+    state["notes"].append(
+        f"pool evict: {_out[:60]} (overlap 0, sem "
+        f"identidade) p/ {link[:60]}")
+    seen.add(ident)
+    cands.append(link)
+    state["notes"].append(f"{kind}: {link[:80]} (de {url[:60]})")
+    return "ok"
 
 
 def _extract_repo_candidates(text: str, limit: int = 4,
@@ -1411,6 +1662,10 @@ def _extract_repo_candidates(text: str, limit: int = 4,
         owner = (match.group(1) or "").strip(".,;:!?")
         repo = (match.group(2) or "").strip(".,;:!?")
         if not owner or not repo:
+            continue
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        if not _admits_repo_candidate(owner, repo):
             continue
         key = (owner.lower(), repo.lower())
         if same is not None and key == same:
@@ -1447,6 +1702,10 @@ def _extract_same_repo_links(text: str, repo_url: str,
         low = cleaned.lower().rstrip("/")
         if not low.startswith(prefix) or low == prefix:
             continue
+        if low == prefix + ".git":
+            continue  # o próprio repo já obtido: duplicate, sem extração
+        if not _readable_github_url(cleaned):
+            continue  # issues/stargazers/releases/tree/blob-dir: o leitor recusa
         if low in seen:
             continue
         seen.add(low)
@@ -1496,12 +1755,14 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
         # busca via read_source após falha/nogain. Nunca re-obtém o contido.
         try:
             if state.get("discovery", {}).get("open"):
+                seen = {_candidate_identity(u) for u in state["evidence"]}
+                seen.update(_candidate_identity(c) for c in
+                            state["discovery"].get("candidates", []))
                 for link in _extract_same_repo_links(text or "", url):
                     cands = state["discovery"].setdefault("candidates", [])
-                    if link not in cands and link not in state["evidence"]:
-                        cands.append(link)
-                        state["notes"].append(
-                            f"link-following: {link[:80]} (de {url[:60]})")
+                    if _admit_pool_candidate(state, cands, seen, link, url,
+                                             "link-following") == "full":
+                        break
                 # Mineração geral (§D): awesome-lists/docs citam repos de
                 # terceiros (owner/repo arbitrários, sem lista fixa); viram
                 # candidatos p/ read_source via select_ops. Bounded por
@@ -1509,16 +1770,9 @@ def incorporate(state: dict, url: str, text: str, op_id: str,
                 for link in _extract_repo_candidates(text or "",
                                                      source_url=url):
                     cands = state["discovery"].setdefault("candidates", [])
-                    if link in cands or link in state["evidence"]:
-                        continue
-                    if len(cands) >= _DISCOVERY_CANDIDATE_CAP:
-                        state["notes"].append(
-                            f"discovery cheio ({_DISCOVERY_CANDIDATE_CAP}): "
-                            f"{link[:60]} ignorado")
+                    if _admit_pool_candidate(state, cands, seen, link, url,
+                                             "repo minerado") == "full":
                         break
-                    cands.append(link)
-                    state["notes"].append(
-                        f"repo minerado: {link[:80]} (de {url[:60]})")
         except Exception as exc:
             state["notes"].append(f"link-following skipped: {exc}")
     elif kind == "duplicate":
@@ -2264,27 +2518,39 @@ def _pick_pool_reserve(state: dict, rank_gaps: list[dict],
             return None, None
         if not (state.get("discovery") or {}).get("open"):
             return None, None
-        evidence = state.get("evidence") or {}
-        failed_targets: set[str] = set()
-        for _att in state.get("attempts", {}).values():
-            for _a in _att or []:
-                if isinstance(_a, dict) and _a.get("outcome") == "failed" \
-                        and _a.get("target"):
-                    failed_targets.add(_normalize_fetch_key(_a["target"]))
+        # Nunca re-reservar o já tocado: evidência + falhas/nogain, por
+        # identidade normalizada ('.git'/barra final não reabrem — digest
+        # duplicado do repo nunca reservado 2×).
+        _tried = _touched_identities(state, ("failed", "nogain"))
         cands: list[str] = []
         seen: set[str] = set()
         for _c in unfetched_all:
             if not isinstance(_c, str) or not _c:
                 continue
-            if _c in evidence or _normalize_fetch_key(_c) in failed_targets:
+            _k = _candidate_identity(_c)
+            if _k in _tried:
                 continue
-            _k = _normalize_fetch_key(_c)
             if _k in seen:
                 continue
             seen.add(_k)
             cands.append(_c)
         if not cands:
             return None, None
+        try:
+            _emap = {e.get("id"): e for e in
+                     (state.get("plan") or {}).get("entities", []) or []
+                     if isinstance(e, dict)}
+            _res_generic = _plan_shared_tokens(state.get("plan"),
+                                               state.get("question"))
+        except Exception:
+            _emap = {}
+            _res_generic = frozenset()
+        try:
+            _res_bodies = [_audited_source_body(state, _u)
+                           for _u in (state.get("evidence") or {})
+                           if isinstance(_u, str)]
+        except Exception:
+            _res_bodies = []
         for _gap in rank_gaps or []:
             if not isinstance(_gap, dict):
                 continue
@@ -2300,13 +2566,43 @@ def _pick_pool_reserve(state: dict, rank_gaps: list[dict],
                 continue
             if not _ranked:
                 continue
-            _top = _ranked[0]
+            _eid = _gap.get("entity_id")
+            _ent = _emap.get(_eid) if _eid else None
+            if _ent is None:
+                # Sem entidade servida, legado: top com overlap>0.
+                _top = _ranked[0]
+                try:
+                    _low = _top.lower()
+                except Exception:
+                    continue
+                if any(_t in _low for _t in _terms):
+                    return _top, _gap
+                continue
             try:
-                _low = _top.lower()
+                if not _entity_distinctive_tokens(_ent, _res_generic):
+                    # Sem parte distintiva: sem o que exigir (legado).
+                    _top = _ranked[0]
+                    try:
+                        _low = _top.lower()
+                    except Exception:
+                        continue
+                    if any(_t in _low for _t in _terms):
+                        return _top, _gap
+                    continue
+                _single = _singleton_rare(_ent, _res_bodies, _res_generic)
             except Exception:
                 continue
-            if any(_t in _low for _t in _terms):
-                return _top, _gap
+            # Gate de identidade: a reservada deve mencionar a entidade do
+            # gap servido (mesma aboutness da seleção/auditoria, sobre a
+            # URL — o pool não tem corpo); sem menção, a próxima com
+            # menção; sem nenhuma, o próximo gap (ou None).
+            for _cand in _ranked:
+                try:
+                    if _identity_matches(_ent, _cand, single_ok=_single,
+                                         generic=_res_generic):
+                        return _cand, _gap
+                except Exception:
+                    continue
         return None, None
     except Exception:
         return None, None
@@ -2332,6 +2628,16 @@ def select_ops(state: dict, gaps: list[dict], cap: int) -> list[dict]:
     unfetched_all = [c for c in state["discovery"].get("candidates", [])
                      if c not in state["evidence"]
                      and _normalize_fetch_key(c) not in failed_targets]
+    # Re-leitura (accept42 H2 item 6): 2 rounds sem ganho no mesmo alvo não
+    # reabrem o alvo — failed/nogain cobrem variantes normalizadas
+    # ('.git'/barra final). O próximo round mira entidade inexplorada com
+    # overlap>0 via o ranking existente sobre o restante.
+    try:
+        _tried_pool = _touched_identities(state, ("failed", "nogain"))
+    except Exception:
+        _tried_pool = set()
+    unfetched_all = [c for c in unfetched_all
+                     if _candidate_identity(c) not in _tried_pool]
     used_in_batch: set[str] = set()  # gaps do lote consomem distintos
     # Metade faltante do Fix E: o produtor real emite gaps de criterio sem
     # entity_id (genus6); sem expansao, a query liderava com a 1a entidade do
@@ -5610,6 +5916,13 @@ def _promote_evaluated(state: dict, ledger) -> bool:
         return False
 
 
+# Mínimo de fontes próprias mencionadas para a troca por dominância de
+# fontes (accept42 H2 item 5): alternativa ainda sem covered/partial com
+# refs próprias só desbanca required ALL-insufficient/sem refs quando tem
+# pelo menos tantas fontes do corpus que a nomeiam. Não é teto global.
+_SUBSTITUTE_MIN_OWN_SOURCES = 3
+
+
 def _maybe_substitute(state: dict, ledger) -> bool:
     """Justified candidate substitution (generic mechanism, strict rule).
 
@@ -5825,6 +6138,77 @@ def _maybe_substitute(state: dict, ledger) -> bool:
                 except Exception:
                     pass
             return ok
+        # Dominância por fontes próprias (accept42 H2 item 5): required
+        # ALL-insufficient/sem refs cede a alternativa ainda sem
+        # covered/partial com refs próprias quando ela tem fontes
+        # próprias mencionadas em número estritamente maior (>=
+        # _SUBSTITUTE_MIN_OWN_SOURCES) — nunca swap para MENOS evidência.
+        # Registra substitution no plano como o caminho comparativo.
+        if not _pairs:
+            _src_pairs: list = []
+            try:
+                _src_news = [e for e in entities
+                             if not e.get("required", True)
+                             and e.get("discovered")]
+                _src_olds = [eid for eid in emap if _old_ok(eid)]
+                if _src_news and _src_olds:
+                    _own_cache: dict = {}
+                    for _e2 in _src_news:
+                        _own_cache[str(_e2.get("id"))] = _own_mentioned_count(
+                            state, _e2)
+                    for _oid2 in _src_olds:
+                        _own_cache[_oid2] = _own_mentioned_count(
+                            state, emap.get(_oid2) or {"id": _oid2})
+                    _ranked_news = sorted(
+                        [str(_e2.get("id")) for _e2 in _src_news],
+                        key=lambda _i: (-_own_cache.get(_i, 0), _i))
+                    _ranked_olds = sorted(
+                        _src_olds,
+                        key=lambda _i: (_own_cache.get(_i, 0), _i))
+                    for _o in _ranked_olds:
+                        for _n in _ranked_news:
+                            if _n != _o and _own_cache.get(_n, 0) >= max(
+                                    _SUBSTITUTE_MIN_OWN_SOURCES,
+                                    _own_cache.get(_o, 0) + 1):
+                                _src_pairs.append((_o, _n))
+                                break
+                        if _src_pairs:
+                            break
+                    _src_pairs = [p for p in _src_pairs
+                                  if not _hysteresis_blocked(p[0], p[1])]
+            except Exception:
+                _src_pairs = []
+            if _src_pairs:
+                _oid, _nid = _src_pairs[0]
+                try:
+                    _oc, _op = _cell_counts(_oid)
+                except Exception:
+                    _oc, _op = 0, 0
+                try:
+                    _nc, _np = _own_ref_counts(_nid)
+                except Exception:
+                    _nc, _np = 0, 0
+                try:
+                    _n_own = _own_mentioned_count(
+                        state, emap.get(_nid) or {"id": _nid})
+                except Exception:
+                    _n_own = _SUBSTITUTE_MIN_OWN_SOURCES
+                reason = (
+                    f"old-vs-novo em fontes próprias mencionadas: "
+                    f"{_oid} ALL-insufficient/sem refs após "
+                    f"{len(state.get('rounds', []))} rounds; {_nid} com "
+                    f"{_n_own} fontes próprias mencionadas")
+                ok = _do_substitute(state, ledger, _oid, _nid, reason)
+                if ok:
+                    try:
+                        state.setdefault(
+                            "_substitution_history", []).append(
+                            {"old": _oid, "new": _nid,
+                             "round": len(state.get("rounds", []) or []),
+                             "fingerprint": f"{_oc}/{_op}->{_nc}/{_np}"})
+                    except Exception:
+                        pass
+                return ok
         # Empate comparativo (novo sem dominância) mantém + unexplored:
         # parcial fraca (<=1 partial, sem covered) empatada registra o que
         # se deixou de explorar em vez de sumir silenciosamente.
