@@ -323,6 +323,27 @@ def _sanitize_body_text(text: str, entity_labels: dict | None = None,
     return out
 
 
+def _source_provenance_text(state: dict, synthesis: str) -> str:
+    """Correct availability/origin metadata from observed state, not guesses."""
+    obtained = set(_corpus(state))
+    included = set(((state.get("report") or {}).get("selection") or {}).get("included_urls") or [])
+    uc = state.get("user_context") or {}
+    facts = [str(v) for v in (uc.get("facts") or {}).values()]
+    lines = []
+    for line in synthesis.splitlines():
+        if uc.get("origin") == "harness" and any(v in line for v in facts):
+            line = re.sub(r"(?i)premissa do usu[aá]rio", "premissa controlada do experimento (harness)", line)
+            line = re.sub(r"(?i)vers[aã]o instalada", "versão de referência", line)
+        if re.search(r"(?i)fora do corpus", line):
+            urls = re.findall(r"https?://[^\s)<>]+", line)
+            known = [u.rstrip(".,;") for u in urls if u.rstrip(".,;") in obtained]
+            if known:
+                details = [f"{u}: fonte obtida; " + ("incluída no material da síntese" if u in included else "fora do material enviado à síntese") for u in known]
+                line = "Nota de procedência: " + "; ".join(details) + "."
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _corpus(state: dict) -> list[str]:
     """Obtained corpus in insertion order (URLs, never chunk ids).
 
@@ -1352,8 +1373,10 @@ def _combo_entities(state: dict) -> list[dict]:
     continua em _required_entities.
     """
     try:
+        from entity_identity import context_entity_ids
+        contexts = context_entity_ids(state.get("plan") or {})
         return [e for e in (state.get("plan") or {}).get("entities", [])
-                if isinstance(e, dict) and e.get("id")]
+                if isinstance(e, dict) and e.get("id") and e.get("id") not in contexts]
     except Exception:
         return []
 
@@ -1750,7 +1773,7 @@ def render_report(state: dict, *, synthesis_text: str,
     verbose = str(state.get("profile", "")).lower() in ("hard", "deep")
     numbers = _numbers(state)
     cited: set = set()
-    synthesis = synthesis_text or ""
+    synthesis = _source_provenance_text(state, synthesis_text or "")
     try:
         synthesis = _veto_outside_corpus(state, synthesis)
     except Exception:

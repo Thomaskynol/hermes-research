@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -43,6 +44,8 @@ def main():
     p.add_argument("--model", help="OpenCode generator; omission renders historical synthesis only")
     p.add_argument("--assessment-calls", type=int, default=2, choices=range(0, 4))
     p.add_argument("--observed-version", default="", help="Output already obtained from a local command")
+    p.add_argument("--assessment-replay-from", type=Path,
+                   help="Reuse recorded assessor answers only when current prompts match byte for byte")
     args = p.parse_args()
     source, out = args.source_dir.resolve(), args.output_dir.resolve()
     if source == out or source in out.parents or out.exists():
@@ -111,21 +114,37 @@ def main():
         os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps({"permission": {"*": "deny"}, "plugin": []})
         transport = model_transport.opencode_client(model=args.model, retries=0, max_calls=18)
         calls = []
+        generator_lock = threading.Lock()
+        replay_index = 0
         def client(prompt):
-            index = len(calls) + 1
-            (out / f"model-{index:02d}-prompt.txt").write_text(prompt)
-            tick = time.monotonic()
-            try:
-                answer = transport(prompt)
-            except Exception as exc:
-                calls.append({"index": index, "outcome": "failed", "error": str(exc)[:300]})
+            nonlocal replay_index
+            # The CLI is a shared host integration. This harness serializes
+            # generator requests, keeping all three votes and their batches;
+            # it does not assert provider support for concurrent CLI calls.
+            with generator_lock:
+                index = len(calls) + 1
+                (out / f"model-{index:02d}-prompt.txt").write_text(prompt)
+                tick = time.monotonic()
+                mode = "live"
+                try:
+                    if args.assessment_replay_from and prompt.startswith("Você avalia evidências"):
+                        replay_index += 1
+                        prior = args.assessment_replay_from / f"model-{replay_index:02d}-prompt.txt"
+                        if prior.read_text() != prompt:
+                            raise ValueError("assessor replay prompt differs; cannot attribute same response to changed input")
+                        answer = prior.with_name(f"model-{replay_index:02d}-answer.txt").read_text()
+                        mode = "assessor_replay_exact_prompt"
+                    else:
+                        answer = transport(prompt)
+                except Exception as exc:
+                    calls.append({"index": index, "mode": mode, "outcome": "failed", "error": str(exc)[:300]})
+                    save(out / "model-calls.json", calls)
+                    raise
+                (out / f"model-{index:02d}-answer.txt").write_text(answer)
+                calls.append({"index": index, "mode": mode, "outcome": "returned", "seconds": round(time.monotonic()-tick, 3)})
                 save(out / "model-calls.json", calls)
-                raise
-            (out / f"model-{index:02d}-answer.txt").write_text(answer)
-            calls.append({"index": index, "outcome": "returned", "seconds": round(time.monotonic()-tick, 3)})
-            save(out / "model-calls.json", calls)
-            print(f"model call {index}: returned ({calls[-1]['seconds']}s)", flush=True)
-            return answer
+                print(f"model call {index}: {mode} returned ({calls[-1]['seconds']}s)", flush=True)
+                return answer
         assessor = ac.make_model_assessor(client)
         for n in range(args.assessment_calls):
             _, block = ac._assess_round(st, assessor, led, resolved)
@@ -149,6 +168,8 @@ def main():
         "original_unchanged": original_hashes == hashes(source),
         "python": sys.version, "generator": args.model, "source_network": False, "embeddings": "disabled",
         "actual_generator_calls": transport.calls if args.model else 0,
+        "assessor_replay_from": str(args.assessment_replay_from) if args.assessment_replay_from else None,
+        "generator_concurrency": 1,
         "tokens": "unknown", "cost_usd": "unknown"})
     # Version/hash the actual delivered text after render and verification.
     assert before == run_manifest.module_hashes(), "Product changed during reproduction"

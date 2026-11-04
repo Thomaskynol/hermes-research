@@ -59,6 +59,23 @@ def state():
 
 
 class ScopeAndSelection(unittest.TestCase):
+    def test_equal_state_catalog_update_cannot_replace_primary_justification(self):
+        st = state(); led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        led.evaluate("review", "partial", "River Review audits changes.", "assessor", [{"url": A}], "a")
+        st["evaluations"] = list(led._evals.values())
+        catalog = "https://catalog.example/list"
+        st["evidence"][catalog] = "River Review — review tool."
+        st["qualification"][catalog] = {"status": "usable", "usable_text": st["evidence"][catalog], "excluded": False}
+        ac._assess_round(st, lambda *args: [{"criterion_id": "review", "entity_id": "a", "state": "partial",
+             "justification": "River Review also supports JQL.", "origin": "assessor", "references": [{"url": catalog}]}], led)
+        ev = next(e for e in st["evaluations"] if e.get("entity_id") == "a")
+        self.assertEqual(ev["justification"], "River Review audits changes.")
+
+    def test_writer_receives_late_cell_evidence_without_json_slice(self):
+        st = state();st["question_coverage"] = {"criteria": [{"id": "review", "examined_scope": "scope " * 900},
+             {"id": "cost", "entity_evaluations": {"a": {"justification": "Licença MIT documentada; custo de modelos não quantificado.", "references": [{"url": A}]}}}]}
+        prompts = [];ac.make_model_writer(lambda p: prompts.append(p) or "Comparação parcial.")(st)
+        self.assertIn("Licença MIT documentada; custo de modelos não quantificado.", prompts[0])
     def test_selection_change_invalidates_global_conclusion_and_archives_old_cells(self):
         st = state();led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"], st["qualification"])
         led.evaluate("combo", "partial", "River Review combina com River Plan.", "assessor", [{"url": A}])
@@ -196,6 +213,19 @@ class Identity(unittest.TestCase):
 
 
 class Audit(unittest.TestCase):
+    def test_review_payload_deduplicates_identical_evidence_without_losing_it(self):
+        evidence = "Documento substancial. " * 1100 + "TAIL_PROOF"
+        items = [{"id": i, "claim": f"Afirmação {i}", "evidence": evidence} for i in range(12)]
+        prompts = []
+        fn = ac.make_review_fn(lambda p: prompts.append(p) or json.dumps([
+            {"id": i, "verdict": "gap", "support": "", "correction": ""} for i in range(12)]))
+        result = fn(items, "controlled")
+        self.assertLess(len(prompts[0]), 100000)
+        self.assertIn("TAIL_PROOF", prompts[0])
+        self.assertEqual({r["id"] for r in result}, set(range(12)))
+        packet = json.loads(prompts[0].splitlines()[-1])
+        for item in packet["claims"]:
+            self.assertEqual("\n\n".join(packet["evidence_store"][k] for k in item["evidence_refs"]), evidence)
     def test_price_claim_without_source_still_reaches_auditor_as_missing_evidence(self):
         text = ('## `river-alpha` e `river-beta`\n'
                 '* O serviço (https://vendor.example/pricing) anuncia\n'
@@ -232,6 +262,21 @@ class Audit(unittest.TestCase):
 
 
 class Topic(unittest.TestCase):
+    def test_harness_version_keeps_origin_separate_from_observed_version(self):
+        st = state();st["user_context"] = {"origin": "harness", "facts": {"installed_version": "2.1.4"}}
+        st["environment_observations"] = [{"command": "tool --version", "value": "2.2.5", "at": "controlled"}]
+        out = rr.render_report(st, synthesis_text="Premissa do usuário: versão instalada 2.1.4.")
+        self.assertNotIn("Premissa do usuário", out)
+        self.assertNotIn("versão instalada 2.1.4", out)
+        self.assertIn("premissa controlada do experimento", out)
+        self.assertIn("tool --version → 2.2.5", out)
+
+    def test_obtained_url_cannot_be_reported_as_outside_corpus(self):
+        st = state();st["report"] = {"selection": {"included_urls": [A]}}
+        ac._counters.record_obtained(st, A, st["evidence"][A], st["qualification"][A])
+        out = rr.render_report(st, synthesis_text=f"Nota metodológica: o endereço {A} ficou fora do corpus e não foi usado como fonte lida.")
+        self.assertNotIn("ficou fora do corpus", out)
+        self.assertIn("obtida", out)
     def test_obtained_body_without_snippet_is_qualified_against_topic(self):
         st = state()
         st["pending_ops"] = [{"op_id": "g", "kind": "gap_query", "criterion_id": "combo"}]

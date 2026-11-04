@@ -1088,6 +1088,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         return ""
 
     entities: list[tuple[set[str], object, object]] = []
+    from entity_identity import context_entity_ids, repo_key
+    contexts = context_entity_ids(plan)
     entity_map = {e.get("id"): e for e in (plan or {}).get("entities", []) if isinstance(e, dict)}
     original_mention = globals()["_entity_mentioned"]
     doc_urls = {body: url for url, body in docs.items() if body}
@@ -1099,10 +1101,16 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             proven = source_identity(entity_map[eid], body, url)
             if proven is not None:
                 return proven
+        if not url and eid in entity_map and repo_key(entity_map[eid].get("source_url")):
+            base = re.sub(r"\([^)]*\)", "", str(label or "")).strip()
+            if base != label and original_mention(base, eid, body):
+                return True
         return original_mention(label, eid, body)
 
     for ent in (plan or {}).get("entities", []) or []:
         if not isinstance(ent, dict):
+            continue
+        if ent.get("id") in contexts:
             continue
         toks = {t for t in _content_tokens(ent.get("label") or ent.get("id"))
                 if len(t) >= 4}
@@ -1755,6 +1763,8 @@ def verify_review(state: dict, audit: dict | None = None) -> dict:
         "claims_unreviewed": max(0, claims - reviewed),
         "verdict_state": audit.get("verdict_state", "não revisado"),
         "accepted": bool(audit.get("accepted")),
+        "audited_sha": audit.get("audited_sha"),
+        "audited_scope": audit.get("audited_scope", "síntese; suporte ao Markdown final verificado separadamente"),
         "votes": summary.get("votes", "unknown"),
         "technical_failures": failures,
         "technical_failure_votes": summary.get("technical_failure_votes",

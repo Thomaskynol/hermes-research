@@ -4700,8 +4700,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
                      "usuário):\n" + "\n".join(ctx_lines) + "\n")
         if ctx_urls and (view.get("user_context") or {}).get("origin") == "harness":
             ctx_s = ("\nPremissas controladas do experimento (origem: harness; "
-                     "NÃO versão observada no computador, NÃO evidência coletada):\n"
-                     + "\n".join(ctx_lines) + "\n")
+                     "NÃO versão observada no computador, NÃO evidência coletada). "
+                     "Na resposta use 'premissa controlada do experimento', nunca 'premissa do usuário'. "
+                     "A versão de referência não é a versão instalada observada.\n"
+                     + _json.dumps(view.get("user_context"), ensure_ascii=False) + "\n")
         # Sem corte arbitrário no JSON/serialização: unidades completas;
         # qualquer teto já foi aplicado por bloco acima e registrado.
         # Candidatos exigidos pelo plano (G5): alinha o conjunto comparado
@@ -4815,6 +4817,16 @@ def make_model_writer(model_client, max_chars: int = 12000):
                             + "; ".join(_unexp_labels) + "\n")
         except Exception:
             _unexp_s = ""
+        # Send every finding, without repeating operational selection logs
+        # inside each cell. Full provenance stays persisted in state.
+        writer_cov = dict(cov)
+        writer_cov["criteria"] = []
+        for criterion in cov.get("criteria", []):
+            compact = {k: v for k, v in criterion.items() if k != "examined_scope"}
+            if criterion.get("entity_evaluations"):
+                compact["entity_evaluations"] = {eid: {k: v for k, v in ev.items() if k != "examined"}
+                                                  for eid, ev in criterion["entity_evaluations"].items()}
+            writer_cov["criteria"].append(compact)
         prompt = (
             "Responda em português à pergunta usando SOMENTE o corpus abaixo. "
             "Recomende opções pela utilidade das funções para o pedido e pelos limites "
@@ -4852,7 +4864,7 @@ def make_model_writer(model_client, max_chars: int = 12000):
             f"{_writer_complementarity_guidance()}\n"
             f"Pergunta: {question}\n"
             f"{_cand_s}{_sub_s}{_unexp_s}"
-            f"Cobertura: {_redact_internal_urls(_json.dumps(cov, ensure_ascii=False)[:4000])}\n"
+            f"Achados atuais por candidato (com justificativas e referências; escopo: excertos, não documento integral; não declare ausência global se há achado válido): {_redact_internal_urls(_json.dumps(writer_cov, ensure_ascii=False))}\n"
             f"Corpus selecionado:\n{corpus_s}\n{ctx_s}"
             "Retorne SOMENTE o relatório em markdown."
         )
@@ -4893,13 +4905,26 @@ def make_review_fn(model_client):
     import semantic_review as _sr
 
     def review_fn(payload, model):
+        store, lookup, packed = {}, {}, []
+        for item in payload:
+            refs = []
+            for block in str(item.get("evidence") or "").split("\n\n"):
+                if block not in lookup:
+                    key = f"e{len(store)}"
+                    lookup[block] = key
+                    store[key] = block
+                refs.append(lookup[block])
+            packed.append({**{k: v for k, v in item.items() if k != "evidence"}, "evidence_refs": refs})
         prompt = (
             _sr.SYSTEM + "\n"
             "Julge cada afirmação contra o texto de evidência fornecido. "
             "Retorne SOMENTE uma lista JSON com {id, verdict, support, "
             "correction}. Veredictos válidos: sustained, partial, "
-            "unsupported, gap.\n" +
-            _json.dumps(payload, ensure_ascii=False))
+            "unsupported, gap. Reconstrua a evidência de cada claim juntando "
+            "os blocos de evidence_store na ordem de evidence_refs com duas "
+            "quebras de linha; use somente os blocos referenciados por ela. "
+            "Nenhum conteúdo foi cortado.\n" +
+            _json.dumps({"evidence_store": store, "claims": packed}, ensure_ascii=False))
         try:
             raw = model_client(prompt)
         except TransportError:
@@ -5376,6 +5401,19 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
         for _ev in applied:
             _key = (_ev.get("criterion_id"), _ev.get("entity_id"))
             _old = _merged.get(_key)
+            if (_old is not None and _old.get("state") == _ev.get("state")
+                    and _ev.get("state") in ("partial", "covered") and _ev.get("entity_id")):
+                ent = next((e for e in (state.get("plan") or {}).get("entities", [])
+                            if e.get("id") == _ev.get("entity_id")), {})
+                def quality(evaluation):
+                    return max((_source_quality(state, ent, r.get("url", r.get("doc_id", "")))
+                                for r in evaluation.get("references", []) if isinstance(r, dict)),
+                               default=(0, 0, 0))
+                if quality(_old)[0] and not quality(_ev)[0]:
+                    state.setdefault("historical_evaluations", []).append({"evaluation": dict(_ev),
+                        "reason": "same state from catalog cannot replace primary-source justification"})
+                    state["notes"].append(f"lower source quality update rejected for {_key}; primary justification kept")
+                    continue
             if _old is not None and _old.get("state") != _ev.get("state"):
                 _refs = {(r or {}).get("url", (r or {}).get("doc_id", ""))
                          for r in (_ev.get("references", []) or [])

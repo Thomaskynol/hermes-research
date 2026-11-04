@@ -48,6 +48,16 @@ def source_identity(entity, body, source_url):
                for n in {normalized(label), normalized(own[1])} if n)
 
 
+def context_entity_ids(plan):
+    entities = [e for e in (plan or {}).get("entities", []) if isinstance(e, dict)]
+    scoped = {eid for c in (plan or {}).get("criteria", []) if c.get("per_candidate")
+              for eid in (c.get("applies_to") or [])}
+    open_ = bool(((plan or {}).get("open_discovery") or {}).get("needed"))
+    return {e.get("id") for e in entities if e.get("role") in {"context", "platform", "premise"}
+            or (open_ and scoped and not e.get("discovered") and e.get("id") not in scoped
+                and e.get("role") != "candidate")}
+
+
 def comparison_entities(plan):
     """Selected candidates, keeping platform/context obligations separate.
 
@@ -56,10 +66,6 @@ def comparison_entities(plan):
     retain all required entities. No inference from a product name.
     """
     entities = [e for e in (plan or {}).get("entities", []) if isinstance(e, dict)]
-    scoped = {eid for c in (plan or {}).get("criteria", []) if c.get("per_candidate")
-              for eid in (c.get("applies_to") or [])}
-    open_ = bool(((plan or {}).get("open_discovery") or {}).get("needed"))
+    context = context_entity_ids(plan)
     return [e for e in entities if e.get("required", True)
-            and e.get("role") not in {"context", "platform", "premise"}
-            and (not open_ or not scoped or e.get("discovered") or e.get("id") in scoped
-                 or e.get("role") == "candidate")]
+            and e.get("id") not in context]
