@@ -1,5 +1,20 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
+> **Estado atual (2026-11-04):** missão accept42→accept43 executada. Produto em
+> 3 commits sobre `4ce8cef` (`a5a37f9` descoberta, `0a4719b` auditoria,
+> `ac7aa6c` relatório) + 3 fixes residuais em workdir da leitura do accept43
+> (scope frasal, `technical_annex.md`, matriz/recomendação determinísticas).
+> Run accept43 EXIT=0 sobre `d3b081a` (hashes pré==pós): overall `partial`
+> honesto (question 0.122, review julgado-e-reprovado 6/6, support ok, stop
+> `time` 1873s≥1800s). RA8 segue PENDENTE. Técnico:
+> `docs/RELATORIO_TECNICO_MISSAO_ACCEPT42_43.md`. Runs:
+> `/home/thomaskyn/hermes-runs/accept42/` (intacto),
+> `/home/thomaskyn/hermes-runs/accept43/`; replays `/tmp/replay-accept43/`,
+> `/tmp/replay-accept43b/`.
+>
+> Pendente: commitar residuais + docs e push; fiação nova (anexo/matriz/
+> recomendação) só tem efeito em run novo.
+
 > **Estado atual (2026-11-03):** HEAD `747ed29` (docs; produto congelado
 > e validado em `38141b1`), branch `feat/product-v1`, push em dia
 > (`feat/product-v1`=`747ed29`, `main`=`38141b1`). accept42
