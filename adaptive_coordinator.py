@@ -5333,6 +5333,14 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                             ev["references"] = _kept
             except Exception:
                 pass
+        if st == "insufficient" and ev.get("entity_id") and re.search(r"n[aã]o menciona", str(ev.get("justification") or ""), re.I):
+            ent = next((e for e in (state.get("plan") or {}).get("entities", []) if e.get("id") == ev.get("entity_id")), {})
+            selection = getattr(assess_fn, "last_selection", None) or {}
+            excerpts = selection.get("excerpts") or {}
+            if any(_identity_matches(ent, body, source_url=url) for url, body in excerpts.items()):
+                state.setdefault("historical_evaluations", []).append({"evaluation": dict(ev), "reason": "entity named in examined excerpt"})
+                ev = dict(ev)
+                ev["justification"] = "O excerto examinado identifica a entidade, mas não estabeleceu evidência suficiente para este critério."
         applied.append(ev)
     # Teto do contexto do usuário: critério sustentado SÓ por contexto
     # capa em partial, nunca covered (origin user-provided não cobre).
@@ -8274,13 +8282,21 @@ def _promote_partial_declared(state: dict, ledger,
                         return True
                     except Exception:
                         return False
-                _globals = [c for c in targets if _is_global(c)]
-                if _globals:
-                    crit = _globals[0]
-                else:
-                    _non_per = [c for c in targets
-                                if not c.get("per_candidate")]
-                    crit = _non_per[0] if _non_per else targets[0]
+                from entity_identity import normalized
+                sentence = normalized(decl.get("sentence") or "")
+                relation = any(w in sentence for w in ("combin", "complement", "sobrepos", "overlap", "integra"))
+                matches = []
+                for c in targets:
+                    if not _is_global(c) or c.get("applies_to"):
+                        continue
+                    label = normalized(c.get("label") or "")
+                    if relation and any(w in label for w in ("combin", "complement", "sobrepos", "overlap", "integra")):
+                        matches.append(c)
+                    elif label and len(label) >= 5 and label in sentence:
+                        matches.append(c)
+                if not matches:
+                    continue
+                crit = matches[0]
                 refs = [{"url": u} for u in urls[:8]]
                 just = (
                     "INFERÊNCIA de complementaridade promovida pós-audit "

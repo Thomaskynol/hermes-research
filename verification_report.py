@@ -1156,9 +1156,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         # cheia na frase. Quando há menção estrita, ela decide quem a frase
         # atribui (evita Beta espúrio via "widget" mascarando erro de
         # atribuição para Alpha).
+        _strict = []
         try:
+            _factual_norm = _norm_mention(factual)
             _strict = [entry for entry in entities
-                       if _entity_mentioned(entry[1], entry[2], factual)]
+                       if (form := _norm_mention(entry[1]))
+                       and re.search(r"(?:^| )" + re.escape(form) + r"(?:$| )", _factual_norm)
+                       and _raw_compound_ok(entry[1], factual)]
             if _strict:
                 named = _strict
         except Exception:
@@ -1414,9 +1418,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             # Nomeação frouxa (token compartilhado como "widget") não
             # arma a trava: exige menção estrita de >=2 entidades na
             # frase (mesmo critério _entity_mentioned usado nos docs).
-            _interop_named = [
-                entry for entry in named
-                if _entity_mentioned(entry[1], entry[2], sentence)]
+            _interop_named = [entry for entry in named if entry in _strict] if _strict else [
+                entry for entry in named if _entity_mentioned(entry[1], entry[2], sentence)]
             _needs_interop = len(_interop_named) >= 2
         else:
             _interop_named = []

@@ -59,6 +59,31 @@ def state():
 
 
 class ScopeAndSelection(unittest.TestCase):
+    def test_inference_is_not_promoted_to_unrelated_discovery_criterion(self):
+        st = state();st["plan"]["criteria"].insert(0, {"id": "discovery", "label": "Identificar candidatos", "description": "Descobrir alternativas.", "required": True})
+        led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        decl = {"sentence": "INFERÊNCIA: complementaridade entre funções [1][2].", "citations": [1,2], "anchor_ok": True,
+                "scope": "limites explícitos", "premise_docs": [A,B]}
+        self.assertTrue(ac._promote_partial_declared(st,led,[decl],{1:A,2:B}))
+        self.assertEqual(led.state_of("discovery"), "uninvestigated")
+        self.assertEqual(led.state_of("combo"), "partial")
+
+    def test_unselected_homonym_not_added_to_combination(self):
+        st = state();st["plan"]["entities"].append({"id":"z", "label":"Other River Review", "discovered":True, "required":False})
+        text = "INFERÊNCIA: River Review (acme) e River Plan se complementam [1][2]."
+        lines = rr._combination_premises(st,text)
+        self.assertTrue(lines)
+        self.assertNotIn("Other River Review", " ".join(lines))
+
+    def test_false_absence_of_examined_entity_is_not_kept_in_findings(self):
+        st = state();led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        def assessor(*args):
+            return [{"criterion_id":"review", "entity_id":"a", "state":"insufficient", "origin":"assessor", "references":[],
+                     "justification":"O material selecionado não menciona River Review (acme) nem mostra revisão."}]
+        assessor.last_selection={"urls":[A], "excerpts":{A:st["evidence"][A]}}
+        ac._assess_round(st,assessor,led)
+        self.assertNotIn("não menciona River Review",led.compute()["criteria"][1]["justification"])
+
     def test_equal_state_catalog_update_cannot_replace_primary_justification(self):
         st = state(); led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
         led.evaluate("review", "partial", "River Review audits changes.", "assessor", [{"url": A}], "a")
@@ -175,6 +200,12 @@ class ScopeAndSelection(unittest.TestCase):
 
 
 class Identity(unittest.TestCase):
+    def test_shared_words_do_not_create_another_subject_in_citation_audit(self):
+        st = state();st["plan"]["entities"].append({"id":"other","label":"Other River Review","discovered":True,"required":False,"source_url":"https://github.com/other/other-river-review"})
+        sentence = "River Review (acme) performs automated code review with confidence scoring [1]."
+        r = vr.check_support(sentence,{A:1},{A:st["evidence"][A]},st["plan"])
+        self.assertEqual(r["supported"],1,r)
+
     def test_catalog_link_binds_owner_before_selecting_identical_fork_readme(self):
         st = state(); ent = st["plan"]["entities"][2]
         catalog = "https://catalog.example/list"

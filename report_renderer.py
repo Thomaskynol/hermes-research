@@ -1392,7 +1392,7 @@ def _combination_premises(state: dict, synthesis: str) -> list[str]:
     """
     try:
         import re as _re_c
-        req = _combo_entities(state)
+        req = _required_entities(state)
         if len(req) < 2:
             return []
         try:
