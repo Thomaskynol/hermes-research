@@ -688,6 +688,7 @@ _DEBUG_NOTE_SUBSTRINGS = (
     "html_without_content", "not_a_github",
     "unavailable", "failure", "failed",
     "fora da cobertura", "alem do teto", "cheio (",
+    "_sent",
 )
 
 
@@ -811,16 +812,14 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     contradictions = [c for c in (block.get("criteria") or [])
                       if c.get("state") == "contradictory"]
     if contradictions:
+        # §5 é ponteiro: o detalhe vive nos achados (§3); aqui só o
+        # estado + remissão, sem duplicar a justificativa verbatim.
         lines.append("")
         lines.append(f"### {labels['contradictions']}")
         for crit in contradictions:
-            try:
-                _cj = _sanitize_body_text(
-                    str(crit.get('justification', '')), _lim_labels,
-                    _lim_lang)
-            except Exception:
-                _cj = str(crit.get('justification', ''))
-            lines.append(f"- {crit.get('label', crit.get('id'))}: {_cj}")
+            lines.append(f"- {crit.get('label', crit.get('id'))}: "
+                         f"{_state_label(labels, crit.get('state'))} — "
+                         f"ver achados na seção 3.")
     unverified = [c for c in (block.get("criteria") or [])
                   if c.get("state") in ("insufficient", "blocked",
                                         "uninvestigated")]
@@ -828,27 +827,20 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     lines.append(f"### {labels['uncertainties']}")
     if unverified:
         for crit in unverified:
-            try:
-                _uj = _sanitize_body_text(
-                    str(crit.get('justification')
-                        or labels['not_investigated']), _lim_labels,
-                    _lim_lang)
-            except Exception:
-                _uj = str(crit.get('justification')
-                          or labels['not_investigated'])
             lines.append(f"- {crit.get('label', crit.get('id'))}: "
                          f"{_state_label(labels, crit.get('state'))} — "
-                         f"{_uj}")
+                         f"ver achados na seção 3.")
     else:
         lines.append("- Nenhum critério obrigatório ficou sem verificação "
                      "declarada; incertezas residuais seguem nas notas.")
     outside = _counters.counters_snapshot(state).get(
         "outside_corpus_citations") or []
     if outside:
+        # Detalhe (URLs) vive no anexo técnico; aqui só a contagem +
+        # ponteiro, sem duplicar a lista.
         lines.append("")
-        lines.append(f"### {labels['outside']}")
-        for url in outside:
-            lines.append(f"- {url}")
+        lines.append(f"- {len(outside)} citação(ões) fora do corpus "
+                     f"removida(s) do corpo (ver anexo técnico).")
     notes = [n for n in (state.get("notes") or []) if isinstance(n, str)]
     shown_user = [n for n in notes if not _is_debug_note(n)]
     # Dedup exato: notas de usuário idênticas (string completa) aparecem
@@ -945,6 +937,12 @@ def _annex_section(state: dict, labels: dict, verifications: dict | None,
         for rel in relations:
             lines.append(f"| {rel.get('kind')} | {rel.get('url')} ↔ "
                          f"{rel.get('related_to')} | {rel.get('detail', '')} |")
+    outside = counters.get("outside_corpus_citations") or []
+    if outside:
+        lines.append("")
+        lines.append(f"### {labels['outside']}")
+        for url in outside:
+            lines.append(f"- {url}")
     # M9 reading metric: share of the collected corpus actually sent to the
     # assessor/writer in excerpts. New-URL saturation is not exhausted
     # analysis — the metric never alters coverage.
@@ -1011,6 +1009,134 @@ def _closure_section(state: dict, labels: dict, verbose: bool) -> list[str]:
     return lines
 
 
+def _writer_included_norms(state: dict) -> set:
+    """URLs reais na janela do writer (genérico, sem literais).
+
+    shortcut: rótulo F3 só vale fora da seleção real; sem leitura,
+    conjunto vazio (nunca afirma inclusão).
+    """
+    try:
+        sel = (state.get("report") or {}).get("selection") or {}
+        inc = sel.get("included_urls") or []
+        out = set()
+        for u in inc:
+            try:
+                n = _norm(u)
+            except Exception:
+                n = None
+            out.add(str(u or ""))
+            if n:
+                out.add(n)
+        return out
+    except Exception:
+        return set()
+
+
+def _reconciliation_notes(state: dict, synthesis: str,
+                          numbers: dict | None = None) -> list[str]:
+    """Cruza findings (entity_states/refs) com LACUNAs da síntese.
+
+    Genérico, sem literais: para cada célula covered com refs válidas
+    no corpus, se a síntese traz LACUNA para a mesma entidade, emite
+    nota explícita com alcance (janela do writer vs texto integral)
+    em vez de silêncio. Nota é PT user-facing (vai ao §5, nunca ao
+    anexo debug).
+    """
+    try:
+        synth = str(synthesis or "")
+        if "lacuna" not in synth.lower():
+            return []
+        nums = numbers if isinstance(numbers, dict) else _numbers(state)
+        block = state.get("question_coverage") or {}
+        criteria = block.get("criteria") or []
+        if not criteria:
+            return []
+        try:
+            import verification_report as _vr
+            _mentioned = _vr._entity_mentioned
+        except Exception:
+            _mentioned = None
+        try:
+            _ents = [(e.get("id"), str(e.get("label") or e.get("id")))
+                     for e in (state.get("plan") or {}).get("entities", [])
+                     if isinstance(e, dict) and e.get("id")]
+        except Exception:
+            _ents = []
+        _label_by_id = dict(_ents)
+        import re as _re_s
+        sents = _re_s.split(r"(?<=[.!?])\s+|\n+", synth)
+        notes: list[str] = []
+        seen: set = set()
+        for crit in criteria:
+            if not isinstance(crit, dict):
+                continue
+            es = crit.get("entity_states") or {}
+            refs = crit.get("references") or []
+            valid_urls: list[str] = []
+            try:
+                for r in refs:
+                    u = (r.get("url", r.get("doc_id", ""))
+                         if isinstance(r, dict) else str(r or ""))
+                    if not u:
+                        continue
+                    k, _n = _lookup_number(u, nums)
+                    if k is not None:
+                        valid_urls.append(u)
+            except Exception:
+                valid_urls = []
+            if not valid_urls:
+                continue
+            crit_label = str(crit.get("label") or crit.get("id") or "")
+            for eid, st in (es.items() if isinstance(es, dict) else []):
+                if st != "covered":
+                    continue
+                elabel = str(_label_by_id.get(eid, eid or ""))
+                if not elabel:
+                    continue
+                hit = False
+                try:
+                    for sent in sents:
+                        low = str(sent or "").lower()
+                        if "lacuna" not in low:
+                            continue
+                        try:
+                            if _mentioned is not None:
+                                _named = bool(_mentioned(
+                                    elabel, eid, str(sent or "")))
+                                if not _named:
+                                    _named = bool(
+                                        elabel.lower() in low)
+                            else:
+                                _named = bool(elabel.lower() in low)
+                        except Exception:
+                            _named = bool(elabel.lower() in low)
+                        if _named:
+                            hit = True
+                            break
+                except Exception:
+                    hit = False
+                if not hit:
+                    continue
+                key = (str(eid), str(crit.get("id") or crit_label))
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    _rn = [str(nums.get(_norm(u), "?"))
+                           for u in valid_urls[:3]]
+                    _refs_s = "[" + "][".join(_rn) + "]" if _rn else ""
+                except Exception:
+                    _refs_s = ""
+                notes.append(
+                    f"Nota: os achados registram cobertura de {elabel} "
+                    f"em {crit_label} com {_refs_s} a partir da seleção "
+                    f"analisada; a síntese declara lacuna a partir dos "
+                    f"excertos avaliados. Vale o texto integral da fonte.")
+        return notes
+    except Exception:
+        return []
+
+
 def _veto_outside_corpus(state: dict, synthesis: str) -> str:
     """Veto a 'fora do corpus' quando há doc da entidade no corpus.
 
@@ -1068,13 +1194,20 @@ def _veto_outside_corpus(state: dict, synthesis: str) -> str:
 
         import re as _re0
         import re as _re2
+        try:
+            _included = _writer_included_norms(state)
+        except Exception:
+            _included = set()
         sentences = _re0.split(r"(?<=[.!?])\s+|\n+", str(synthesis or ""))
         out = str(synthesis or "")
         rewrote = 0
         for sent in sentences:
             if "fora do corpus" not in sent.lower():
                 continue
+            if "fora da seleção" in sent.lower():
+                continue
             _hint = ""
+            _matched = None
             for _ent in entities:
                 try:
                     if _mentioned is not None:
@@ -1090,11 +1223,31 @@ def _veto_outside_corpus(state: dict, synthesis: str) -> str:
                     continue
                 _hint = _has_doc(_ent)
                 if _hint:
+                    _matched = _ent
                     break
                 # Entidade citada sem doc: esta frase não dispara veto.
                 _hint = ""
             if not _hint:
                 continue
+            try:
+                _src = str((_matched or {}).get("source_url") or "")
+                _in_sel = False
+                for _cand in (_src, _hint):
+                    if not _cand:
+                        continue
+                    if _cand in _included:
+                        _in_sel = True
+                        break
+                    try:
+                        if _norm(_cand) in _included:
+                            _in_sel = True
+                            break
+                    except Exception:
+                        pass
+                if _in_sel:
+                    continue
+            except Exception:
+                pass
             repl = ("fora da seleção do writer (LACUNA de análise; ler a "
                     "seguir" + (f": {_hint}" if _hint else "") + ")")
             try:
@@ -1118,6 +1271,302 @@ def _veto_outside_corpus(state: dict, synthesis: str) -> str:
         return synthesis
 
 
+def _required_entities(state: dict) -> list[dict]:
+    """Entidades exigidas pelo plano (genérico, sem literais)."""
+    try:
+        return [e for e in (state.get("plan") or {}).get("entities", [])
+                if isinstance(e, dict) and e.get("required", True)]
+    except Exception:
+        return []
+
+
+def _all_gaps(state: dict) -> list[dict]:
+    """Lacunas do bloco + topo do estado, sem duplicar critério."""
+    try:
+        block = state.get("question_coverage") or {}
+        gaps = [g for g in (block.get("gaps") or [])
+                if isinstance(g, dict)]
+        seen = {g.get("criterion_id") for g in gaps}
+        for gap in state.get("gaps") or []:
+            if isinstance(gap, dict) \
+                    and gap.get("criterion_id") not in seen:
+                gaps.append(gap)
+                seen.add(gap.get("criterion_id"))
+        return gaps
+    except Exception:
+        return []
+
+
+def _combo_entities(state: dict) -> list[dict]:
+    """Entidades com cobertura para cruzar pares (exigidas ou não).
+
+    Pares da síntese comparam-se ao conjunto coberto nos achados (§3),
+    que inclui explorados fora da seleção; a matriz (item só-exigidos)
+    continua em _required_entities.
+    """
+    try:
+        return [e for e in (state.get("plan") or {}).get("entities", [])
+                if isinstance(e, dict) and e.get("id")]
+    except Exception:
+        return []
+
+
+def _combination_premises(state: dict, synthesis: str) -> list[str]:
+    """Linhas compactas das combinações com ≥2 premissas citadas.
+
+    Extrai da síntese final (já com [N]) as sentenças de combinação
+    (INFERÊNCIA) que citam ≥2 premissas e nomeiam ≥2 exigidos;
+    devolve metadados (par × nº de premissas × refs), nunca a frase
+    verbatim. Sem par válido, lista vazia (o chamador declara LACUNA
+    com alcance).
+    """
+    try:
+        import re as _re_c
+        req = _combo_entities(state)
+        if len(req) < 2:
+            return []
+        try:
+            import verification_report as _vr
+            _mentioned = _vr._entity_mentioned
+        except Exception:
+            _mentioned = None
+        out: list[str] = []
+        for sent in _re_c.split(r"(?<=[.!?])\s+|\n+",
+                                str(synthesis or "")):
+            if "infer" not in sent.lower():
+                continue
+            named: list[str] = []
+            for ent in req:
+                lb = str(ent.get("label") or ent.get("id") or "")
+                if not lb:
+                    continue
+                try:
+                    hit = bool(_mentioned(lb, ent.get("id"), sent)) \
+                        if _mentioned is not None else False
+                    if not hit:
+                        hit = lb.lower() in sent.lower()
+                except Exception:
+                    hit = lb.lower() in sent.lower()
+                if hit and lb not in named:
+                    named.append(lb)
+            if len(named) < 2:
+                continue
+            refs = sorted(set(_re_c.findall(r"\[(\d+)\]", sent)),
+                          key=int)
+            if len(refs) < 2:
+                continue
+            shown = "[" + "][".join(refs[:4]) + "]"
+            out.append(f"- {' × '.join(named[:3])}: {len(refs)} "
+                       f"premissas citadas {shown}")
+        return out
+    except Exception:
+        return []
+
+
+def _template_section(state: dict, labels: dict, numbers: dict,
+                      synthesis: str) -> list[str]:
+    """Template pós-processado do writer (genérico, sem literais).
+
+    Garante a forma sem depender só do modelo: resposta direta ≤15
+    linhas no topo, matriz entidade×critério (só exigidos; demais em
+    'explorados fora da seleção'), diferenças/combinações com ≥2
+    premissas citadas, recomendação proporcional ao perfil e LACUNAs
+    com alcance explícito. Tudo derivado do estado real + rótulos do
+    plano; usa '###' para não colidir com as seções '##' do renderer.
+    """
+    lines: list[str] = []
+    try:
+        block = state.get("question_coverage") or {}
+        criteria = [c for c in (block.get("criteria") or [])
+                    if isinstance(c, dict)]
+        req = _required_entities(state)
+        lines.append("### Resposta direta")
+        _rd = [f"- **Veredito:** "
+               f"{_state_label(labels, block.get('status', 'unevaluated'))} "
+               f"(proportion={block.get('proportion')})"]
+        for ent in req[:12]:
+            eid = ent.get("id")
+            cov = par = sem = 0
+            for crit in criteria:
+                es = (crit.get("entity_states") or {}).get(eid)
+                if es == "covered":
+                    cov += 1
+                elif es == "partial":
+                    par += 1
+                else:
+                    sem += 1
+            _rd.append(f"- {ent.get('label') or eid}: {cov} coberto(s), "
+                       f"{par} parcial(is), {sem} sem cobertura de "
+                       f"{len(criteria)} critério(s)")
+        lines.extend(_rd[:15])
+        lines.append("")
+        lines.append("### Matriz entidade×critério")
+        if req and criteria:
+            lines.append("| Critério | "
+                         + " | ".join(str(e.get("label") or e.get("id"))
+                                       for e in req) + " |")
+            lines.append("|---" * (len(req) + 1) + "|")
+            for crit in criteria:
+                es = crit.get("entity_states") or {}
+                cells = [_state_label(labels, es.get(ent.get("id"),
+                                                     "unevaluated"))
+                         for ent in req]
+                lines.append(f"| {crit.get('label') or crit.get('id')} | "
+                             + " | ".join(cells) + " |")
+        try:
+            _by_id = {e.get("id"): (e.get("label") or e.get("id"))
+                       for e in (state.get("plan") or {}).get("entities", [])
+                       if isinstance(e, dict)}
+        except Exception:
+            _by_id = {}
+        _expl = [str(e.get("label") or e.get("id")) for e in
+                 (state.get("plan") or {}).get("entities", [])
+                 if isinstance(e, dict) and e.get("required", True) is False]
+        for s in (state.get("substitutions") or []):
+            if isinstance(s, dict):
+                _o = str(_by_id.get(s.get("old"), s.get("old") or "?"))
+                if _o not in _expl:
+                    _expl.append(_o)
+        if _expl:
+            lines.append(f"- Explorados fora da seleção (não contam na "
+                         f"comparação): {', '.join(_expl)}")
+        lines.append("")
+        lines.append("### Diferenças e combinações")
+        _comb = _combination_premises(state, synthesis)
+        if _comb:
+            lines.extend(_comb[:5])
+        else:
+            lines.append("- Sem combinações com ≥2 premissas citadas nos "
+                         "excertos avaliados (LACUNA de combinação).")
+        lines.append("")
+        lines.append("### Recomendação")
+        prof = str(state.get("profile") or "medium")
+        lines.append(f"- Recomendação (perfil {prof}): priorizar células "
+                     f"com fonte própria indicada.")
+        _open = [g for g in _all_gaps(state)
+                 if g.get("state") not in ("covered",)]
+        if prof.lower() != "light" and _open:
+            lines.append(f"- {len(_open)} lacuna(s) aberta(s); detalhe por "
+                         f"lacuna na seção 5.")
+        if prof.lower() in ("hard", "deep"):
+            _tally: list[tuple] = []
+            for ent in req:
+                n = sum(1 for c in criteria
+                        if (c.get("entity_states") or {}).get(ent.get("id"))
+                        in ("covered", "partial"))
+                _tally.append((n, str(ent.get("label") or ent.get("id"))))
+            _tally.sort(reverse=True)
+            _top = ", ".join(f"{lb} ({n})" for n, lb in _tally[:3])
+            if _top:
+                lines.append(f"- Entidades com mais cobertura: {_top}.")
+        lines.append("")
+        lines.append("### LACUNAs com alcance")
+        if _open:
+            for g in _open:
+                lines.append(
+                    f"- {g.get('label', g.get('criterion_id'))} "
+                    f"({_state_label(labels, g.get('state', '?'))}): "
+                    f"alcance: excertos avaliados; vale o texto "
+                    f"integral da fonte.")
+        else:
+            lines.append("- Sem lacunas obrigatórias pendentes.")
+    except Exception:
+        pass
+    return lines
+
+
+def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
+    """Pares de combinação da síntese × pares dos achados (§3).
+
+    Genérico, sem literais: cada sentença de combinação (INFERÊNCIA)
+    que nomeia ≥2 entidades exigidas precisa co-ocorrer com estado
+    positivo (covered/partial) em algum critério dos achados; senão
+    vira nota explícita com alcance (janela do writer vs texto
+    integral). Nota PT user-facing (vai ao §5, nunca ao anexo debug).
+    """
+    try:
+        import itertools as _it
+        import re as _re_p
+        req = _combo_entities(state)
+        if len(req) < 2:
+            return []
+        sents = [s for s in _re_p.split(r"(?<=[.!?])\s+|\n+",
+                                        str(synthesis or ""))
+                 if "infer" in s.lower()]
+        if not sents:
+            return []
+        try:
+            import verification_report as _vr
+            _mentioned = _vr._entity_mentioned
+        except Exception:
+            _mentioned = None
+
+        def _hit(lb: str, eid, sent: str) -> bool:
+            try:
+                if _mentioned is not None \
+                        and bool(_mentioned(lb, eid, sent)):
+                    return True
+            except Exception:
+                pass
+            try:
+                return bool(lb and lb.lower() in sent.lower())
+            except Exception:
+                return False
+
+        block = state.get("question_coverage") or {}
+        criteria = [c for c in (block.get("criteria") or [])
+                    if isinstance(c, dict)]
+        notes: list[str] = []
+        seen: set = set()
+        for sent in sents:
+            named: list[tuple] = []
+            for ent in req:
+                lb = str(ent.get("label") or ent.get("id") or "")
+                if lb and _hit(lb, ent.get("id"), sent) \
+                        and ent.get("id") not in {n[0] for n in named}:
+                    named.append((ent.get("id"), lb))
+            for (a_id, a_lb), (b_id, b_lb) in _it.combinations(named, 2):
+                key = tuple(sorted((str(a_id), str(b_id))))
+                if key in seen:
+                    continue
+                seen.add(key)
+                ok = any((c.get("entity_states") or {}).get(a_id)
+                         in ("covered", "partial")
+                         and (c.get("entity_states") or {}).get(b_id)
+                         in ("covered", "partial") for c in criteria)
+                if ok:
+                    continue
+                notes.append(
+                    f"Nota: os achados não registram cobertura conjunta "
+                    f"de {a_lb} e {b_lb} na seleção analisada; a "
+                    f"combinação na síntese parte dos excertos avaliados. "
+                    f"Vale o texto integral da fonte.")
+        return notes
+    except Exception:
+        return []
+
+
+def render_technical_annex(state: dict,
+                           verifications: dict | None = None,
+                           verbose: bool = False,
+                           language: str = "pt-BR",
+                           cited: set | None = None) -> str:
+    """Anexo técnico separado do principal (genérico, sem literais).
+
+    Reúne o que polui a entrega ao usuário: verificações, contadores,
+    alcance de leitura, outside detalhado, notas de diagnóstico e
+    tabela de rodadas (verbose). Chamador: render_report() compõe a
+    entrega em arquivo único (§§1-9); para entrega separada, o
+    coordinator pode gravar este retorno em arquivo de anexo à parte
+    e entregar só o principal (tudo antes de "## 8.").
+    """
+    labels = _labels(language)
+    lines = _annex_section(state, labels, verifications, verbose, cited)
+    lines.append("")
+    lines.extend(_closure_section(state, labels, verbose))
+    return "\n".join(lines)
+
+
 def render_report(state: dict, *, synthesis_text: str,
                   verifications: dict | None = None,
                   quantitative: list | None = None,
@@ -1130,6 +1579,16 @@ def render_report(state: dict, *, synthesis_text: str,
     synthesis = synthesis_text or ""
     try:
         synthesis = _veto_outside_corpus(state, synthesis)
+    except Exception:
+        pass
+    try:
+        _recs = list(_reconciliation_notes(state, synthesis, numbers))
+        _recs += _pair_reconciliation_notes(state, synthesis)
+        for _rn in _recs:
+            _rec_seen = set(n for n in (state.get("notes") or [])
+                            if isinstance(n, str))
+            if _rn not in _rec_seen:
+                state.setdefault("notes", []).append(_rn)
     except Exception:
         pass
     synthesis, outside = _rewrite_refs(synthesis, numbers, cited)
@@ -1202,6 +1661,8 @@ def render_report(state: dict, *, synthesis_text: str,
     else:
         lines.append(labels["no_synthesis"])
     lines.append("")
+    lines.extend(_template_section(state, labels, numbers, synthesis))
+    lines.append("")
     lines.extend(_method_section(state, labels, verbose))
     lines.append("")
     lines.extend(_findings_section(state, labels, numbers, verbose, cited))
@@ -1252,9 +1713,8 @@ def render_report(state: dict, *, synthesis_text: str,
     lines.append("")
     lines.extend(_sources_section(state, labels))
     lines.append("")
-    lines.extend(_annex_section(state, labels, verifications, verbose, cited))
-    lines.append("")
-    lines.extend(_closure_section(state, labels, verbose))
+    lines.append(render_technical_annex(
+        state, verifications, verbose, language, cited))
     lines.append("")
     render_report.last_cited_urls = sorted(cited)  # type: ignore[attr-defined]
     render_report.last_numbers = dict(numbers)  # type: ignore[attr-defined]
