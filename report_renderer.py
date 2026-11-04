@@ -323,6 +323,26 @@ def _sanitize_body_text(text: str, entity_labels: dict | None = None,
     return out
 
 
+def _controlled_version_text(state: dict, text: str) -> str:
+    """Relabel only an installed-version phrase bound to a harness value."""
+    context = state.get("user_context") or {}
+    if context.get("origin") != "harness":
+        return text
+    versions = [str(v) for v in (context.get("facts") or {}).values()
+                if re.fullmatch(r"\d+(?:\.\d+)+", str(v))]
+    observed = {v for obs in (state.get("environment_observations") or [])
+                for v in re.findall(r"\d+(?:\.\d+)+", str(obs.get("value") or ""))}
+    for version in versions:
+        pattern = (r"(?i)vers[aã]o instalada(?P<context>(?:(?!vers[aã]o instalada)"
+                   r"[^.;|\n]){0,100}?" + re.escape(version) + r")")
+        def replace(match):
+            if any(v in match.group("context") for v in observed - set(versions)):
+                return match.group(0)
+            return "versão de referência" + match.group("context")
+        text = re.sub(pattern, replace, text)
+    return text
+
+
 def _source_provenance_text(state: dict, synthesis: str) -> str:
     """Correct availability/origin metadata from observed state, not guesses."""
     obtained = set(_corpus(state))
@@ -349,8 +369,24 @@ def _source_provenance_text(state: dict, synthesis: str) -> str:
                 functions.setdefault(ev["entity_id"], url)
                 break
     lines = []
-    for line in synthesis.splitlines():
+    synthesis_lines = synthesis.splitlines()
+    controlled_versions = [v for v in facts if re.fullmatch(r"\d+(?:\.\d+)+", v)]
+    observed_versions = {v for obs in (state.get("environment_observations") or [])
+                         for v in re.findall(r"\d+(?:\.\d+)+", str(obs.get("value") or ""))}
+    for index, line in enumerate(synthesis_lines):
         low = normalized(line)
+        if (uc.get("origin") == "harness" and controlled_versions
+                and re.match(r"^\s*#{1,6}\s", line) and "versao instalada" in low):
+            section = []
+            for following in synthesis_lines[index + 1:]:
+                if re.match(r"^\s*#{1,6}\s", following):
+                    break
+                section.append(following)
+            scope = "\n".join(section)
+            if (any(v in scope for v in controlled_versions)
+                    and not any(v in scope for v in observed_versions - set(controlled_versions))):
+                line = re.sub(r"(?i)vers[aã]o instalada", "versão de referência", line)
+                low = normalized(line)
         if (obtained - included and "fora do corpus" in low
                 and re.search(r"fora (?:desses|destes|daqueles|dos selecionados) (?:documentos|excertos|textos)", low)):
             line = re.sub(r"(?i)fora do corpus", "fora do material enviado à síntese", line)
@@ -367,7 +403,7 @@ def _source_provenance_text(state: dict, synthesis: str) -> str:
                             "A pesquisa não demonstrou integração testada entre elas.")
         if uc.get("origin") == "harness" and any(v in line for v in facts):
             line = re.sub(r"(?i)premissa do usu[aá]rio", "premissa controlada do experimento (harness)", line)
-            line = re.sub(r"(?i)vers[aã]o instalada", "versão de referência", line)
+            line = _controlled_version_text(state, line)
         if re.search(r"(?i)fora do corpus", line):
             urls = re.findall(r"https?://[^\s)<>]+", line)
             known = [u.rstrip(".,;") for u in urls if u.rstrip(".,;") in obtained]
@@ -467,6 +503,9 @@ def _refs(crit: dict, numbers: dict[str, int], labels: dict,
     out = []
     for ref in crit.get("references", []) or []:
         url = (ref or {}).get("url", (ref or {}).get("doc_id", ""))
+        if isinstance(url, str) and url.startswith("user://context/") and crit.get("state") in ("covered", "partial"):
+            out.append("(premissa de contexto)")
+            continue
         key, num = _lookup_number(url, numbers)
         if num is not None:
             cited.add(key)
@@ -1657,8 +1696,10 @@ def _template_section(state: dict, labels: dict, numbers: dict,
                 if _o not in _expl:
                     _expl.append(_o)
         if _expl:
-            lines.append(f"- Explorados fora da seleção (não contam na "
-                         f"comparação): {', '.join(_expl)}")
+            shown = ", ".join(_expl[:3])
+            more = f" e mais {len(_expl) - 3}" if len(_expl) > 3 else ""
+            lines.append(f"- Alternativas fora da seleção (investigação variável): "
+                         f"{shown}{more}; detalhes no anexo técnico.")
         lines.append("")
         lines.append("### Diferenças e combinações")
         _comb = _combination_premises(state, synthesis)
@@ -1793,6 +1834,12 @@ def render_technical_annex(state: dict,
     """
     labels = _labels(language)
     lines = _annex_section(state, labels, verifications, verbose, cited)
+    alternatives = [str(e.get("label") or e.get("id"))
+                    for e in ((state.get("plan") or {}).get("entities") or [])
+                    if isinstance(e, dict) and e.get("required", True) is False]
+    if alternatives:
+        lines.extend(["", "### Alternativas registradas fora da seleção", ""])
+        lines.extend(f"- {label}" for label in alternatives)
     lines.append("")
     lines.extend(_closure_section(state, labels, verbose))
     return "\n".join(lines)
@@ -1964,6 +2011,7 @@ def render_report(state: dict, *, synthesis_text: str,
     if (state.get("user_context") or {}).get("origin") == "harness":
         result = re.sub(r"(?i)vers[aã]o instalada informada pelo usu[aá]rio",
                         "versão de referência da premissa controlada", result)
+        result = _controlled_version_text(state, result)
         for fact in ((state.get("user_context") or {}).get("facts") or {}).values():
             value = str(fact or "")
             if value:

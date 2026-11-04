@@ -37,6 +37,29 @@ def save(path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n")
 
 
+class RecordedAuditReplies:
+    """Replay recorded live votes only for byte-identical, unused prompts."""
+
+    def __init__(self, directory):
+        directory = Path(directory)
+        calls = json.loads((directory / "model-calls.json").read_text())
+        self._entries = []
+        for call in calls:
+            index = call.get("index", 0)
+            if index < 4 or call.get("mode") != "live" or call.get("outcome") != "returned":
+                continue
+            prompt = (directory / f"model-{index:02d}-prompt.txt").read_text()
+            answer = (directory / f"model-{index:02d}-answer.txt").read_text()
+            self._entries.append((prompt, answer))
+
+    def take(self, prompt):
+        for index, (recorded, answer) in enumerate(self._entries):
+            if recorded == prompt:
+                self._entries.pop(index)
+                return answer
+        raise ValueError("no unused recorded live audit reply for this exact prompt")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source-dir", type=Path, required=True)
@@ -48,6 +71,8 @@ def main():
                    help="Reuse recorded assessor answers only when current prompts match byte for byte")
     p.add_argument("--writer-replay-from", type=Path,
                    help="Reuse the recorded writer answer only when its prompt matches byte for byte")
+    p.add_argument("--audit-replay-from", type=Path,
+                   help="Reuse each recorded live audit reply once, only for byte-identical prompts")
     args = p.parse_args()
     source, out = args.source_dir.resolve(), args.output_dir.resolve()
     if source == out or source in out.parents or out.exists():
@@ -70,7 +95,9 @@ def main():
         "code_head": head, "inherited_evaluations": len(st["evaluations"]),
         "original_consumption": original["consumption"],
         "description": "material do accept43; nenhuma nova busca/coleta; "
-                       + ("assessor reaplicado com prompts idênticos; escrita reaplicada com prompt igual exceto o ID do run; votos novos reais."
+                       + ("assessor e votos reaplicados com prompts idênticos; escrita reaplicada com prompt igual exceto o ID do run."
+                          if args.model and args.assessment_replay_from and args.writer_replay_from and args.audit_replay_from else
+                          "assessor reaplicado com prompts idênticos; escrita reaplicada com prompt igual exceto o ID do run; votos novos reais."
                           if args.model and args.assessment_replay_from and args.writer_replay_from else
                           "assessor reaplicado de chamada real com prompt idêntico; escrita e votos novos reais."
                           if args.model and args.assessment_replay_from else
@@ -124,6 +151,7 @@ def main():
         calls = []
         generator_lock = threading.Lock()
         replay_index = 0
+        recorded_audit = RecordedAuditReplies(args.audit_replay_from) if args.audit_replay_from else None
         def client(prompt):
             nonlocal replay_index
             # The CLI is a shared host integration. This harness serializes
@@ -154,7 +182,11 @@ def main():
                         answer = prior.with_name("model-03-answer.txt").read_text()
                         mode = "writer_replay_same_prompt_except_run_id"
                     else:
-                        answer = transport(prompt)
+                        if recorded_audit is not None:
+                            answer = recorded_audit.take(prompt)
+                            mode = "audit_replay_exact_prompt"
+                        else:
+                            answer = transport(prompt)
                 except Exception as exc:
                     calls.append({"index": index, "mode": mode, "outcome": "failed", "error": str(exc)[:300]})
                     save(out / "model-calls.json", calls)
@@ -181,6 +213,9 @@ def main():
                   "detail": "reprodução delimitada do corpus; sem nova coleta"}
     budget = run_budget.Budget(resolved["budget"], profile="medium")
     result = ac._finalize(st, resolved, budget, led.compute(), writer, audit, started, time.monotonic, out)
+    if (args.assessment_replay_from or args.writer_replay_from or args.audit_replay_from) and args.model:
+        if any(call.get("outcome") != "returned" for call in calls):
+            raise RuntimeError("replay failed: generated fallback is not a verified reproduction")
     save(out / "result.json", result)
     save(out / "reproduction.json", {**st["reproduction"], "module_hashes": before,
         "module_hashes_unchanged": before == run_manifest.module_hashes(),
@@ -189,6 +224,7 @@ def main():
         "actual_generator_calls": transport.calls if args.model else 0,
         "assessor_replay_from": str(args.assessment_replay_from) if args.assessment_replay_from else None,
         "writer_replay_from": str(args.writer_replay_from) if args.writer_replay_from else None,
+        "audit_replay_from": str(args.audit_replay_from) if args.audit_replay_from else None,
         "generator_concurrency": 1,
         "tokens": "unknown", "cost_usd": "unknown"})
     # Version/hash the actual delivered text after render and verification.

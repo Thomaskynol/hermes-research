@@ -59,6 +59,53 @@ def state():
 
 
 class ScopeAndSelection(unittest.TestCase):
+    def test_examined_scope_excludes_nonselected_candidates(self):
+        st=state()
+        scope=ac._criterion_scope(st, st["plan"]["criteria"][1])
+        self.assertIn("River Review",scope)
+        self.assertIn("River Plan",scope)
+        self.assertNotIn("Old Tool",scope)
+
+    def test_unselected_alternatives_do_not_claim_every_one_was_investigated(self):
+        st=state()
+        for i in range(8):
+            st["plan"]["entities"].append({"id":f"x{i}","label":f"Alternative {i}","required":False})
+        out=rr.render_report(st,synthesis_text="Resumo.",include_annex=False)
+        alternatives=[x for x in out.splitlines() if "Alternativas fora da seleção" in x]
+        self.assertTrue(alternatives)
+        line=alternatives[0]
+        self.assertIn("investigação variável",line)
+        self.assertNotIn("Explorados fora da seleção",line)
+        self.assertIn("anexo técnico",line)
+        self.assertIn("Alternative 7",rr.render_technical_annex(st))
+
+    def test_discovery_global_cell_reflects_selected_investigated_candidates(self):
+        st=state();st["plan"]["criteria"].append({"id":"discover","label":"Identificar candidatos",
+                "required":True,"description":"Identificar candidatos com fonte funcional."})
+        st["assessments"]=[{"excerpts":{A:st["evidence"][A], B:st["evidence"][B]}}]
+        st["evaluations"]=[
+            {"criterion_id":"review","entity_id":"a","state":"covered","justification":"automated code review",
+             "origin":"assessor","references":[{"url":A}]},
+            {"criterion_id":"review","entity_id":"b","state":"partial","justification":"documented plan review",
+             "origin":"assessor","references":[{"url":B}]},
+        ]
+        led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        for ev in st["evaluations"]:
+            led.evaluate(ev["criterion_id"],ev["state"],ev["justification"],ev["origin"],ev["references"],ev["entity_id"])
+        self.assertTrue(ac._reconcile_discovery_coverage(st,led))
+        self.assertEqual(led.state_of("discover"),"partial")
+        self.assertEqual({r["url"] for r in led._evals[("discover",None)]["references"]},{A,B})
+
+    def test_discovery_does_not_count_uninvestigated_or_unidentified_candidate(self):
+        st=state();st["plan"]["criteria"].append({"id":"discover","label":"Identificar candidatos",
+                "required":True,"description":"Identificar candidatos com fonte funcional."})
+        st["assessments"]=[{"excerpts":{A:st["evidence"][A]}}]
+        st["evaluations"]=[{"criterion_id":"review","entity_id":"a","state":"covered",
+            "justification":"automated code review","origin":"assessor","references":[{"url":A}]}]
+        led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        self.assertFalse(ac._reconcile_discovery_coverage(st,led))
+        self.assertEqual(led.state_of("discover"),"uninvestigated")
+
     def test_na_needs_scope_exclusion_not_just_an_unrelated_function(self):
         st = state()
         st["plan"]["criteria"][1]["label"] = "Testing"
@@ -155,6 +202,15 @@ class ScopeAndSelection(unittest.TestCase):
         self.assertEqual(led.state_of("combo"),"uninvestigated")
         self.assertEqual(led.state_of("overlap"),"partial")
 
+    def test_complementarity_without_overlap_is_promoted_to_combinations(self):
+        st=state();st["plan"]["criteria"].append({"id":"overlap","label":"Funções sobrepostas","required":True,"description":"Comparar funções iguais."})
+        led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        decl={"sentence":"INFERÊNCIA de complementaridade prudente: River Review e River Plan ajudam em funções distintas, sem sobreposição direta [1][2].",
+              "citations":[1,2],"anchor_ok":True,"scope":"limites explícitos","premise_docs":[A,B]}
+        self.assertTrue(ac._promote_partial_declared(st,led,[decl],{1:A,2:B}))
+        self.assertEqual(led.state_of("combo"),"partial")
+        self.assertEqual(led.state_of("overlap"),"uninvestigated")
+
     def test_unselected_homonym_not_added_to_combination(self):
         st = state();st["plan"]["entities"].append({"id":"z", "label":"Other River Review", "discovered":True, "required":False})
         text = "INFERÊNCIA: River Review (acme) e River Plan se complementam [1][2]."
@@ -180,6 +236,30 @@ class ScopeAndSelection(unittest.TestCase):
         assessor.last_selection={"urls":[B],"excerpts":{B:st["evidence"][B]}}
         ac._assess_round(st,assessor,led)
         self.assertNotIn("não menciona River Review",led.compute()["criteria"][1]["justification"])
+
+    def test_identity_absence_variants_are_reconciled_with_examined_source(self):
+        for assertion in ("Nenhum trecho do material selecionado nomeia River Review (acme) nem mostra planejamento.",
+                          "O material descreve revisão; sem nomeação do candidato e sem planejamento."):
+            with self.subTest(assertion=assertion):
+                st=state();led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+                def assessor(*args):
+                    return [{"criterion_id":"review","entity_id":"a","state":"insufficient",
+                             "origin":"assessor","references":[],"justification":assertion}]
+                assessor.last_selection={"urls":[A],"excerpts":{A:st["evidence"][A]}}
+                ac._assess_round(st,assessor,led)
+                just=led.compute()["criteria"][1]["justification"]
+                self.assertIn("identifica a entidade",just)
+                self.assertNotIn("sem nomeação",just)
+
+    def test_absent_criterion_is_not_confused_with_absent_identity(self):
+        st=state();led=cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
+        original="O material não menciona requisito de versão de River Review (acme)."
+        def assessor(*args):
+            return [{"criterion_id":"review","entity_id":"a","state":"insufficient",
+                     "origin":"assessor","references":[],"justification":original}]
+        assessor.last_selection={"urls":[A],"excerpts":{A:st["evidence"][A]}}
+        ac._assess_round(st,assessor,led)
+        self.assertEqual(led.compute()["criteria"][1]["justification"], original)
 
     def test_equal_state_catalog_update_cannot_replace_primary_justification(self):
         st = state(); led = cl.Ledger(st["plan"]);led.set_corpus(st["evidence"],st["qualification"])
@@ -341,6 +421,47 @@ class Identity(unittest.TestCase):
 
 
 class Audit(unittest.TestCase):
+    def test_inference_names_three_candidates_but_misses_one_source(self):
+        st=state(); c="https://github.com/team/river-deploy"
+        st["plan"]["entities"].append({"id":"c","label":"River Deploy","source_url":c,"required":True,"discovered":True})
+        st["evidence"][c]="# River Deploy\nRiver Deploy deploys packages."
+        text=("INFERÊNCIA prudente: River Review (acme) revisa código, River Plan revisa planos e "
+              "River Deploy implanta pacotes [1][2].")
+        r=vr.check_support(text,{A:1,B:2,c:3},st["evidence"],st["plan"])
+        self.assertTrue(any("River Deploy" in x["missing_entities"] for x in r.get("missing_entity_sources",[])),r)
+        self.assertEqual(r["status"],"partial")
+
+    def test_inference_with_each_entity_sourced_does_not_report_missing_identity(self):
+        st=state();text=("INFERÊNCIA de complementaridade prudente: River Review (acme) performs automated code review and "
+                         "River Plan has interactive questions, sem prova de integração testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertEqual(r.get("missing_entity_sources",[]),[])
+        self.assertTrue(r["partial_declared"])
+
+    def test_decorated_homonym_is_not_attributed_to_selected_project(self):
+        st=state();fork="https://github.com/other/river-review"
+        st["plan"]["entities"].append({"id":"fork","label":"River Review (other)",
+                                        "source_url":fork,"required":False,"discovered":True})
+        text=("INFERÊNCIA de complementaridade prudente: River Review (other) performs automated code review and "
+              "River Plan has interactive questions, sem prova de integração testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertFalse(r["partial_declared"],r)
+
+    def test_named_source_premises_ground_prudent_complementarity(self):
+        st=state()
+        text=("INFERÊNCIA de complementaridade prudente: River Review (acme) performs automated code review and "
+              "River Plan has interactive questions, sem prova de integração testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertTrue(r["partial_declared"],r)
+        self.assertFalse(any("integração testada (interoperabilidade citada)" in x["scope"] for x in r["declared_inference"]))
+
+    def test_named_source_premises_cannot_hide_a_fabricated_feature(self):
+        st=state()
+        text=("INFERÊNCIA de complementaridade prudente: River Review (acme) performs automated code review and "
+              "River Plan has nuclear reactors, sem prova de integração testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertFalse(r["partial_declared"],r)
+
     def test_multi_source_enumeration_produces_one_claim_per_candidate(self):
         text=(f"Seleção: River Review usa revisão ({A}); River Plan usa planejamento ({B}).")
         claims=sr.extract_claims(text,{A:"River Review performs review.",B:"River Plan helps planning."},generic=True)
@@ -426,6 +547,24 @@ class Audit(unittest.TestCase):
 
 
 class Topic(unittest.TestCase):
+    def test_audit_replay_requires_identical_prompts_and_consumes_each_vote_once(self):
+        from scripts.reproduce_frozen_report import RecordedAuditReplies
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            for i, answer in ((4,"first vote"),(5,"second vote")):
+                (base / f"model-{i:02d}-prompt.txt").write_text("same prompt")
+                (base / f"model-{i:02d}-answer.txt").write_text(answer)
+            (base / "model-calls.json").write_text(json.dumps([
+                {"index":4,"mode":"live","outcome":"returned"},
+                {"index":5,"mode":"live","outcome":"returned"}]))
+            replay = RecordedAuditReplies(base)
+            self.assertEqual(replay.take("same prompt"), "first vote")
+            self.assertEqual(replay.take("same prompt"), "second vote")
+            with self.assertRaises(ValueError):
+                replay.take("same prompt")
+            with self.assertRaises(ValueError):
+                replay.take("changed prompt")
+
     def test_assessor_prompt_retains_harness_context_origin(self):
         st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
         led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
@@ -519,6 +658,34 @@ class Topic(unittest.TestCase):
         self.assertNotIn("2.1.4 informada pelo usuário", out)
         self.assertIn("2.1.4 da premissa controlada", out)
 
+    def test_heading_refers_to_controlled_version_only_when_its_section_does(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        st["environment_observations"] = [{"command":"tool --version", "value":"2.2.5"}]
+        text = ("## Compatibilidade com versão instalada\n\nComparação com 2.1.4.\n\n"
+                "## Versão instalada no ambiente\n\nO comando retornou 2.2.5.")
+        out = rr.render_report(st, synthesis_text=text)
+        self.assertIn("Compatibilidade com versão de referência", out)
+        self.assertIn("Versão instalada no ambiente", out)
+
+    def test_controlled_version_is_not_called_installed_in_a_ledger_finding(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        st["plan"]["criteria"][0]["label"] = "Versão instalada do RiverHost considerada"
+        st["environment_observations"] = [{"command":"tool --version", "value":"2.2.5"}]
+        ac._inject_user_fact(st, "installed_version", "2.1.4")
+        led = cl.Ledger(st["plan"]); led.set_corpus(st["evidence"], st["qualification"])
+        led.evaluate("version", "partial", "A versão instalada do RiverHost (2.1.4) vem do contexto controlado.",
+                     "harness", [{"url":"user://context/installed_version"}])
+        st["question_coverage"] = led.compute()
+        out = rr.render_report(st, synthesis_text="A versão instalada 2.2.5 foi observada; a referência é 2.1.4.")
+        self.assertNotIn("versão instalada do RiverHost (2.1.4)", out)
+        self.assertIn("versão de referência do RiverHost (2.1.4)", out)
+        self.assertIn("versão instalada 2.2.5", out)
+        self.assertNotIn("não investigado: user://context/", out)
+        self.assertIn("premissa de contexto", out)
+        criterion_line = next(line for line in out.splitlines() if line.startswith("- **Versão"))
+        self.assertIn("**Versão instalada do RiverHost considerada**", criterion_line)
+        self.assertIn("versão de referência do RiverHost (2.1.4)", criterion_line)
+
     def test_obtained_but_unselected_documents_are_not_called_outside_corpus(self):
         st = state(); st["report"] = {"selection":{"included_urls":[A]}}
         for url in (A,B):
@@ -568,6 +735,8 @@ class IntegratedEntry(unittest.TestCase):
         st = state(); p = st["plan"];p["initial_paths"] = ["RiverHost extensions"]
         p["entities"] = p["entities"][:3]
         p["criteria"][1]["applies_to"] = ["a", "b"]
+        p["criteria"].append({"id":"discover","label":"Identificar candidatos", "required":True,
+                              "description":"Identificar candidatos com fonte funcional."})
         def model(prompt):
             if prompt.startswith("Você avalia evidências"):
                 return json.dumps([
@@ -599,7 +768,9 @@ class IntegratedEntry(unittest.TestCase):
             self.assertTrue((Path(tmp) / "verification.json").is_file())
             saved = json.loads((Path(tmp) / "state.json").read_text())
             self.assertEqual(saved["user_context"]["origin"], "harness")
-            self.assertEqual(saved["question_coverage"]["denominator"], 4)
+            self.assertEqual(saved["question_coverage"]["denominator"], 5)
+            discover = next(c for c in saved["question_coverage"]["criteria"] if c["id"] == "discover")
+            self.assertEqual(discover["state"], "partial")
             with self.assertRaisesRegex(ValueError, "cannot mix context origins"):
                 entry.adaptive_entry(question=st["question"], run_dir=tmp, run_id=result["run_id"],
                                      resume=True, user_context={"other":"value"},

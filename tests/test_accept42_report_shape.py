@@ -92,8 +92,9 @@ class TemplateWriterTest(unittest.TestCase):
         self.assertNotIn("Gama", "\n".join(header),
                          "não-exigido virou coluna da matriz")
         explorados = [ln for ln in principal.split("\n")
-                      if "Explorados fora da seleção" in ln]
-        self.assertTrue(explorados and "Gama" in explorados[0],
+                      if "Alternativas fora da seleção" in ln]
+        self.assertTrue(explorados and "Gama" in explorados[0]
+                        and "investigação variável" in explorados[0],
                         "não-exigido fora da matriz sem rótulo")
         self.assertIn("### Resposta direta", principal)
         bloco = principal.split("### Resposta direta")[1]

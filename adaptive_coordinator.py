@@ -2249,7 +2249,9 @@ def _criterion_scope(state: dict, crit: dict) -> str:
         req = [e for e in (plan.get("entities") or [])
                if isinstance(e, dict) and e.get("required", True)]
         eids = [eid for eid in applies
-                if eid is None or (isinstance(eid, str) and eid in emap)]
+                if eid is None or (isinstance(eid, str) and eid in emap
+                                   and (not crit.get("per_candidate")
+                                        or emap[eid].get("required", True)))]
         if not eids:
             eids = [e.get("id") for e in req]
         evidence = state.get("evidence") or {}
@@ -4889,6 +4891,9 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "desenvolvimento desse projeto, não prova que ele ajude o usuário "
             "a testar outro código; quando o excerto contiver esse comando, "
             "não afirme que ele não menciona execução de testes. "
+            "Não atribua a uma função mecanismos ou etapas de outra função "
+            "sem trecho que documente esse vínculo; apresente as funções "
+            "separadamente quando a ligação não estiver demonstrada. "
             "Contexto de versão/plataforma não é candidato. Não repita o plano inteiro "
             "nem instruções internas do agente; escreva uma comparação útil e concisa. "
             "Estruture por critérios, cite URLs, marque lacunas e contradições; "
@@ -4899,6 +4904,9 @@ def make_model_writer(model_client, max_chars: int = 12000):
             "cite APENAS o(s) documento(s) que contêm a entidade e o fato "
             "afirmado: cada número citado na mesma frase deve resolver para "
             "um documento que menciona a entidade nomeada na frase; nunca "
+            "em inferência com várias entidades, cite uma fonte de cada "
+            "entidade na mesma frase; se faltar, não atribua a ela uma "
+            "premissa e declare a lacuna separadamente; nunca "
             "empilhe citações quando só um dos documentos trata da entidade; "
             "INFERÊNCIA/LACUNA marcada exige premissa verificável: cite os "
             "documentos da entidade consultados que sustentam a premissa "
@@ -5140,6 +5148,83 @@ def _context_evaluation_origin(state: dict, ev: dict) -> dict:
     text = re.sub(r"(?i)premissa do usu[aá]rio", "premissa controlada do experimento", text)
     out["justification"] = text
     return out
+
+
+def _claims_identity_absence(justification: str, entity: dict) -> bool:
+    """Detect absence of the entity's name, not absence of a criterion fact."""
+    from entity_identity import normalized
+    text = normalized(justification)
+    name = normalized(re.sub(r"\([^)]*\)", "", str(entity.get("label") or "")))
+    if not name:
+        return False
+    target = r"(?:" + re.escape(name) + r"|candidato|entidade|projeto|produto)\b"
+    determiner = r"(?:o |a |os |as )?"
+    direct = (r"\b(?:nao|nunca) (?:menciona|nomeia|identifica|cita) " + determiner + target)
+    none = (r"\bnenhum(?:a)? (?:trecho|excerto|documento|fonte|material)\b.{0,160}?"
+            r"\b(?:menciona|nomeia|identifica|cita) " + determiner + target)
+    no_name = r"\bsem (?:nomeacao|mencao|identificacao|citacao) (?:do |da )?(?:candidato|entidade|projeto|produto)\b"
+    return bool(re.search(direct, text) or re.search(none, text) or re.search(no_name, text))
+
+
+def _reconcile_discovery_coverage(state: dict, ledger) -> bool:
+    """Record selected, investigated candidates as partial discovery evidence."""
+    from entity_identity import comparison_entities, normalized
+    plan = state.get("plan") or {}
+    if not (plan.get("open_discovery") or {}).get("needed"):
+        return False
+    target = plan.get("candidate_target")
+    candidates = comparison_entities(plan)
+    if not isinstance(target, int) or target <= 0 or len(candidates) != target:
+        return False
+    if any(not e.get("discovered") for e in candidates):
+        return False
+    excerpts = {}
+    for assessment in state.get("assessments") or []:
+        excerpts.update(assessment.get("excerpts") or {})
+    criteria = {c.get("id"): c for c in plan.get("criteria") or []}
+    refs = []
+    for entity in candidates:
+        chosen = None
+        for ev in state.get("evaluations") or []:
+            crit = criteria.get(ev.get("criterion_id")) or {}
+            label = normalized(crit.get("label") or "")
+            if (ev.get("entity_id") != entity.get("id") or ev.get("state") not in ("covered", "partial")
+                    or not crit.get("per_candidate") or any(w in label for w in
+                    ("custo", "licenc", "depend", "compat", "versao", "manutenc", "limit", "price", "cost"))):
+                continue
+            for ref in ev.get("references") or []:
+                url = ref.get("url", ref.get("doc_id", "")) if isinstance(ref, dict) else ""
+                if (url in excerpts and ledger._resolves(ref)[0]
+                        and _source_quality(state, entity, url)[0]
+                        and _identity_matches(entity, excerpts[url], source_url=url)):
+                    chosen = url
+                    break
+            if chosen:
+                break
+        if not chosen:
+            return False
+        refs.append({"url": chosen})
+    if len({r["url"] for r in refs}) != target:
+        return False
+    changed = False
+    for crit in criteria.values():
+        label = normalized(crit.get("label") or "")
+        if (crit.get("applies_to") or crit.get("per_candidate")
+                or not re.match(r"^(?:identificar|descobrir|identify|discover)\b", label)
+                or not re.search(r"\b(?:candidato|candidatos|candidate|candidates|opcoes|options)\b", label)
+                or ledger.state_of(crit["id"]) not in ("uninvestigated", "insufficient", "partial")):
+            continue
+        just = (f"{target} candidatos selecionados foram identificados nos excertos "
+                "e têm avaliação funcional vinculada às fontes citadas; isso não "
+                "demonstra completude dos demais critérios.")
+        # A list of substantiated candidates proves identification, not any
+        # broader search, selection or completeness requirement in the axis.
+        ev = ledger.evaluate(crit["id"], "partial", just, "assessor-reconciliation", refs)
+        state["evaluations"] = [e for e in state.get("evaluations") or []
+                                if not (e.get("criterion_id") == crit["id"] and e.get("entity_id") is None)]
+        state["evaluations"].append(ev)
+        changed = True
+    return changed
 
 
 def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
@@ -5470,13 +5555,14 @@ def _assess_round(state: dict, assess_fn, ledger, resolved: dict | None = None
                             ev["references"] = _kept
             except Exception:
                 pass
-        if st == "insufficient" and ev.get("entity_id") and re.search(r"n[aã]o menciona", str(ev.get("justification") or ""), re.I):
+        if st == "insufficient" and ev.get("entity_id"):
             ent = next((e for e in (state.get("plan") or {}).get("entities", []) if e.get("id") == ev.get("entity_id")), {})
             selection = getattr(assess_fn, "last_selection", None) or {}
             excerpts = dict(selection.get("excerpts") or {})
             for previous in state.get("assessments") or []:
                 excerpts.update(previous.get("excerpts") or {})
-            if any(_identity_matches(ent, body, source_url=url) for url, body in excerpts.items()):
+            if (_claims_identity_absence(str(ev.get("justification") or ""), ent)
+                    and any(_identity_matches(ent, body, source_url=url) for url, body in excerpts.items())):
                 state.setdefault("historical_evaluations", []).append({"evaluation": dict(ev), "reason": "entity named in examined excerpt"})
                 ev = dict(ev)
                 ev["justification"] = "O excerto examinado identifica a entidade, mas não estabeleceu evidência suficiente para este critério."
@@ -8411,7 +8497,10 @@ def _promote_partial_declared(state: dict, ledger,
                         return False
                 from entity_identity import normalized
                 sentence = normalized(decl.get("sentence") or "")
-                overlap = any(w in sentence for w in ("sobrepos", "overlap"))
+                positive_overlap = re.sub(
+                    r"\b(?:sem|nenhuma?|nao ha|ausencia de|without|no)\s+(?:sobrepos\w*|overlap\w*)",
+                    "", sentence)
+                overlap = any(w in positive_overlap for w in ("sobrepos", "overlap"))
                 relation = any(w in sentence for w in ("combin", "complement", "integra"))
                 matches = []
                 for c in targets:
@@ -8489,6 +8578,19 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
     Tokens/costs come from real data only, else 'unknown'."""
     if block is None:
         block = _ledger.empty_question_coverage(state["run_id"])
+    try:
+        _discovery_ledger = _ledger.Ledger(state.get("plan") or {}, run_id=state.get("run_id"))
+        _discovery_ledger.set_corpus(dict(state.get("evidence") or {}),
+                                    dict(state.get("qualification") or {}))
+        for _prev in state.get("evaluations") or []:
+            _discovery_ledger.evaluate(_prev["criterion_id"], _prev.get("state", ""),
+                _prev.get("justification", ""), _prev.get("origin", ""),
+                _prev.get("references", []), _prev.get("entity_id"))
+        if _reconcile_discovery_coverage(state, _discovery_ledger):
+            block = _discovery_ledger.compute()
+            state["question_coverage"] = block
+    except (ValueError, KeyError) as exc:
+        state.setdefault("notes", []).append(f"discovery reconciliation skipped: {exc}")
     try:
         _elapsed = round(now() - t_start, 3)
     except Exception:
