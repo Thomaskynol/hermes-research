@@ -65,6 +65,7 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "testes": ("test", "tests", "testing"),
     "teste": ("test", "tests"),
     "revisao": ("review",),
+    "revisor": ("review", "reviewer"),
     "revisa": ("review",), "planos": ("plans", "plan"),
     "codigo": ("code",), "perguntas": ("questions",),
     "interativas": ("interactive",),
@@ -90,8 +91,11 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "ignora": ("ignore", "ignoring"),
     "instala": ("install",),
     "instalacao": ("install", "installation"),
+    "instalador": ("install", "installer"),
     "instalar": ("install",),
     "atualizar": ("update",),
+    "anotacao": ("annotation", "annotate"),
+    "auditoria": ("audit", "review"),
     "exige": ("requires", "require"),
     "exigir": ("require",),
     "descoberta": ("discovery",),
@@ -583,6 +587,8 @@ _POLARITY_NEGATION_MARKERS = (
     "permanece lacuna",
     "sem teste",
     "nao demonstra",
+    "nao testada",
+    "nao testado",
     "desconhecida",
 )
 
@@ -1136,6 +1142,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     user_premises: list[dict] = []
     unsupported: list[dict] = []
     missing_entity_sources: list[dict] = []
+    inferred_comparisons: list[dict] = []
     # B2: unidades por bullet/linha, não por blob multi-bullet. O split
     # antigo (re.split sobre o texto inteiro) juntava bullets sem
     # pontuação terminal num único "sentence", diluindo a trava de
@@ -1180,6 +1187,37 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 named = _strict
         except Exception:
             pass
+        named_selected = []
+        missing_named = []
+        comparison = _norm_mention(sentence)
+        if _has_inference_marker(sentence) or any(w in comparison for w in
+                ("sobrepos", "overlap", "combin", "complement", "integra")):
+            for entry in entities:
+                _, label, eid = entry
+                if not (entity_map.get(eid) or {}).get("required", True):
+                    continue
+                full = _norm_mention(label)
+                base = _norm_mention(re.sub(r"\([^)]*\)", "", str(label or "")))
+                forms = [full] + ([base] if alias_counts.get(base) == 1 else [])
+                if any(form and re.search(r"(?:^| )" + re.escape(form) + r"(?:$| )", comparison)
+                       for form in forms):
+                    named_selected.append(entry)
+            if len(named_selected) >= 2:
+                for entry in named_selected:
+                    if not any((url := n_to_url.get(n)) and (doc := _doc_for(url))
+                               and _entity_mentioned(entry[1], entry[2], doc) for n in citations):
+                        missing_named.append(str(entry[1]))
+            if missing_named:
+                missing_entity_sources.append({"sentence": sentence, "citations": citations,
+                                               "missing_entities": missing_named})
+            if (len(named_selected) >= 2 and not _has_inference_marker(sentence)
+                    and any(w in comparison for w in ("sobrepos", "overlap", "combin", "complement"))
+                    and not any((url := n_to_url.get(n)) and (doc := _doc_for(url))
+                                and all(_entity_mentioned(e[1], e[2], doc) for e in named_selected)
+                                for n in citations)):
+                inferred_comparisons.append({"sentence": sentence, "citations": citations})
+            if _has_inference_marker(sentence) and len(named_selected) == 2:
+                _strict = named_selected
         # Fato do usuario como premissa explicita (sem numero de corpus,
         # nunca LACUNA automatica): isenta o gate de versao da versao
         # vinda do contexto e audita a premissa da entidade.
@@ -1322,31 +1360,6 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         # exige citacao de interoperabilidade para supported, senao
         # LACUNA explicita (complementaridade plausivel != integracao).
         if _has_inference_marker(sentence):
-            # Every selected entity named in a joint inference needs an
-            # identified cited source of its own; one source cannot silently
-            # supply a third project's premise. Ambiguous undecorated aliases
-            # are not guessed.
-            named_selected = []
-            normalized_sentence = _norm_mention(sentence)
-            for entry in entities:
-                _, label, eid = entry
-                if not (entity_map.get(eid) or {}).get("required", True):
-                    continue
-                full = _norm_mention(label)
-                base = _norm_mention(re.sub(r"\([^)]*\)", "", str(label or "")))
-                forms = [full] + ([base] if alias_counts.get(base) == 1 else [])
-                if any(form and re.search(r"(?:^| )" + re.escape(form) + r"(?:$| )", normalized_sentence)
-                       for form in forms):
-                    named_selected.append(entry)
-            missing_named = []
-            if len(named_selected) >= 2:
-                for entry in named_selected:
-                    if not any((url := n_to_url.get(n)) and (doc := _doc_for(url))
-                               and _entity_mentioned(entry[1], entry[2], doc) for n in citations):
-                        missing_named.append(str(entry[1]))
-            if missing_named:
-                missing_entity_sources.append({"sentence": sentence, "citations": citations,
-                                               "missing_entities": missing_named})
             _anchor, _relation = _split_inference(sentence)
             _anchor_toks = set(_content_tokens(_anchor))
             _rel_toks = set(_content_tokens(_relation))
@@ -1412,15 +1425,23 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             if (not grounded_pair and len(_strict) == 2 and len(_std_docs) >= 2
                     and _has_polarity_ceiling(sentence)
                     and re.search(r"(?i)complement|combin", sentence)):
-                spans = [(re.search(re.escape(str(e[1])), sentence, re.I), e) for e in _strict]
+                spans = []
+                for entry in _strict:
+                    full = str(entry[1] or "")
+                    base = re.sub(r"\([^)]*\)", "", full).strip()
+                    match = re.search(re.escape(full), sentence, re.I)
+                    if not match and alias_counts.get(_norm_mention(base)) == 1:
+                        match = re.search(re.escape(base), sentence, re.I)
+                    spans.append((match, entry))
                 if all(m for m, _ in spans):
                     spans.sort(key=lambda item: item[0].start())
                     (first, e1), (second, e2) = spans
                     clauses = [sentence[first.end():second.start()],
-                               re.split(r"[,;.]", sentence[second.end():], maxsplit=1)[0]]
+                               re.split(r"[,;.:]", sentence[second.end():], maxsplit=1)[0]]
                     found_urls = []
                     glue = {"ajuda", "helps", "help", "contribui", "contributes", "permite", "allows",
-                            "estruturar", "structure", "organizar", "organize"}
+                            "estruturar", "structure", "organizar", "organize",
+                            "visibilidade", "elicitação", "elicitacao", "posterior"}
                     for entry, clause in zip((e1, e2), clauses):
                         if re.search(r"(?i)\b(?:não|nao|sem|not|never)\b", clause):
                             found_urls.append(None)
@@ -1657,7 +1678,8 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     else:
         status = "ok"
     if (missing_entity_sources and status == "failed" and unsupported
-            and all(str(item.get("reason") or "").startswith("inferência") for item in unsupported)):
+            and all(str(item.get("reason") or "").startswith("inferência")
+                    or item.get("reason") == "entidade não mencionada no doc" for item in unsupported)):
         status = "partial"  # incomplete attribution is not factual disproof
     elif missing_entity_sources and status == "ok":
         status = "partial"
@@ -1705,6 +1727,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             "declared": declared, "declared_inference": declared_inference,
             "partial_declared": partial_declared,
             "missing_entity_sources": missing_entity_sources,
+            "inferred_comparisons": inferred_comparisons,
             "user_premises": user_premises, "audit_window": _audit_window}
 
 

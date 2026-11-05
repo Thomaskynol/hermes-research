@@ -8440,6 +8440,7 @@ def _promote_partial_declared(state: dict, ledger,
         if not decls:
             return False
         promoted = False
+        promoted_ids = set()
         for decl in decls:
             try:
                 if not decl.get("anchor_ok"):
@@ -8516,11 +8517,25 @@ def _promote_partial_declared(state: dict, ledger,
                 if not matches:
                     continue
                 crit = matches[0]
+                if crit["id"] in promoted_ids:
+                    continue
                 refs = [{"url": u} for u in urls[:8]]
-                just = (
-                    "INFERÊNCIA de complementaridade promovida pós-audit "
-                    f"({str(decl.get('sentence') or '')[:200]}). "
-                    f"Limites: {scope[:200]}")
+                from entity_identity import comparison_entities
+                all_entities = [e for e in (ledger.plan.get("entities") or []) if isinstance(e, dict)]
+                aliases = [normalized(re.sub(r"\([^)]*\)", "", str(e.get("label") or "")))
+                           for e in all_entities]
+                names = []
+                for entity in comparison_entities(ledger.plan):
+                    label = str(entity.get("label") or "")
+                    alias = normalized(re.sub(r"\([^)]*\)", "", label))
+                    if alias and aliases.count(alias) == 1 and re.search(
+                            r"(?:^| )" + re.escape(alias) + r"(?:$| )", sentence):
+                        names.append(label)
+                subject = (" entre " + " e ".join(names)) if len(names) >= 2 else " entre as funções citadas"
+                relation_name = "Sobreposição" if overlap else "Complementaridade"
+                just = (f"{relation_name} inferida{subject}, a partir das funções "
+                        "documentadas nas fontes citadas; não demonstra integração "
+                        "testada nem ausência de conflitos.")
                 try:
                     ev = ledger.evaluate(
                         crit["id"], "partial", just,
@@ -8528,6 +8543,12 @@ def _promote_partial_declared(state: dict, ledger,
                 except (ValueError, KeyError):
                     continue
                 try:
+                    prior = [e for e in state.get("evaluations") or []
+                             if e.get("criterion_id") == crit["id"] and e.get("entity_id") is None]
+                    for old in prior:
+                        state.setdefault("historical_evaluations", []).append({
+                            "evaluation": dict(old), "reason": "global relation reassessed from synthesis"})
+                    state["evaluations"] = [e for e in state.get("evaluations") or [] if e not in prior]
                     state.setdefault("evaluations", []).append(dict(ev))
                     state.setdefault("notes", []).append(
                         f"partial declarado promovido: {crit['id']} "
@@ -8535,6 +8556,7 @@ def _promote_partial_declared(state: dict, ledger,
                 except Exception:
                     pass
                 promoted = True
+                promoted_ids.add(crit["id"])
             except Exception:
                 continue
         return promoted
@@ -8566,6 +8588,29 @@ def _write_technical_annex(run_dir, state: dict, verification,
         except Exception:
             pass
         return ""
+
+
+def _verify_rendered_support(state: dict, semantic: dict, markdown: str, renderer, verify):
+    """Verify citations and sentence support against the exact rendered text."""
+    support = verify.verify_support(state, markdown, semantic)
+    check = verify.check_support(
+        getattr(renderer.render_report, "last_synthesis", "") or "",
+        getattr(renderer.render_report, "last_numbers", {}) or {},
+        dict(state.get("evidence") or {}), state.get("plan") or {})
+    evidence = support.setdefault("evidence", {})
+    evidence["rendered_sha"] = _content_hash(markdown)
+    evidence["sentence_claims"] = check["claims"]
+    evidence["sentence_supported"] = check["supported"]
+    evidence["sentence_uncited"] = check["uncited"]
+    evidence["sentence_unsupported"] = list(evidence.get("sentence_unsupported") or []) + list(check["unsupported"] or [])
+    evidence["sentence_support"] = check
+    rank = {"not_run": 0, "unknown": 0, "ok": 1, "partial": 2, "failed": 3}
+    new = check.get("status")
+    if rank.get(new, 0) > rank.get(support.get("status", "not_run"), 0):
+        support["status"] = "not_run" if new == "unknown" else new
+    if new in ("failed", "partial"):
+        support.setdefault("notes", []).append(f"support: {check.get('detail')}")
+    return support, check
 
 
 def _finalize(state: dict, resolved: dict, budget, block: dict | None,
@@ -8822,35 +8867,8 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         _counters.record_cited_urls(state, cited_urls)
         # Re-run support against the DELIVERED markdown (references were
         # renumbered/removed), keeping the other dimensions intact.
-        verification["dimensions"]["support"] = _verify.verify_support(
-            state, report_markdown, semantic)
-        # Sentence-level support audit of the DELIVERED text (audit only:
-        # never rewrites the synthesis, never touches question coverage).
-        _check = _verify.check_support(
-            getattr(_renderer.render_report, "last_synthesis", "") or "",
-            getattr(_renderer.render_report, "last_numbers", {}) or {},
-            dict(state.get("evidence") or {}),
-            state.get("plan") or {})
-        _support = verification["dimensions"].get("support")
-        if isinstance(_support, dict):
-            _ev = _support.setdefault("evidence", {})
-            _ev["sentence_claims"] = _check["claims"]
-            _ev["sentence_supported"] = _check["supported"]
-            _ev["sentence_uncited"] = _check["uncited"]
-            _ev["sentence_unsupported"] = list(
-                _ev.get("sentence_unsupported") or []) + list(
-                _check["unsupported"] or [])
-            _ev["sentence_support"] = _check
-            _rank = {"not_run": 0, "unknown": 0, "ok": 1,
-                     "partial": 2, "failed": 3}
-            _new = _check.get("status")
-            if _rank.get(_new, 0) > _rank.get(
-                    _support.get("status", "not_run"), 0):
-                _support["status"] = ("not_run" if _new == "unknown"
-                                      else _new)
-            if _new in ("failed", "partial"):
-                _support.setdefault("notes", []).append(
-                    f"support: {_check.get('detail')}")
+        verification["dimensions"]["support"], _check = _verify_rendered_support(
+            state, semantic, report_markdown, _renderer, _verify)
         # Pós-audit: partial declarado (anchor_ok, citado, com limites)
         # vira partial no ledger com refs premise-docs (nunca covered).
         try:
@@ -8886,8 +8904,8 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         except Exception as _exc:
             state.setdefault("notes", []).append(
                 f"partial declarado promotion skipped: {_exc}")
-        verification["overall"] = _verify.aggregate(
-            verification["dimensions"])
+        verification["dimensions"]["question"] = _verify.verify_question(state)
+        verification["overall"] = _verify.aggregate(verification["dimensions"])
         state["verification"] = verification
         # v2-2 two-pass: o §8 foi renderizado com a verificação prévia
         # (support ainda não re-auditado no markdown entregue) — re-render
@@ -8895,15 +8913,24 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         # efetivamente concluída (mesma síntese/números, sem snapshot
         # pré-delivery). Idempotente: tighten/outside dedupados no renderer.
         try:
-            _final_markdown = _renderer.render_report(
-                state, synthesis_text=report_text or "",
-                verifications=verification,
-                quantitative=quantitative_results or None, include_annex=run_dir is None)
-            report_markdown = _final_markdown
-            cited_urls = list(getattr(_renderer.render_report,
-                                      "last_cited_urls", []) or [])
-            _counters.record_cited_urls(state, cited_urls)
-            state["verification"] = verification
+            for _render_attempt in range(3):
+                _prior_overall = verification["overall"]
+                report_markdown = _renderer.render_report(
+                    state, synthesis_text=report_text or "",
+                    verifications=verification,
+                    quantitative=quantitative_results or None, include_annex=run_dir is None)
+                cited_urls = list(getattr(_renderer.render_report,
+                                          "last_cited_urls", []) or [])
+                _counters.record_cited_urls(state, cited_urls)
+                verification["dimensions"]["support"], _final_check = _verify_rendered_support(
+                    state, semantic, report_markdown, _renderer, _verify)
+                verification["dimensions"]["question"] = _verify.verify_question(state)
+                verification["overall"] = _verify.aggregate(verification["dimensions"])
+                state["verification"] = verification
+                if verification["overall"] == _prior_overall:
+                    break
+            else:
+                state["notes"].append("verification/render status did not stabilize within three passes")
         except Exception as exc:
             state["notes"].append(f"report re-render failed: {exc}")
     except Exception as exc:

@@ -383,7 +383,8 @@ def _source_provenance_text(state: dict, synthesis: str) -> str:
                     break
                 section.append(following)
             scope = "\n".join(section)
-            if (any(v in scope for v in controlled_versions)
+            if ((any(v in scope for v in controlled_versions)
+                 or "premissa controlada" in normalized(scope))
                     and not any(v in scope for v in observed_versions - set(controlled_versions))):
                 line = re.sub(r"(?i)vers[aã]o instalada", "versão de referência", line)
                 low = normalized(line)
@@ -1896,6 +1897,20 @@ def render_report(state: dict, *, synthesis_text: str,
             if _note not in _recorded_tight:
                 state.setdefault("notes", []).append(_note)
                 _recorded_tight.add(_note)
+        _scope_check = _verify.check_support(
+            synthesis, numbers, dict(state.get("evidence") or {}), state.get("plan") or {})
+        _comparison_notes = {}
+        for _item in _scope_check.get("missing_entity_sources") or []:
+            _comparison_notes.setdefault(_item["sentence"], []).append(
+                "**Referência pendente:** " + ", ".join(_item.get("missing_entities") or [])
+                + "; a atribuição nessa comparação não foi confirmada.")
+        for _item in _scope_check.get("inferred_comparisons") or []:
+            _comparison_notes.setdefault(_item["sentence"], []).append(
+                "**Escopo da comparação:** a relação comparativa é inferência a partir "
+                "das funções citadas e não demonstra integração testada.")
+        for _sentence, _notes in _comparison_notes.items():
+            if _sentence in synthesis:
+                synthesis = synthesis.replace(_sentence, _sentence + "\n  - " + " ".join(_notes), 1)
     except Exception as exc:
         state.setdefault("notes", []).append(
             f"tighten citations skipped: {exc}")

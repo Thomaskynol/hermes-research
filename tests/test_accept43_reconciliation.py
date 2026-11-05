@@ -4,6 +4,7 @@ The fixtures are deliberately about other subjects too: no plugin/domain
 blacklist, no candidate names chosen by the implementation.
 """
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -201,6 +202,10 @@ class ScopeAndSelection(unittest.TestCase):
         self.assertTrue(ac._promote_partial_declared(st,led,[decl],{1:A,2:B}))
         self.assertEqual(led.state_of("combo"),"uninvestigated")
         self.assertEqual(led.state_of("overlap"),"partial")
+        just=led._evals[("overlap",None)]["justification"].lower()
+        self.assertIn("sobreposição inferida",just)
+        self.assertNotIn("complementaridade promovida",just)
+        self.assertNotIn("pós-audit",just)
 
     def test_complementarity_without_overlap_is_promoted_to_combinations(self):
         st=state();st["plan"]["criteria"].append({"id":"overlap","label":"Funções sobrepostas","required":True,"description":"Comparar funções iguais."})
@@ -431,12 +436,40 @@ class Audit(unittest.TestCase):
         self.assertTrue(any("River Deploy" in x["missing_entities"] for x in r.get("missing_entity_sources",[])),r)
         self.assertEqual(r["status"],"partial")
 
+    def test_unmarked_overlap_cannot_hide_an_unreferenced_candidate(self):
+        st=state(); c="https://github.com/team/river-deploy"
+        st["plan"]["entities"].append({"id":"c","label":"River Deploy","source_url":c,"required":True,"discovered":True})
+        st["evidence"][c]="# River Deploy\nRiver Deploy deploys packages."
+        text=("Sobreposição parcial documentada entre River Review (acme), River Plan e "
+              "River Deploy no eixo revisão [1][2].")
+        r=vr.check_support(text,{A:1,B:2,c:3},st["evidence"],st["plan"])
+        self.assertTrue(any("River Deploy" in x["missing_entities"] for x in r.get("missing_entity_sources",[])),r)
+        self.assertNotEqual(r["status"],"ok")
+        st["qualification"][c]={"status":"usable","excluded":False,"usable_text":st["evidence"][c]}
+        for url in (A,B,c):
+            ac._counters.record_obtained(st,url,st["evidence"][url],st["qualification"][url])
+        source_text=("Sobreposição parcial documentada entre River Review (acme), River Plan e River Deploy no eixo revisão "
+                     f"({A}) ({B}).")
+        out=rr.render_report(st,synthesis_text=source_text)
+        self.assertIn("Referência pendente",out)
+        self.assertIn("River Deploy",out.split("Referência pendente",1)[1])
+
     def test_inference_with_each_entity_sourced_does_not_report_missing_identity(self):
         st=state();text=("INFERÊNCIA de complementaridade prudente: River Review (acme) performs automated code review and "
                          "River Plan has interactive questions, sem prova de integração testada [1][2].")
         r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
         self.assertEqual(r.get("missing_entity_sources",[]),[])
         self.assertTrue(r["partial_declared"])
+
+    def test_overlap_inferred_from_separate_documents_is_not_called_documented_relation(self):
+        st=state()
+        text="Sobreposição parcial documentada entre River Review (acme) e River Plan na revisão [1][2]."
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertTrue(r.get("inferred_comparisons"),r)
+        for url in (A,B):
+            ac._counters.record_obtained(st,url,st["evidence"][url],st["qualification"][url])
+        out=rr.render_report(st,synthesis_text=f"Sobreposição parcial documentada entre River Review (acme) e River Plan na revisão ({A}) ({B}).")
+        self.assertIn("relação comparativa é inferência",out)
 
     def test_decorated_homonym_is_not_attributed_to_selected_project(self):
         st=state();fork="https://github.com/other/river-review"
@@ -454,6 +487,14 @@ class Audit(unittest.TestCase):
         r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
         self.assertTrue(r["partial_declared"],r)
         self.assertFalse(any("integração testada (interoperabilidade citada)" in x["scope"] for x in r["declared_inference"]))
+
+    def test_named_role_complementarity_with_unexecuted_integration_is_partial(self):
+        st=state()
+        text=("INFERÊNCIA de complementaridade entre River Review (acme) como revisor e River Plan para perguntas: "
+              "premissas distintas, com limites de integração não testada [1][2].")
+        r=vr.check_support(text,{A:1,B:2},st["evidence"],st["plan"])
+        self.assertTrue(r["partial_declared"],r)
+        self.assertFalse(any(x.get("relation_ok") for x in r["declared_inference"]))
 
     def test_named_source_premises_cannot_hide_a_fabricated_feature(self):
         st=state()
@@ -667,6 +708,12 @@ class Topic(unittest.TestCase):
         self.assertIn("Compatibilidade com versão de referência", out)
         self.assertIn("Versão instalada no ambiente", out)
 
+    def test_heading_recognizes_controlled_premise_without_repeating_number(self):
+        st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
+        st["environment_observations"] = [{"command":"tool --version", "value":"2.2.5"}]
+        text = "## Compatibilidade com versão instalada\n\nO mínimo atende à premissa controlada."
+        self.assertIn("Compatibilidade com versão de referência", rr.render_report(st, synthesis_text=text))
+
     def test_controlled_version_is_not_called_installed_in_a_ledger_finding(self):
         st = state(); st["user_context"] = {"origin":"harness", "facts":{"installed_version":"2.1.4"}}
         st["plan"]["criteria"][0]["label"] = "Versão instalada do RiverHost considerada"
@@ -747,7 +794,9 @@ class IntegratedEntry(unittest.TestCase):
                      "justification": "River Plan documents plan review and interactive questions.",
                      "origin": "model", "references": [{"url": B}]}])
             if prompt.startswith("Responda em português"):
-                return f"Recomendo River Review (acme) para revisão automatizada ({A}). River Plan auxilia revisão de planos ({B}).\nponytail: internal notes"
+                return (f"Recomendo River Review (acme) para revisão automatizada ({A}). River Plan auxilia revisão de planos ({B}).\n"
+                        f"INFERÊNCIA: River Review (acme) complementa River Plan pois um revisa código e o outro faz perguntas interativas, "
+                        f"sem prova de integração testada ({A}) ({B}).\nponytail: internal notes")
             raise AssertionError("Unexpected model call")
         with tempfile.TemporaryDirectory() as tmp:
             result = entry.adaptive_entry(question=st["question"], plan=p, profile="light", run_dir=tmp,
@@ -771,6 +820,16 @@ class IntegratedEntry(unittest.TestCase):
             self.assertEqual(saved["question_coverage"]["denominator"], 5)
             discover = next(c for c in saved["question_coverage"]["criteria"] if c["id"] == "discover")
             self.assertEqual(discover["state"], "partial")
+            combo = next(c for c in saved["question_coverage"]["criteria"] if c["id"] == "combo")
+            self.assertEqual(combo["state"], "partial")
+            verification = json.loads((Path(tmp) / "verification.json").read_text())
+            pending = verification["dimensions"]["question"]["evidence"]["required_pending"]
+            self.assertEqual(next(x["state"] for x in pending if x["criterion_id"] == "combo"), "partial")
+            actual_support = vr.verify_support(saved, out, saved["semantic"])
+            self.assertEqual(verification["dimensions"]["support"]["evidence"]["citations"],
+                             actual_support["evidence"]["citations"])
+            self.assertEqual(verification["dimensions"]["support"]["evidence"]["rendered_sha"],
+                             hashlib.sha256(out.encode("utf-8")).hexdigest()[:16])
             with self.assertRaisesRegex(ValueError, "cannot mix context origins"):
                 entry.adaptive_entry(question=st["question"], run_dir=tmp, run_id=result["run_id"],
                                      resume=True, user_context={"other":"value"},
