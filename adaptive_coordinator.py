@@ -8887,12 +8887,29 @@ def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
                 if not covering:
                     continue
                 # Frase multi-entidade nunca entra verbatim na célula
-                # uni-entidade: reescreve ao escopo do alvo ou desiste
-                # deste alvo (publicar as 3 entidades com 1 ref exagera o
-                # alcance do excerto).
+                # uni-entidade: reescreve ao escopo do alvo; sem reescrita
+                # segura, reavalia como partial com alcance (refs só dos
+                # excertos) — nunca mantém covered superestimado.
                 _scoped = _rescope_sentence_to_entity(sent, elabel, eid,
                                                       entities, plan)
                 if not _scoped:
+                    try:
+                        _others = [str(_lb) for (_lb, _e) in
+                                   _vr.strict_named_in_sentence(sent, entities)
+                                   if _e != eid]
+                    except Exception:
+                        _others = []
+                    _reach = "; ".join(dict.fromkeys(_others))[:160]
+                    just = (f"{elabel}: limite da síntese nos excertos avaliados "
+                            f"para este critério"
+                            + (f" (frase original envolve também: {_reach}; "
+                               f"ver células dessas entidades)" if _reach else ""))
+                    ev = fresh.evaluate(cid, "partial", just, "excerpt-scope",
+                                        [{"url": u} for u in covering], eid)
+                    state.setdefault("evaluations", []).append(dict(ev))
+                    state.setdefault("notes", []).append(
+                        f"excerpt-scope: {cid}x{eid} -> partial "
+                        f"(limite da síntese nos excertos)")
                     continue
                 just = re.sub(r"\(?\s*\[\d+\]\s*\)?", "", _scoped)
                 just = re.sub(r"\s+", " ", just).strip()

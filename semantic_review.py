@@ -452,6 +452,12 @@ def _refs_hint(refs: list[str]) -> list[str]:
 #: preenchida" é afirmação positiva e segue o caminho normal.
 _ABSENCE_CLAIM_MARKERS = (
     "lacuna nos excertos", "lacuna no excerto",
+)
+
+
+#: Moldes nus de janela: só valem com coocorrência de "lacuna"/"excertos"
+#: ou marca líder — sem ela, prosa positiva com "sem fonte" não é ausência.
+_ABSENCE_BARE_WINDOW = (
     "sem trecho", "sem fonte",
     "não estabelece", "nao estabelece",
 )
@@ -468,7 +474,11 @@ def _is_absence_claim(sentence: str) -> bool:
     stripped = lowered.strip().lstrip("-–—*#> \t`\"'")
     if stripped.startswith("lacuna"):
         return True
-    return any(m in lowered for m in _ABSENCE_CLAIM_MARKERS)
+    if any(m in lowered for m in _ABSENCE_CLAIM_MARKERS):
+        return True
+    return any(m in lowered for m in _ABSENCE_BARE_WINDOW) \
+        and ("lacuna" in lowered or "excerto" in lowered
+             or "excerpt" in lowered)
 
 
 def _evidence_window(anchors: list[str], refs: list[str],
@@ -1023,13 +1033,14 @@ def _select_evidence(pkgs: list[str], sentence: str, evidence: dict,
     # menciona o nome (ou casa por overlap de tokens genéricos) não vira
     # premissa da LACUNA — fundir pacotes distintos contamina o voto com
     # conteúdo alheio (LACUNA isolada verdadeira virando unsupported).
-    if _is_absence_claim(sentence):
-        _own = [u for u in anchors if _is_package_doc(u, pkgs)]
-        if _own:
-            anchors = _own
+    # Sem doc próprio utilizável, a ausência fica sem evidência (gap),
+    # nunca ancorada em pacote alheio.
+    _absence = _is_absence_claim(sentence)
+    if _absence:
+        anchors = [u for u in anchors if _is_package_doc(u, pkgs)]
 
     # Price table: match on figures
-    if not anchors:
+    if not anchors and not _absence:
         for u, txt in _qualified_text.items():
             if u not in _usable_urls:
                 continue

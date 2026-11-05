@@ -851,6 +851,13 @@ LACUNA_DECLARATION_MARKERS = (
     # no overlap com a declaração vazia. Exige "lacuna" junto de
     # "excertos" para não sequestrar inferência que só delimita janela.
     "lacuna nos excertos", "lacuna no excerto",
+)
+
+
+#: Moldes nus de janela ("sem fonte/trecho", "não estabelece"): sozinhos
+#: desviam prosa positiva p/ declared — só valem com coocorrência de
+#: "lacuna"/"excertos" ou marca líder (condição do gate reviewer).
+_LACUNA_BARE_WINDOW = (
     "sem fonte", "sem trecho",
     "não estabelece", "nao estabelece",
 )
@@ -889,6 +896,12 @@ def is_lacuna_declaration(sentence: str) -> bool:
     # Leading explicit mark (writer convention): audited on the premise,
     # never on word overlap with the marked absence/inference.
     if _has_leading_declaration_mark(lowered):
+        return True
+    # Moldes nus só com coocorrência (lacuna/excertos): sem ela, "X declara
+    # Y sem fonte" é prosa positiva e segue o caminho normal.
+    if any(m in lowered for m in _LACUNA_BARE_WINDOW) \
+            and ("lacuna" in lowered or "excerto" in lowered
+                 or "excerpt" in lowered):
         return True
     # Template do writer para célula insufficient: "sem <dimensão>
     # demonstrad[o/a]" (ex. accept15 "sem revisão demonstrada") — afirma
@@ -1228,6 +1241,69 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         if alias:
             alias_counts[alias] = alias_counts.get(alias, 0) + 1
 
+    def _strict_doc(label, eid, doc):
+        """Premissa estrita: mesma regra do lado da frase (forma cheia ou
+        base inequívoca com fronteira) ou link de identidade própria.
+        Doc identifiavelmente de outro dono no plano nunca é premissa,
+        mesmo partilhando 2 tokens. Posse indecidida mantém o contrato S2
+        (menção frouxa vale quando nada contradiz a titularidade).
+        """
+        try:
+            if not _entity_mentioned(label, eid, doc):
+                return False
+            _dn = _norm_mention(doc)
+            _full = _norm_mention(label)
+            _base = _norm_mention(re.sub(r"\([^)]*\)", "", str(label or "")))
+            _forms = [_full] + ([_base] if _base and alias_counts.get(_base) == 1 else [])
+            for _f in _forms:
+                if _f and re.search(r"(?:^| )" + re.escape(_f) + r"(?:$| )", _dn) \
+                        and _raw_compound_ok(_f, doc):
+                    return True
+            url = getattr(doc, "source_url", None) or doc_urls.get(doc)
+            cur = repo_key(url) if url else None
+            if eid in entity_map:
+                from entity_identity import source_identity
+                if url and source_identity(entity_map[eid], doc, url) is True:
+                    return True
+                # Dono estrangeiro decidível: repo do doc é de outra
+                # entidade do plano — nunca premissa desta.
+                if cur:
+                    for _oid, _oent in entity_map.items():
+                        if _oid == eid or not isinstance(_oent, dict):
+                            continue
+                        _okey = repo_key((_oent or {}).get("canonical_source_url")
+                                         or (_oent or {}).get("source_url"))
+                        if _okey and _okey == cur:
+                            return False
+            return True
+        except Exception:
+            pass
+        return False
+
+    def _vetoed_mention(label, eid, doc):
+        """Porta positiva: menção verificada menos doc de outro dono.
+
+        Cognatos/overlap decidem conteúdo; titularidade decide atribuição:
+        doc cujo repo é de outra entidade do plano nunca sustenta afirmação
+        sobre esta (vale p/ o ramo positivo; inferência tem canal próprio).
+        """
+        try:
+            if not _entity_mentioned(label, eid, doc):
+                return False
+            url = getattr(doc, "source_url", None) or doc_urls.get(doc)
+            cur = repo_key(url) if url else None
+            if cur and eid in entity_map:
+                for _oid, _oent in entity_map.items():
+                    if _oid == eid or not isinstance(_oent, dict):
+                        continue
+                    _okey = repo_key((_oent or {}).get("canonical_source_url")
+                                     or (_oent or {}).get("source_url"))
+                    if _okey and _okey == cur:
+                        return False
+        except Exception:
+            pass
+        return True
+
     claims = supported = uncited = 0
     declared: list[dict] = []
     declared_inference: list[dict] = []
@@ -1409,7 +1485,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             _premise_docs = sum(
                 1 for _doc in _cited_docs
                 if not named or any(
-                    _entity_mentioned(label, eid, _doc)
+                    _strict_doc(label, eid, _doc)
                     for _toks, label, eid in named))
             if named and not _premise_docs:
                 unsupported.append({"sentence": sentence,
@@ -1674,7 +1750,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 reasons.append("citação fora do corpus")
                 continue
             good, reason = _sentence_supported(
-                sent_tokens, _doc, named, factual, identity_fn=_entity_mentioned)
+                sent_tokens, _doc, named, factual, identity_fn=_vetoed_mention)
             if good:
                 ok = True
                 break

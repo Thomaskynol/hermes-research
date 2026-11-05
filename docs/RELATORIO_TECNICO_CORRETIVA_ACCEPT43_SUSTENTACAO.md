@@ -52,8 +52,36 @@ teste): tag inventada sem premissa, atribuição a doc estrangeiro, homônimo
   overlap PT×EN, 2 complementaridade sem doc-interop) — pré-existentes, sem
   regressão.
 
-## Residuais (fora desta correção)
+## Remediação do gate reviewer (attempt 1) + aceite [2]
 
+| Achado | Correção (1 por causa) | Arquivo:linha | Teste |
+|---|---|---|---|
+| 🔴 None mantinha covered | Sem reescrita segura → partial com alcance (refs só excertos), nunca covered | `adaptive_coordinator.py:8895` | `test_multi_entity_without_safe_rewrite_falls_to_partial` (red `'covered' != 'partial'` → green) |
+| 🔴 ausência sem doc próprio fundia | Ausência + `_own` vazio → anchors zerados (gap); price-fallback desligado p/ ausência | `semantic_review.py:1021` | `test_absence_without_own_doc_yields_no_anchors` |
+| 🟡 moldes nus desviavam prosa | `sem fonte/trecho`, `não estabelece` só com coocorrência lacuna/excertos ou marca líder | `verification_report.py:is_lacuna_declaration`, `semantic_review.py:_is_absence_claim` | `test_bare_window_mold_without_lacuna_context_is_not_absence` + positivo-2-pacotes preservado |
+| 🟡 premissa frouxa (2 tokens) | `_strict_doc`: estrita ou link próprio; veto a doc de outro dono no plano; posse indecidida mantém S2 | `verification_report.py:_strict_doc` + ramo LACUNA | `test_lacuna_premise_rejects_foreign_doc_sharing_two_tokens` |
+| 🟡 cognatos só-recall | Revertido gate direto (quebrava calibração `test_parafrase_pt_en_sustenta`, contrato accept15 aprovado); remédio aplicado: veto a doc de outro dono no ramo positivo + negativo com plano não-relacionado | `verification_report.py:_vetoed_mention` no call positivo | `test_cognate_overlap_does_not_borrow_foreign_doc` |
+| 🟡 sha inline quebrava dedup/compare | Texto da nota estável; alcance em linha separada (`... referem-se à síntese {sha12} ...`, fonte `synthesis_sha` carimbada cedo no `render_report`, idempotente) | `report_renderer.py:notas §5` | `test_reconciliation_notes_carry_separate_synthesis_scope` |
+| Cobertura pedida | Ordinal trocado, ordem textual vs plano, None seguro, 2-pacotes→ambos, homônimo | mesmo arquivo de testes | 3 guards verdes-antes declarados; demais red→green |
+
+Regressões achadas pela suíte durante o passe (2, ambas revertidas para o
+contrato aprovado antes de prosseguir): gate direto quebrava
+`test_parafrase_pt_en_sustenta` (ponte PT→EN é calibração accept15, recall
+aprovado); premissa estrita pura quebrava
+`test_lacuna_citing_entity_doc_is_sustained` (S2: menção frouxa vale com
+posse indecidida) — solução: veto só a dono estrangeiro decidível.
+
+Critério de aceite **[2] fora de `included_urls`: RESOLVIDO no nível
+publicação** — cadeia mapeada: obtido ✓ (blog do autor, substantivo) →
+avaliado ✓ (votos divididos) → ledger retido ✓ (refs da avaliação
+preservadas) → publicado com alcance marcado ✓ (`[N] (fora dos excertos)`,
+10× no replay) em vez de excerto nu ou apagamento. Polaridade espúria:
+desarmada pela nomeação estrita (teto exige `len(named)>=2` estrito).
+Perda de sinal diff-UI: parcial alternativo vive nas refs marcadas da
+célula, não apagado. **Pendente (fora dos limites: sem re-rank):**
+promoção de [2] p/ `included_urls` dentro do teto.
+
+## Residuais (fora desta correção)
 - Seleção não re-ranqueada p/ docs pertinentes dentro do teto (ex.: [2] segue
   fora de `included_urls` quando o teto corta; publicado agora com alcance
   marcado, sinal preservado, sem elevar limites).

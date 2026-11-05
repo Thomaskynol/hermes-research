@@ -1001,6 +1001,16 @@ def _limits_section(state: dict, labels: dict, verbose: bool) -> list[str]:
             except Exception:
                 pass
             lines.append(f"- {note}")
+        # Alcance histórico em linha separada: texto das notas estável
+        # (comparação exata/dedup intactos); a era reconciliada vive aqui,
+        # a partir da synthesis_sha registrada no state.
+        try:
+            _sha = str(((state.get("report") or {}).get("synthesis_sha")) or "")[:12]
+            if _sha:
+                lines.append(f"- Notas de reconciliação referem-se à síntese "
+                             f"{_sha} e à seleção analisada.")
+        except Exception:
+            pass
     return lines
 
 
@@ -1262,8 +1272,7 @@ def _reconciliation_notes(state: dict, synthesis: str,
                     f"Nota: os achados registram cobertura de {elabel} "
                     f"em {crit_label} com {_refs_s} a partir da seleção "
                     f"analisada; a síntese declara lacuna a partir dos "
-                    f"excertos avaliados. Vale o texto integral da fonte "
-                    f"(síntese {_synth_stamp(synth)}).")
+                    f"excertos avaliados. Vale o texto integral da fonte.")
         return notes
     except Exception:
         return []
@@ -1778,21 +1787,6 @@ def _template_section(state: dict, labels: dict, numbers: dict,
     return lines
 
 
-def _synth_stamp(synthesis: str) -> str:
-    """Identidade curta da síntese reconciliada (alcance histórico).
-
-    As notas §5 reconciliam a síntese entregue com os achados vigentes;
-    quando a síntese vem de outra era (replay preserva o texto original),
-    o carimbo diz qual síntese a nota reconcilia — sem jargão interno.
-    """
-    try:
-        import hashlib as _hl
-        return _hl.sha256(str(synthesis or "").encode("utf-8",
-                                                      "replace")).hexdigest()[:12]
-    except Exception:
-        return "?"
-
-
 def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
     """Pares de combinação da síntese × pares dos achados (§3).
 
@@ -1858,8 +1852,7 @@ def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
                     f"Nota: os achados não registram cobertura conjunta "
                     f"de {a_lb} e {b_lb} na seleção analisada; a "
                     f"combinação na síntese parte dos excertos avaliados. "
-                    f"Vale o texto integral da fonte "
-                    f"(síntese {_synth_stamp(synthesis)}).")
+                    f"Vale o texto integral da fonte.")
         return notes
     except Exception:
         return []
@@ -1921,6 +1914,17 @@ def render_report(state: dict, *, synthesis_text: str,
     verbose = str(state.get("profile", "")).lower() in ("hard", "deep")
     numbers = _numbers(state)
     cited: set = set()
+    try:
+        # synthesis_sha cedo: a seção de notas declara a era reconciliada
+        # e o _finalize grava o mesmo hash depois (mesma entrada, idem).
+        import hashlib as _hl
+        _rep = state.get("report")
+        if not isinstance(_rep, dict):
+            _rep = state["report"] = {}
+        _rep["synthesis_sha"] = _hl.sha256(
+            str(synthesis_text or "").encode("utf-8", "replace")).hexdigest()[:16]
+    except Exception:
+        pass
     synthesis = _source_provenance_text(state, synthesis_text or "")
     try:
         synthesis = _veto_outside_corpus(state, synthesis)

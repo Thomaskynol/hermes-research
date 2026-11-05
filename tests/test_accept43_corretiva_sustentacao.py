@@ -61,9 +61,10 @@ def covered_state3():
     st = state3()
     led = cl.Ledger(st["plan"], run_id=st["run_id"])
     led.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
-    led.evaluate("review", "covered",
-                 "Declara Review the final plan visually e Code Review com side-by-side diffs.",
-                 "corpus", [{"url": C}, {"url": X}], "c")
+    ev0 = led.evaluate("review", "covered",
+                       "Declara Review the final plan visually e Code Review com side-by-side diffs.",
+                       "corpus", [{"url": C}, {"url": X}], "c")
+    st["evaluations"] = [dict(ev0)]
     st["question_coverage"] = led.compute()
     st["report"] = {"selection": {"included_urls": [A, B, C]},
                     "numbers": {"1": A, "2": B, "3": C}}
@@ -219,6 +220,180 @@ class T4ClaimPackagingWithoutFusion(unittest.TestCase):
         anchors, _text = sr._select_evidence(["river-market"], sentence, evidence, [])
         self.assertIn(self.MARKET, anchors, anchors)
         self.assertNotIn(self.CONFIG, anchors, anchors)
+
+    def test_absence_without_own_doc_yields_no_anchors(self):
+        """Remediação 🔴2: ausência sem doc próprio utilizável dava âncoras
+        estrangeiras; o correto é sem-evidência (gap), nunca pacote alheio."""
+        evidence = {
+            self.CONFIG: ("# river-config-pack\nriver-config-pack extends river-market "
+                          "with planning templates, structured scaffolds "
+                          "and remote sync commands."),
+        }
+        sentence = ("LACUNA nos excertos avaliados: river-market documenta apenas "
+                    "instalação.")
+        anchors, _text = sr._select_evidence(["river-market"], sentence, evidence, [])
+        self.assertEqual(anchors, [], anchors)
+
+    def test_positive_two_package_claim_keeps_both_anchors(self):
+        """Guarda: afirmação positiva legítima sobre 2 pacotes ancora ambos
+        (anti-fusão só vale p/ ausência)."""
+        evidence = {
+            self.MARKET: ("# river-market\nriver-market installs from local directories."),
+            self.CONFIG: ("# river-config-pack\nriver-config-pack extends river-market "
+                          "with planning templates."),
+        }
+        sentence = (f"river-market instala pacotes e river-config-pack estende a lista "
+                    f"({self.MARKET}) ({self.CONFIG}).")
+        anchors, _text = sr._select_evidence(["river-market"], sentence, evidence, [])
+        self.assertEqual(set(anchors), {self.MARKET, self.CONFIG}, anchors)
+
+
+class TRemedicaoReviewer(unittest.TestCase):
+    """Passe de remediação do gate reviewer (1 correção por causa)."""
+
+    def test_multi_entity_without_safe_rewrite_falls_to_partial(self):
+        """🔴1: frase multi-entidade sem reescrita segura não pode manter
+        covered superestimado — cai p/ partial com alcance, refs do escopo."""
+        st = covered_state3()
+        md = ("- INFERÊNCIA de sobreposição limitada em revisão e código entre "
+              "River Review (acme), River Plan e River Deploy [1][3].")
+        block = ac._rescope_cells_to_excerpts(st, md, {1: A, 2: B, 3: C})
+        self.assertIsNotNone(block, st.get("notes"))
+        cell = next(c for c in block["criteria"] if c["id"] == "review")
+        ev = (cell.get("entity_evaluations") or {}).get("c") or {}
+        self.assertEqual(ev.get("state"), "partial", ev)
+        self.assertIn("River Deploy", ev.get("justification", ""), ev)
+        urls = [r.get("url") for r in (ev.get("references") or [])]
+        self.assertNotIn(X, urls, ev)
+        for u in urls:
+            self.assertIn(u, [A, B, C], ev)
+
+    def test_ordinal_swapped_clauses_stay_with_their_entity(self):
+        """Ordinal trocado: cláusula de outra entidade nunca veste o alvo."""
+        st = covered_state3()
+        led = cl.Ledger(st["plan"], run_id=st["run_id"])
+        led.set_corpus(dict(st["evidence"]), dict(st["qualification"]))
+        led.evaluate("review", "covered", "Plan com review documentado.",
+                     "corpus", [{"url": B}, {"url": X}], "b")
+        st["question_coverage"] = led.compute()
+        md = ("- INFERÊNCIA de sobreposição em revisão e código entre River Review (acme) "
+              "e River Plan, porque o primeiro documenta revisão automatizada de pull "
+              "requests [1] e o segundo tem apenas revisão visual de plano limitada "
+              "aos excertos [2].")
+        block = ac._rescope_cells_to_excerpts(st, md, {1: A, 2: B, 3: X})
+        self.assertIsNotNone(block, st.get("notes"))
+        cell = next(c for c in block["criteria"] if c["id"] == "review")
+        ev = (cell.get("entity_evaluations") or {}).get("b") or {}
+        self.assertEqual(ev.get("state"), "partial", ev)
+        just = ev.get("justification", "")
+        self.assertIn("apenas revisão visual", just, ev)
+        self.assertNotIn("revisão automatizada", just, ev)
+
+    def test_ordinal_resolves_by_textual_order_not_plan_order(self):
+        """Guarda: enumeração textual manda, nunca a ordem do plano."""
+        st = covered_state3()
+        ents = st["plan"]["entities"]
+        st["plan"]["entities"] = [e for e in ents if e.get("id") not in ("a", "b", "c")] \
+            + [e for e in ents if e.get("id") == "c"] \
+            + [e for e in ents if e.get("id") == "a"] \
+            + [e for e in ents if e.get("id") == "b"]
+        md = ("- INFERÊNCIA de sobreposição parcial em revisão entre River Review (acme), "
+              "River Plan e River Deploy, porque o primeiro documenta revisão automatizada, "
+              "o segundo documenta review de código e o terceiro tem apenas revisão visual de "
+              "plano demonstrada nos excertos enviados e sem base equivalente de code review "
+              "detalhada [3], por isso não afirmar mesma profundidade entre eles.")
+        block = ac._rescope_cells_to_excerpts(st, md, {1: A, 2: B, 3: C})
+        self.assertIsNotNone(block, st.get("notes"))
+        cell = next(c for c in block["criteria"] if c["id"] == "review")
+        ev = (cell.get("entity_evaluations") or {}).get("c") or {}
+        self.assertEqual(ev.get("state"), "partial", ev)
+        just = ev.get("justification", "")
+        self.assertNotIn("River Review (acme)", just, ev)
+        self.assertNotIn("River Plan", just, ev)
+
+    def test_bare_window_mold_without_lacuna_context_is_not_absence(self):
+        """🟡 moldes isolados (sem fonte/trecho) sem lacuna/excertos nem marca
+        líder não desviam prosa p/ declared."""
+        self.assertFalse(vr.is_lacuna_declaration(
+            "River Plan publica pacotes de qualquer fonte, sem fonte única oficial."), )
+        self.assertFalse(sr._is_absence_claim(
+            "River Plan publica pacotes de qualquer fonte, sem fonte única oficial."), )
+        self.assertTrue(vr.is_lacuna_declaration(
+            "River Plan: LACUNA de planejamento sem fonte que a mencione [1]."), )
+        self.assertTrue(sr._is_absence_claim(
+            "LACUNA nos excertos: River Plan sem trecho sobre o eixo [1]."), )
+
+    def test_lacuna_premise_rejects_foreign_doc_sharing_two_tokens(self):
+        """🟡 premissa LACUNA exige regra estrita: doc de outro dono no plano
+        que só compartilha 2 tokens não é premissa da entidade."""
+        plan = {"plan_id": "p", "version": 1,
+                "entities": [{"id": "e8", "label": "River Guide",
+                              "source_url": "https://github.com/team/river-guide",
+                              "required": True},
+                             {"id": "e9", "label": "River Notes", "required": True}],
+                "criteria": [{"id": "c0", "label": "planejamento", "required": True,
+                              "description": "Eixo."}]}
+        foreign = "https://github.com/team/river-guide"
+        corpus = {foreign: ("River workflows and release notes describe planning.")}
+        sent = ("LACUNA nos excertos avaliados: River Notes sem trecho que "
+                "demonstre planejamento próprio [1].")
+        res = vr.check_support(sent, {1: foreign}, corpus, plan)
+        self.assertTrue(res.get("unsupported"), res)
+        self.assertIn("entidade não mencionada",
+                      str((res.get("unsupported") or [{}])[0].get("reason")), res)
+
+    def test_cognate_overlap_does_not_borrow_foreign_doc(self):
+        """🟡 negativo com plano não-relacionado: cognatos + 2 tokens soltos
+        não fazem doc de outro dono sustentar afirmação sobre esta entidade."""
+        plan = {"plan_id": "p", "version": 1,
+                "entities": [{"id": "e8", "label": "River Plan",
+                              "source_url": "https://github.com/team/river-plan",
+                              "required": True},
+                             {"id": "e9", "label": "River Notes", "required": True}],
+                "criteria": [{"id": "c0", "label": "planejamento", "required": True,
+                              "description": "Eixo."}]}
+        foreign = "https://github.com/team/river-plan"
+        corpus = {foreign: ("River workflows and release notes describe "
+                            "the plan detailed equivalent screens.")}
+        sent = ("River Notes mostra plano detalhado equivalente [1].")
+        res = vr.check_support(sent, {1: foreign}, corpus, plan)
+        self.assertTrue(res.get("unsupported"), res)
+        self.assertIn("entidade não mencionada",
+                      str((res.get("unsupported") or [{}])[0].get("reason")), res)
+
+    def test_homonym_full_form_does_not_borrow(self):
+        """Guarda: forma cheia curta nunca casa composto maior e vice-versa."""
+        plan = {"plan_id": "p", "version": 1,
+                "entities": [{"id": "ea", "label": "River Alpha",
+                              "source_url": "https://github.com/team/river-alpha",
+                              "required": True},
+                             {"id": "eb", "label": "River Alphabeta",
+                              "source_url": "https://github.com/team/river-alphabeta",
+                              "required": True}],
+                "criteria": [{"id": "c0", "label": "revisão", "required": True,
+                              "description": "Eixo."}]}
+        doc_b = "River Alphabeta models extended review flows."
+        sent = "River Alpha declara recurso próprio de revisão [1]."
+        res = vr.check_support(
+            sent, {1: "https://github.com/team/river-alphabeta"},
+            {"https://github.com/team/river-alphabeta": doc_b,
+             "https://github.com/team/river-alpha": "River Alpha declara recurso próprio."},
+            plan)
+        self.assertTrue(res.get("unsupported"), res)
+
+    def test_reconciliation_notes_carry_separate_synthesis_scope(self):
+        """🟡 texto da nota estável (sem sha inline); alcance histórico em
+        linha separada da seção de notas."""
+        st = covered_state3()
+        st["report"]["synthesis_sha"] = "dbcf44eb069f" + "c126dde7313a7a27"
+        out = rr.render_report(st, synthesis_text=("INFERÊNCIA de complementaridade entre "
+                                                  "River Review (acme) e River Plan, "
+                                                  "com limite declarado. Ver."),
+                               verifications=None)
+        for line in out.splitlines():
+            if line.startswith("- Nota:"):
+                self.assertNotRegex(line, r"síntese [0-9a-f]{12}", line)
+        self.assertRegex(out, r"reconciliação referem-se à síntese [0-9a-f]+", out)
 
 
 if __name__ == "__main__":
