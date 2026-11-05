@@ -6,7 +6,11 @@ distintos sem trecho que documente o vínculo é INFERÊNCIA, nunca
 "documentada". "Documentada" só quando um documento citado documentar
 o vínculo. Fixtures genéricas (rios), sem nomes do produto.
 """
+import copy
+import hashlib
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -131,6 +135,68 @@ class ComparisonWording(unittest.TestCase):
         self.assertIn("documentada", guidance)
         self.assertTrue(any(w in guidance for w in ("nunca 'documentada'", "nunca \"documentada\"")),
                         guidance)
+
+
+class IntegratedEntry(unittest.TestCase):
+    def test_defective_comparison_is_reworded_through_public_entry_to_files(self):
+        import gpt_researcher_integration as entry
+        st = state()
+        c = "https://github.com/team/river-deploy"
+        st["plan"]["entities"].append({"id": "c", "label": "River Deploy", "source_url": c,
+                                      "required": True, "discovered": True})
+        st["evidence"][c] = "# River Deploy\nRiver Deploy deploys packages."
+        st["evidence"][A] = ("# River Review\nPerforms automated code review with "
+                             "confidence scoring.")
+        st["evidence"][B] = ("# River Plan\nDocumented plan review and interactive questions.")
+        st["qualification"][c] = {"status": "usable", "excluded": False,
+                                  "usable_text": st["evidence"][c]}
+        p = st["plan"]
+        p["initial_paths"] = ["RiverHost extensions"]
+        seen_prompts = {}
+
+        def model(prompt):
+            if prompt.startswith("Você avalia evidências"):
+                return json.dumps([])
+            if prompt.startswith("Responda em português"):
+                seen_prompts["writer"] = prompt
+                return ("Sobreposição parcial documentada entre River Review (acme), "
+                        "River Plan e River Deploy no eixo revisão "
+                        f"({A}) ({B}).\n"
+                        "Sobreposição parcial documentada entre River Review (acme) "
+                        f"e River Plan na revisão ({A}) ({B}).")
+            raise AssertionError("Unexpected model call")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = entry.adaptive_entry(
+                question=st["question"], plan=p, profile="light", run_dir=tmp,
+                user_context={"installed_riverhost_version": "2.1.4"},
+                context_origin="harness",
+                model_transport=model,
+                search_transport=lambda *a, **kw: [{"url": A}, {"url": B}, {"url": c}],
+                fetch_transport=lambda u: {"text": st["evidence"][u],
+                                           "qualification": st["qualification"][u]},
+                auditor_fn=lambda *a: {"enabled": False, "accepted": False,
+                                       "verdict_state": "não revisado semanticamente"},
+                overrides={"max_rounds": 0, "max_model_calls": 6}, clock=lambda: 0)
+            out = Path(result["report_path"]).read_text()
+            self.assertIn("INFERÊNCIA de sobreposição parcial", out)
+            self.assertNotIn("Sobreposição parcial documentada", out)
+            self.assertIn("Referência pendente", out)
+            self.assertIn("River Deploy", out.split("Referência pendente", 1)[1])
+            self.assertIn("relação comparativa é inferência", out)
+            self.assertIn("nunca 'documentada'", seen_prompts["writer"])
+            verification = json.loads((Path(tmp) / "verification.json").read_text())
+            sent = verification["dimensions"]["support"]["evidence"]["sentence_support"]
+            self.assertTrue(any("River Deploy" in x.get("missing_entities", [])
+                                for x in sent.get("missing_entity_sources", [])),
+                            sent.get("missing_entity_sources"))
+            self.assertEqual(sent.get("inferred_comparisons", []), [], sent)
+            self.assertEqual(len(sent.get("declared_inference", [])), 2, sent)
+            self.assertTrue(all("nunca integração testada" in d.get("scope", "")
+                                for d in sent.get("declared_inference", [])), sent)
+            self.assertEqual(verification["dimensions"]["support"]["evidence"]["rendered_sha"],
+                             hashlib.sha256(out.encode("utf-8")).hexdigest()[:16])
+            self.assertTrue((Path(tmp) / "technical_annex.md").is_file())
 
 
 if __name__ == "__main__":
