@@ -1,6 +1,26 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual — corretiva accept43 sustentação/avaliação/claim3 (2026-11-05 UTC):**
+> **Estado atual — corretiva attempt3 accept43 (2026-11-05 UTC):**
+> branch `feat/product-v1`, produto `47f4fe7` + testes locais (sem push).
+> Fechados os 2 residuais do gate externo: `vr:1569` (isenção mesma-oração
+> → adjacência ≤40 chars ao marcador, mesma cláusula; T2a preservado; sem
+> isenções por INFERÊNCIA/LACUNA/negação) e propagação `[N] (fora dos excertos)`
+> em TODAS superfícies (matriz+Achados+recomendação, 30× vs 10×;
+> `[19]`/`[4]` qualificados; `[2]` refutado p/ promoção com justificativa:
+> widget `show_diff` ≠ revisão PR). Claim 3 investigado com texto integral,
+> origem `c3700bb`, `e62-e96` vs `e97-e136`, votos 04-gap vs 07/10-unsupported
+> anti-fusão; caminho anti-fusão exercitado (`frozen-check.log`).
+> Proveniência: fix1==externo (`2ccd71921fa467a2`/`ced8afb`/`790a9a06ba346b81`),
+> attempt2==atual-parcial (`e8e741755b151af8`/`d13b9ae`),
+> attempt3==atual (`5265f941bf85bdf4`/`47f4fe7`/`790a9a06ba346b81`).
+> `39/42` histórico vs `0/13`/`0/42` frozen explicados; INFERÊNCIAs
+> `[17][34]`/`[17][42]` partial com limites. Suite 916 OK/10 skips + offline
+> 11/11 exit 0; replay zero-live exit 0 overall `partial` (review `not_run`,
+> claim 3 2–1 preservado). Técnico atualizado:
+> `docs/RELATORIO_TECNICO_CORRETIVA_ACCEPT43_SUSTENTACAO.md`. RA8 pendente.
+> Próximo passo: validação do orquestrador (sem push por enquanto).
+
+> **Estado anterior — corretiva accept43 sustentação/avaliação/claim3 (2026-11-05 UTC):**
 > branch `feat/product-v1`, produto + testes locais (sem push). Os 4 itens foram
 > corrigidos em mecanismo geral (1 correção por causa, TDD red→green T1–T4 com
 > 8 testes em `tests/test_accept43_corretiva_sustentacao.py`): rescope reescreve

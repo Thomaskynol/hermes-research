@@ -133,3 +133,116 @@ promoção de [2] p/ `included_urls` dentro do teto.
 - Taxonomia de 5 níveis de evidência não criada como abstração nova: coberta
   pelos estados existentes (covered/partial/insufficient + excerpt-scope +
   marca fora-dos-excertos).
+
+## Attempt 3 — vr:1569 fechado + propagação total (produto `47f4fe7`)
+
+Proveniência (replay determinístico, sem `--model`, exit 0):
+`runs/accept43-corretiva-attempt3/replay/` — `code_head=47f4fe7`,
+`synthesis_sha=790a9a06ba346b81` (histórico accept43),
+`rendered_sha=5265f941bf85bdf4`, seleção =
+[OpenCode Code Review (erskingardner), opencode-jira,
+opencode-marketplace, Plannotator, Octto],
+`included_urls` 6 URLs (teto 12000 chars) =
+`[13]` erskingardner, `[32]` opencode.im/plugins, `[17]` marketplace,
+`[42]` yodev, `[34]` plannotator.ai, `[27]` opencode.ai docs-pt.
+Correspondência: fix1 (`runs/accept43-corretiva-fix1/replay/`,
+`rendered 2ccd71921fa467a2`, `code_head ced8afb` pré-corretiva,
+`audited 790a9a06ba346b81`) == relatório externo;
+attempt2 (`runs/accept43-corretiva-attempt2/replay/`,
+`rendered e8e741755b151af8`, `code_head d13b9ae`) == atual-parcial
+pós-corretiva sem os 2 fechamentos deste passe;
+attempt3 == produto atual com os 2 fechamentos.
+`module_hashes_unchanged=True`, `original_unchanged=True`
+(congelado intacto, sem nova coleta).
+
+Seleção/evidência (mesma seleção, todas superfícies):
+matriz + Achados §3 + recomendação qualificam `[19]`/`[4]`
+(e `[39]`/`[37]`/outros fora) como `[N] (fora dos excertos)` —
+30× no attempt3 vs 10× no attempt2 (só matriz).
+Causa: `_refs` sem `included_urls` em Achados, recomendação-fallback
+e critérios globais; fix passa `included_urls` nesses 3 pontos
+(`report_renderer.py` Achados/recomendação/global).
+`39/42` (síntese histórica §1: excertos do plano original) vs
+`0/13`/`0/42` (§2/§3 recomputado frozen: 12000 chars de 4369084,
+6 docs de 42 no teto atual) = snapshot histórico vs recomputado
+frozen, não zero histórico; síntese histórica identificada como
+artefato histórico (`REPRODUÇÃO — corpus congelado`,
+`synthesis_sha` carimbado); relatório atual corresponde ao estado
+final selecionado (refs do escopo vigente).
+2 inferências marketplace×Plannotator `[17][34]` e
+marketplace×GitHub Workflow Agent `[17][42]` permanecem
+`declared_inference` partial com limites (nunca
+supported/integração testada) — correto.
+
+Fonte `[2]` aproveitada-na-publicação, refutada p/ promoção:
+blog `https://blog.vtemian.com/project/octto/`
+(doc_hash `60fc4f4c56f66752`, 19745 chars) declara
+"Code Review: Side-by-side diffs" (baseline `ref-2.txt:1-3`,
+`source-2.txt:3`) no contexto "14 Rich Input Types …
+Decision Controls … Code Review …" = tipo de widget de input
+(`show_options`/`show_diff`/`ask_code`), não fluxo de revisão
+de código (sem PR, sem review linha-a-linha, sem blame/threshold).
+`[20]` repo confirma: só "Review the final plan visually" +
+"show_diff | Side-by-side code diff" (`model-09-prompt e5/e16`)
+como input-type, não revisão. Insuficiência concreta:
+trocar `[4]`/`[19]` por `[2]` em `included_urls` dentro do teto
+exigiria re-rank humano arbitrário (sem ganho de veredito:
+Octto revisão seguiria insuficiente — widget ≠ revisão) e nova
+síntese por chamada nova sem necessidade; sem aumentar teto/coleta,
+decisão rastreável: manter `[2]` fora com alcance marcado
+(`[2]` obtido/avaliado/ledger-retido, 19745 chars usable §7),
+sinal diff-UI preservado nas refs marcadas, sem `covered` por
+decreto, sem abstração 5-níveis.
+
+Verificador `vr:1569` FECHADO (era risco residual aceito):
+isenção mesma-oração alcançava inventada vizinha.
+Causa: `_premise_ok` marcava qualquer versão na oração com
+marcador+comparação. Fix: exigir adjacência ao marcador
+(≤40 chars, mesma oração via `_CLAUSE_SPLIT_RE`, qualquer
+ocorrência vale p/ o tipo — T2a preservado) + só
+`_USER_CONTEXT_MARKERS` (sem isenções por INFERÊNCIA/LACUNA/
+negação). Controles: inventada vizinha, homônimo
+`Alpha×Alphabeta`, doc outro projeto, funcionalidade inventada
+rejeitam; tag inventada/doc estrangeiro/homônimo/interop-sem-doc
+continuam rejeitando (`tests/test_accept43_corretiva_attempt3.py`
+6 testes red→green + 23 existentes verdes).
+
+Claim 3 — investigação conferível (sem revisar 53 claims):
+texto integral id 3 =
+"- opencode-marketplace: LACUNA nos excertos enviados para planejamento,
+o excerto trata de instalação de plugins e não estabelece recurso de
+planejamento (https://github.com/nikiforovall/opencode-marketplace)."
+Origem: síntese `c3700bb`-live reaplicada frozen em
+`reproduction-b671207-replay/state.json`; docs/trechos `e62-e136`
+fundiam `e62-e96` marketplace real (install/update/list, sem
+planejamento) + `e97-e136` config-pack alienígena
+(`fmnapoli/opencode-config-pack`: `jira-feature-planner`/OpenSpec,
+outro mantenedor). Votos: `model-04` gap vazio (sem correção) vs
+`model-07`/`model-10` unsupported anti-fusão ("usar somente e62-e96",
+"remover e97-e136 … pacotes distintos não podem ser fundidos").
+Publicado vs registros: célula marketplace-planejamento LACUNA
+correta contra `e62-e96`; correção dos votos aponta contaminação
+do pacote de evidência, não erro da LACUNA. Conclusão: erro de
+empacotamento por entidade + contexto inadequado; auditor aplica
+anti-fusão corretamente (`_is_package_doc` fronteira +
+`_select_evidence` só docs do próprio pacote; sem doc próprio →
+gap, nunca pacote alheio). Caminho exercitado com contexto
+corrigido (`frozen-check.log`: `CLAIM3-ANCHORS` só marketplace,
+`marketplace=True`); chamadas novas só onde prompt/contexto mudou
+(nenhuma neste passe — seleção/contexto claim3 idênticos;
+correspondência `module_hashes_unchanged`/`original_unchanged`,
+prompts byte-idênticos); reuso idêntico demonstrado; quórum/critérios
+preservados; 2–1 preservado sem reversão.
+
+Validação attempt3 (lida como usuário, não só hash/contagem):
+`red.log` (3 falhas esperadas no baseline HEAD: vizinha mesma-oração,
+recomendação/Achados nus) → green pós-fix (6/6);
+`tests/test_accept43_corretiva_attempt3.py` + `test_accept43_corretiva_sustentacao.py`
+29 OK; suíte 916 OK/10 skips exit 0; offline 11/11 exit 0;
+`frozen-check.log` (rescope rewrite uni-entidade, `[13]` supported,
+numérica+LACUNA supported+declared, anchors claim3 só marketplace);
+replay zero-live exit 0 overall `partial` (review `not_run`,
+claim 3 2–1 preservado); leitura: síntese histórica com alcance
+declarado, matriz/Achados/recomendação com `[N] (fora dos excertos)`,
+INFERÊNCIAs com limites sem prometer integração, LACUNAs de
+compatibilidade 2.1.4 explícitas, fontes §7 íntegras.
