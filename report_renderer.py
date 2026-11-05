@@ -693,6 +693,10 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
     if not criteria:
         lines.append(labels["no_plan"])
         return lines
+    try:
+        _inc = ((state.get("report") or {}).get("selection") or {}).get("included_urls")
+    except Exception:
+        _inc = None
     common_scope, _common_n = _common_examined_scope(state)
     seen_scopes: set[str] = {_scope_key(common_scope)} if common_scope \
         else set()
@@ -714,7 +718,7 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
         cell_evals = crit.get("entity_evaluations") or {}
         if not cell_evals:
             lines.append(justification)
-            refs = _refs(crit, numbers, labels, cited)
+            refs = _refs(crit, numbers, labels, cited, _inc)
             if refs:
                 lines.append(f"{labels['references']}: {refs}")
         entity_states = crit.get("entity_states")
@@ -732,14 +736,14 @@ def _findings_section(state: dict, labels: dict, numbers: dict,
             for eid, est in entity_states.items():
                 ev = cell_evals.get(eid) or {}
                 detail = _sanitize_body_text(str(ev.get("justification") or labels["not_investigated"]), _entity_labels(state))
-                refs = _refs(ev, numbers, labels, cited)
+                refs = _refs(ev, numbers, labels, cited, _inc)
                 lines.append(f"| {_labels_by_id.get(eid, eid)} | "
                              f"{_state_label(labels, _cell_state(crit, eid))} | "
                              f"{detail.replace('|', '/').replace(chr(10), ' ')} {refs} |")
         elif cell_evals:
             for eid, ev in cell_evals.items():
                 lines.append(_sanitize_body_text(ev.get("justification") or labels["not_investigated"], _entity_labels(state)))
-                refs = _refs(ev, numbers, labels, cited)
+                refs = _refs(ev, numbers, labels, cited, _inc)
                 if refs:
                     lines.append(f"{labels['references']}: {refs}")
         if crit.get("examined_scope"):
@@ -1629,10 +1633,14 @@ def _recommendation_fallback(state: dict, labels: dict,
                         seen.add(_n)
                         refs.append(str(_n))
             details = []
+            try:
+                _inc_f = ((state.get("report") or {}).get("selection") or {}).get("included_urls")
+            except Exception:
+                _inc_f = None
             for crit in criteria:
                 ev = (crit.get("entity_evaluations") or {}).get(eid) or {}
                 if ev.get("state") in ("covered", "partial") and ev.get("justification"):
-                    details.append(f"{crit.get('label')}: {ev['justification']} {_refs(ev, numbers, labels, set())}")
+                    details.append(f"{crit.get('label')}: {ev['justification']} {_refs(ev, numbers, labels, set(), _inc_f)}")
             if not cov_l and not par_l:
                 lines.append(f"- {lb}: sem cobertura nos achados; "
                              f"verificar fonte própria antes de usar.")
@@ -1717,10 +1725,14 @@ def _template_section(state: dict, labels: dict, numbers: dict,
         if global_criteria:
             lines.extend(["", "### Critérios globais e contexto", ""])
             for crit in global_criteria:
+                try:
+                    _inc_g = ((state.get("report") or {}).get("selection") or {}).get("included_urls")
+                except Exception:
+                    _inc_g = None
                 lines.append(f"- **{crit.get('label') or crit.get('id')}** — "
                              f"{_state_label(labels, crit.get('state'))}: "
                              f"{_sanitize_body_text(crit.get('justification') or labels['not_investigated'], _entity_labels(state))} "
-                             f"{_refs(crit, numbers, labels, set())}")
+                             f"{_refs(crit, numbers, labels, set(), _inc_g)}")
         try:
             _by_id = {e.get("id"): (e.get("label") or e.get("id"))
                        for e in (state.get("plan") or {}).get("entities", [])

@@ -1545,12 +1545,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     _exact_u |= _text_exact_versions(_doc)
                     _fam_u |= _text_family_versions(_doc)
                 if _exact_s and not _exact_s <= _exact_u:
-                    # Premissa numérica isenta só a tag na oração de
-                    # comparação junto ao marcador: versão exata cuja oração
-                    # contém marcador de premissa controlada/informada E
-                    # comparação numérica não é exigida no doc; as demais
-                    # tags precisam estar corroboradas no citado. Janela de
-                    # chars isentava 2ª versão não-relacionada.
+                    # Premissa numérica isenta só a tag adjacente ao marcador
+                    # (≤40 chars, mesma oração/cláusula): versão exata com
+                    # ocorrência a ≤40 chars do marcador de premissa
+                    # controlada/informada, em oração com comparação numérica,
+                    # não é exigida no doc; demais tags precisam estar
+                    # corroboradas no citado. Sem isenções por
+                    # INFERÊNCIA/LACUNA/negação (só _USER_CONTEXT_MARKERS).
                     _premise_ok = False
                     if _is_numeric_comparison(sentence):
                         try:
@@ -1558,16 +1559,42 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                             _bounds = [0] + [m.end() for m in
                                              _CLAUSE_SPLIT_RE.finditer(_low)] \
                                 + [len(_low)]
+                            # posições dos marcadores de premissa no texto
+                            _mark_pos = []
+                            for _k in _USER_CONTEXT_MARKERS:
+                                _kl = _k.lower()
+                                _from = 0
+                                while True:
+                                    _fi = _low.find(_kl, _from)
+                                    if _fi < 0:
+                                        break
+                                    _mark_pos.append((_fi, _fi + len(_kl)))
+                                    _from = _fi + 1
                             _marked = set()
                             for _m in _EXACT_VERSION_RE.finditer(str(sentence or "")):
                                 _v = _m.group(0).lower().lstrip("v@")
                                 _cs = _m.start()
+                                _ce = _m.end()
                                 _ci = next((_i for _i in range(len(_bounds) - 1)
                                             if _bounds[_i] <= _cs < _bounds[_i + 1]),
                                            len(_bounds) - 2)
                                 _span = _low[_bounds[_ci]:_bounds[_ci + 1]]
-                                if any(k.lower() in _span for k in _USER_CONTEXT_MARKERS) \
-                                        and _is_numeric_comparison(_span):
+                                if not (any(k.lower() in _span for k in _USER_CONTEXT_MARKERS)
+                                        and _is_numeric_comparison(_span)):
+                                    continue
+                                # shortcut: adjacência ao marcador ≤40 chars
+                                # na mesma oração; qualquer ocorrência vale
+                                # para o tipo (T2a multi-versão preservado).
+                                _near = False
+                                for (_ms, _me) in _mark_pos:
+                                    if not (_bounds[_ci] <= _ms < _bounds[_ci + 1]):
+                                        continue
+                                    _d = 0 if (_cs < _me and _ms < _ce) \
+                                        else ((_cs - _me) if _cs >= _me else (_ms - _ce))
+                                    if _d <= 40:
+                                        _near = True
+                                        break
+                                if _near:
                                     _marked.add(_v)
                             _premise_ok = bool(_marked) and (_exact_s - _marked) <= _exact_u
                         except Exception:
