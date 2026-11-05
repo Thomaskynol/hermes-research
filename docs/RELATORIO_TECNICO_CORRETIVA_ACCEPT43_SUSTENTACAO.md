@@ -263,6 +263,67 @@ releitura do trecho confirma qualificação); `synthesis_sha` inalterado
 `790a9a06ba346b81`; correspondência fix1==externo / attempt2==atual-parcial
 mantida.
 
+## Attempt 4 — síntese nova + revisão nova pelo caminho do produto (`10cb10d` + lane-1)
+
+Proveniência (replay + live, corpus congelado attempt3, sem nova coleta):
+fonte `runs/accept43-corretiva-attempt3/replay/` (só leitura; seleção 5
+nomes, `included_urls` 6, `synthesis_sha=790a9a06ba346b81` histórico);
+destino exclusivo `runs/accept43-corretiva-attempt4/` (`frozen-baseline/`
++ `live/` + `RELATORIO_VALIDACAO.md` + `REVISAO_ACCEPT43_ATTEMPT4.zip`).
+`code_head=10cb10d` + diff lane-1 (sem reedição). Assessor 0 chamadas
+novas (81 herdadas revalidadas — sem fonte de replay byte-idêntica p/
+este corpus); writer 1 reaplicado byte-idêntico (md5 `7f4a049d…`,
+`audited_sha=9dd8f0b7b7f05258` ≠ histórico — síntese inédita); auditoria
+9 lotes live (`model-02..10`, `opencode-go/muse-spark-1.3-contributor`,
+10/10 `returned` no passe final; tentativas intermediárias falharam por
+causas registradas — processo morto, `writer-replay-from` com nome
+errado, 2 lotes com `opencode_no_text` transiente — sem aproveitamento
+parcial, sem simulação). `module_hashes_unchanged=true`,
+`original_unchanged=true`, `tokens/cost=unknown`. Embeddings
+desabilitados; CLI do gerador com permissões negadas.
+
+Revisão exercitada (caminho `make_review_fn` → `semantic_review`,
+quórum 3 votos, 0 falhas técnicas): 63 claims extraídos da síntese nova,
+25 selecionados, 25/25 julgados — 23 sustained, 1 partial (id 39), 1
+unsupported (id 0, 2–1, sem reversão). Id 5 (equivalente ao claim 3,
+LACUNA marketplace-planejamento) SUSTAINED 2–1 com blocos só-marketplace
+(sem `fmnapoli`, sem `jira-feature-planner`; votos sustained citam a CLI
+do marketplace; gap vazio). Id 0 (seleção fundindo 5 pacotes) UNSUPPORTED
+2–1: evidência anexada só code-review+marketplace; mesma doutrina
+anti-fusão do claim 3 aplicada simetricamente (correção: 1 afirmação por
+pacote — guia p/ writer futuro, sem mudança de produto).
+`verification.json` corresponde ao relatório (`rendered_sha=16ce6771…`).
+
+Octto sem estreitar, relações pelo tipo certo: síntese nova documenta
+Octto integral (perguntas clicáveis, follow-ups, plano p/ aprovação,
+fragments; compat sem versão = LACUNA 2.1.4; revisão = LACUNA
+delimitada; bun test = projeto próprio). [2] só §7; [20] nu em §1
+(em `included_urls`); [4] qualificado fora-dos-excertos. 5 INFERÊNCIAs
+delimitadas (3 complementaridade + 2 sobreposição; suporte: "nunca
+supported por âncora"); nenhuma integração testada.
+
+Validação: focada 131 OK + ampla 920 OK/10 skips exit 0 (produto intacto
+lane-1). Overall `failed` honesto. Residuais (sem mudança de produto):
+escopo §2/§3 stale; 2 notas §5 ruidosas; lotes variam entre runs;
+claim-0 pede guia writer; overlap PT×EN é limite conhecido (revisão
+semântica sustentou 23/25).
+
+### RETIFICAÇÃO explícita — descrição de [20] no anexo do attempt3
+
+O `EVIDENCIAS_REVISAO.md` do attempt3, §1 ("[20] ... (dentro de
+`included_urls`, única ref da célula") e §3b (`RESCOPE-REWRITE-OUT ...
+([20])`), está ERRADO e fica RETIFICADO: [20]
+(`https://github.com/vtemian/octto`) NÃO constava de
+`writer_included_urls` do attempt3 (= `[13],[32],[17],[42],[34],[27]`);
+o `([20])` citado era a saída impressa do demo `frozen-check.py`
+(chamada direta a `_rescope_sentence_to_entity`), NÃO a célula publicada.
+A célula real (matriz Octto/revisão, parcial) é insuficiente com [4]
+(fora-dos-excertos), já qualificada pelo renderer — como a lane-1
+demonstrou (`_rescope_cells_to_excerpts` só aceita refs 100% in-excerpt;
+reescrita com citações removidas + refs de `covering`). Nenhum veredito
+do attempt3 muda com esta retificação (a qualificação já estava correta
+no artefato; o erro era só descritivo no anexo).
+
 Residuais documentados (não corrigir neste passe):
 - Tests com `make_plan` de 1 entidade cobrem o contrato, não o arranjo real
 de N entidades (cobertura, não defeito de produto).

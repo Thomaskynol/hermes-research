@@ -1,5 +1,37 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
+> **Estado atual — resposta attempt4 accept43: síntese NOVA + revisão NOVA (2026-11-05 UTC):**
+> branch `feat/product-v1`, produto `10cb10d` + diff lane-1 (sem reedição;
+> sem push ainda). Fonte: `runs/accept43-corretiva-attempt3/replay/` (só
+> leitura); destino exclusivo `runs/accept43-corretiva-attempt4/`.
+> Baseline frozen sem `--model` exit 0 (seleção idêntica, efeitos lane-1:
+> 5/13 + c_combo parcial). Passe live (`--model
+> opencode-go/muse-spark-1.3-contributor`, `--assessment-calls 0`):
+> assessor 0 chamadas novas (81 herdadas revalidadas), writer 1 reaplicado
+> byte-idêntico (síntese inédita "Comparação de cinco plugins",
+> `audited_sha=9dd8f0b7…`), auditoria 9 lotes live (model-02..10, 75 slots,
+> 0 falhas). Review real: 25/25 com quórum — 23 sustained, 1 partial
+> (id 39, jira-MIT), 1 unsupported (id 0, 2–1, fusão de 5 pacotes
+> rejeitada sem reversão). Claim-equivalente ao claim 3 = id 5 (LACUNA
+> marketplace-planejamento, NÃO forçado a 3): SUSTAINED 2–1 com evidência
+> só-marketplace (sem config-pack nos blocos; nenhum voto usa pacote
+> alheio). Octto com escopo integral (perguntas/fragments/plano p/
+> aprovação; revisão=LACUNA delimitada); [2] só na bibliografia, [20] nu
+> (em included_urls), [4] qualificado fora-dos-excertos; INFERÊNCIAs só
+> complementaridade/sobreposição com limites (nunca integração testada).
+> `verification.json` corresponde ao relatório (`rendered_sha=16ce6771…` ==
+> sha256 do report). Overall `failed` HONESTO (claim-0 fusão + overlap
+> PT×EN; sem reversão, sem edição de artefato). Residuais documentados no
+> RELATORIO_VALIDACAO: escopo §2/§3 stale ("0/13") por anotação idempotente
+> pré-write sem rebuild pós-write; 2 notas §5 ruidosas (matcher sem
+> dimensão); composição de lotes varia entre runs; guia writer futura
+> (1 afirmação por pacote). Focada 131 OK + ampla 920 OK/10 skips exit 0
+> (produto intacto lane-1). ZIP:
+> `runs/accept43-corretiva-attempt4/REVISAO_ACCEPT43_ATTEMPT4.zip` (report
+> + verification + annex + RELATORIO_VALIDACAO). Técnico atualizado com
+> adendo attempt4 + RETIFICAÇÃO [20]. Próximo passo: validação do
+> orquestrador (sem push por enquanto).
+
 > **Estado atual — corretiva attempt3 accept43 (2026-11-05 UTC):**
 > branch `feat/product-v1`, produto `47f4fe7` + testes locais (sem push).
 > Fechados os 2 residuais do gate externo: `vr:1569` (isenção mesma-oração
