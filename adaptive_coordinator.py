@@ -8700,7 +8700,10 @@ def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
                             sent_toks = set(_vr._content_tokens(_sent))
                         except Exception:
                             sent_toks = set()
-                        if not (dim & sent_toks):
+                        # Demotion needs certainty: every content word of the
+                        # criterion label must occur (a single shared word
+                        # like "código" also appears in other dimensions).
+                        if not (dim and dim <= sent_toks):
                             continue
                         targets.append((crit.get("id"), eid, _sent, _urls))
                         seen.add((crit.get("id"), eid))

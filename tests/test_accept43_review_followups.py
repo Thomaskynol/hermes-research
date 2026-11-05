@@ -198,6 +198,13 @@ class ExcerptRescope(unittest.TestCase):
               "review detalhada [3].")
         self.assertIsNone(ac._rescope_cells_to_excerpts(st, md, {1: A, 2: B, 3: X}))
 
+    def test_limit_about_other_dimension_does_not_rescope(self):
+        st = self._covered_state()
+        md = ("- River Deploy contém comando de testes do próprio projeto nos excertos, o que é "
+              "evidência sobre o desenvolvimento, e documenta apenas contribuição limitada "
+              "sem base equivalente de code review detalhada [2].")
+        self.assertIsNone(ac._rescope_cells_to_excerpts(st, md, {1: A, 2: C, 3: X}))
+
     def test_partial_cell_is_not_rescoped(self):
         st = self._covered_state()
         led = cl.Ledger(st["plan"], run_id=st["run_id"])
