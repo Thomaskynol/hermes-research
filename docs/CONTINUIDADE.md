@@ -1,5 +1,24 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
+> **Estado atual — corretiva accept43 sustentação/avaliação/claim3 (2026-11-05 UTC):**
+> branch `feat/product-v1`, produto + testes locais (sem push). Os 4 itens foram
+> corrigidos em mecanismo geral (1 correção por causa, TDD red→green T1–T4 com
+> 8 testes em `tests/test_accept43_corretiva_sustentacao.py`): rescope reescreve
+> frase multi-entidade ao escopo uni-entidade (ordinal por posição textual);
+> refs fora de `included_urls` publicadas como `[N] (fora dos excertos)`; notas
+> §5 com carimbo da síntese; verificadores aceitam numérico+premissa+LACUNA
+> (canal LACUNA), fato próprio no excerto (base inequívoca) e ausências
+> "LACUNA nos excertos/sem fonte/sem trecho/não estabelece" como LACUNA-janela,
+> mais ponte PT→EN de escopo; empacotamento de evidência por entidade sem fusão.
+> Controles que rejeitam (tag inventada, doc estrangeiro, homônimo, interop sem
+> doc) intactos. Suite 895 OK/10 skips + offline exit 0; replay zero-live
+> `runs/accept43-corretiva-fix1/replay/` (exit 0, overall `partial`; review
+> `not_run` — claim 3 2–1 preservado sem novos votos); checagem congelada
+> b671207 só-leitura com os 3 vereditos-caso corrigidos; 4 unsupported residuais
+> idênticos sob código `b671207` intacto (sem regressão). Técnico:
+> `docs/RELATORIO_TECNICO_CORRETIVA_ACCEPT43_SUSTENTACAO.md`. RA8 segue pendente.
+> Próximo passo: revisão independente (gate do orquestrador).
+
 > **Estado atual — revisão independente exercitada (2026-11-05 UTC):** branch
 > `feat/product-v1`, produto `b671207` + testes (locais, sem push). Os três
 > achados do reviewer foram corrigidos em mecanismo geral e demonstrados por
