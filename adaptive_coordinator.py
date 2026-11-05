@@ -8569,6 +8569,181 @@ def _promote_partial_declared(state: dict, ledger,
         return False
 
 
+#: Limit markers of a synthesis sentence that restricts (not denies) an
+#: entity+dimension claim to the evaluated excerpts (generic, PT).
+_RESCOPE_LIMIT_MARKERS = ("apenas", "sem base", "não demonstra",
+                          "nao demonstra", "sem trecho", "sem demonstração",
+                          "sem demonstracao", "limitado", "limitada",
+                          "restrito", "restrita", "não equivale",
+                          "nao equivale")
+
+
+def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
+    """Restrict covered cells to the writer-excerpt scope (generic).
+
+    A covered per-candidate cell whose refs include URLs outside the
+    writer's excerpt selection overstates the delivered scope when the
+    delivered synthesis itself limits the same entity+dimension to the
+    excerpts. For each such cell with a synthesis limit sentence (entity
+    named by full/unique base, criterion dimension word present, limit
+    marker, only in-excerpt refs cited, never a LACUNA declaration), the
+    cell is re-evaluated as partial with the synthesis limit as
+    justification and only in-excerpt refs. Never touches partial/
+    insufficient cells, cells fully inside the excerpts, or limits
+    citing outside material. Returns the recomputed block, or None.
+    """
+    try:
+        import verification_report as _vr
+        import coverage_ledger as _ledger
+    except Exception:
+        return None
+    try:
+        sel = (state.get("report") or {}).get("selection") or {}
+        excerpt_urls = {str(u) for u in (sel.get("included_urls") or []) if u}
+        if not excerpt_urls or not str(report_markdown or "").strip():
+            return None
+        if n_to_url is None:
+            try:
+                import report_renderer as _rr
+                _ln = getattr(_rr.render_report, "last_numbers", {}) or {}
+            except Exception:
+                _ln = {}
+            try:
+                import verification_report as _vrn
+                n_to_url = _vrn._n_to_url(_ln)
+            except Exception:
+                return None
+        plan = state.get("plan") or {}
+        block = state.get("question_coverage") or {}
+        criteria = [c for c in (block.get("criteria") or [])
+                    if isinstance(c, dict)]
+        if not criteria:
+            return None
+        entities = [e for e in (plan.get("entities") or [])
+                    if isinstance(e, dict)]
+        units: list[str] = []
+        for _line in str(report_markdown).splitlines():
+            _s = _line.strip()
+            if not _s:
+                continue
+            for _raw in re.split(r"(?<=[.!?])\s+", _s):
+                _u = _raw.strip()
+                if _u:
+                    units.append(_u)
+        if not units:
+            return None
+        limits: list[tuple] = []
+        for _u in units:
+            low = _u.lower()
+            if not any(m in low for m in _RESCOPE_LIMIT_MARKERS):
+                continue
+            try:
+                if _vr.is_lacuna_declaration(_u):
+                    continue
+            except Exception:
+                pass
+            try:
+                cits = [int(n) for n in re.findall(r"\[(\d+)\]", _u)]
+            except Exception:
+                continue
+            if not cits:
+                continue
+            urls = [n_to_url.get(n) for n in cits]
+            if not urls or any(u not in excerpt_urls for u in urls):
+                continue
+            try:
+                named = _vr.strict_named_in_sentence(_u, entities)
+            except Exception:
+                continue
+            if not named:
+                continue
+            for _lb, _eid in named:
+                limits.append((_eid, _u, urls))
+        if not limits:
+            return None
+        targets: list[tuple] = []
+        seen: set = set()
+        for crit in criteria:
+            try:
+                if not isinstance(crit, dict):
+                    continue
+                if not crit.get("per_candidate") and not crit.get("entity_states"):
+                    continue
+                try:
+                    dim = {t for t in _vr._content_tokens(crit.get("label") or "")
+                           if len(t) >= 4}
+                except Exception:
+                    dim = set()
+                if not dim:
+                    continue
+                states = crit.get("entity_states") or {}
+                evals = crit.get("entity_evaluations") or {}
+                for eid, stt in states.items():
+                    if stt != "covered":
+                        continue
+                    try:
+                        cell_refs = (evals.get(eid) or {}).get("references") or []
+                        cell_urls = []
+                        for r in cell_refs:
+                            if isinstance(r, dict):
+                                cell_urls.append(str(r.get("url", r.get("doc_id", ""))))
+                            else:
+                                cell_urls.append(str(r or ""))
+                    except Exception:
+                        cell_urls = []
+                    if not any(u not in excerpt_urls for u in cell_urls):
+                        continue
+                    for _eid, _sent, _urls in limits:
+                        if _eid != eid or (crit.get("id"), eid) in seen:
+                            continue
+                        try:
+                            sent_toks = set(_vr._content_tokens(_sent))
+                        except Exception:
+                            sent_toks = set()
+                        if not (dim & sent_toks):
+                            continue
+                        targets.append((crit.get("id"), eid, _sent, _urls))
+                        seen.add((crit.get("id"), eid))
+                        break
+            except Exception:
+                continue
+        if not targets:
+            return None
+        fresh = _ledger.Ledger(plan, run_id=state.get("run_id"))
+        fresh.set_corpus(dict(state.get("evidence") or {}),
+                         dict(state.get("qualification") or {}))
+        for prev in state.get("evaluations") or []:
+            try:
+                fresh.evaluate(prev["criterion_id"],
+                               prev.get("state", "insufficient"),
+                               prev.get("justification", ""),
+                               prev.get("origin", ""),
+                               prev.get("references", []),
+                               prev.get("entity_id"))
+            except (ValueError, KeyError):
+                pass
+        for cid, eid, sent, urls in targets:
+            try:
+                just = re.sub(r"\s+", " ",
+                              re.sub(r"\[\d+\]", "", sent)).strip()
+                ev = fresh.evaluate(cid, "partial", just, "excerpt-scope",
+                                    [{"url": u} for u in urls], eid)
+                state.setdefault("evaluations", []).append(dict(ev))
+                state.setdefault("notes", []).append(
+                    f"excerpt-scope: {cid}x{eid} -> partial "
+                    f"(limite da síntese nos excertos)")
+            except (ValueError, KeyError):
+                continue
+        return fresh.compute()
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"excerpt rescope skipped: {exc}")
+        except Exception:
+            pass
+        return None
+
+
 def _write_technical_annex(run_dir, state: dict, verification,
                            cited=None) -> str:
     """Grava technical_annex.md ao lado de report.md (entrega separada).
@@ -8909,6 +9084,20 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
         except Exception as _exc:
             state.setdefault("notes", []).append(
                 f"partial declarado promotion skipped: {_exc}")
+        # Excerpt-scope (revisão independente): covered cells whose refs
+        # exceed the writer excerpts are rescoped when the delivered
+        # synthesis limits the same entity+dimension. Runs post-write, so
+        # the writer prompt is unaffected; the re-render loop below picks
+        # the rescoped block up for matrix, question and verification.
+        try:
+            _rescoped = _rescope_cells_to_excerpts(state, report_markdown)
+            if _rescoped is not None:
+                block = _rescoped
+                state["question_coverage"] = block
+                _annotate_examined_scope(state, block)
+        except Exception as _exc:
+            state.setdefault("notes", []).append(
+                f"excerpt rescope skipped: {_exc}")
         verification["dimensions"]["question"] = _verify.verify_question(state)
         verification["overall"] = _verify.aggregate(verification["dimensions"])
         state["verification"] = verification

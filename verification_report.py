@@ -1047,6 +1047,49 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
     return anchor_ok, relation_ok, anchor_reason, relation_reason
 
 
+def strict_named_in_sentence(sentence, entities):
+    """Entities named by full label or unambiguous base (comparison scan).
+
+    Generic, no product literals: a candidate counts as named only by its
+    full form in the sentence, or by its base (label without parenthesis)
+    when that base is unique in the given entity set. Loose token overlap
+    ('opencode'/'code review' as common words) never names anyone. Same
+    rule family as the check_support comparison scan; `entities` is a
+    plan entity list (dicts with label/id). Returns [(label, id)].
+    """
+    labs: list[tuple] = []
+    for e in (entities or []):
+        if not isinstance(e, dict):
+            continue
+        lb = str(e.get("label") or e.get("id") or "")
+        if lb:
+            labs.append((lb, e.get("id")))
+    alias_counts: dict[str, int] = {}
+    for lb, _ in labs:
+        base = _norm_mention(re.sub(r"\([^)]*\)", "", lb))
+        if base:
+            alias_counts[base] = alias_counts.get(base, 0) + 1
+    comp = _norm_mention(sentence)
+    out: list[tuple] = []
+    for lb, eid in labs:
+        full = _norm_mention(lb)
+        base = _norm_mention(re.sub(r"\([^)]*\)", "", lb))
+        forms = [full] + ([base] if alias_counts.get(base) == 1 else [])
+        if any(f and re.search(r"(?:^| )" + re.escape(f) + r"(?:$| )", comp)
+               for f in forms):
+            out.append((lb, eid))
+    return out
+
+
+# Rótulo único das inferências (complementaridade/sobreposição inferida):
+# relação sem prova nunca "documentada" nem "integração testada"; âncoras
+# sustentadas contam partial declarada com limites explícitos.
+PARTIAL_DECLARED_SCOPE = ("partial declarada (complementaridade/sobreposição "
+                          "inferida a partir de premissas em fontes distintas; "
+                          "LACUNA explícita sem prova de integração; limites: "
+                          "janela auditada; nunca integração testada)")
+
+
 def check_support(synthesis_text: str, numbers, corpus, plan,
                   selection=None) -> dict:
     """Sentence-level support audit of the synthesis (audit only, no rewrite).
@@ -1480,12 +1523,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     continue
                 # Co-mencção ≠ teste (accept42 item 2): premissas
                 # sustentadas, mas sem verbo de teste nem execução no doc —
-                # documentado, nunca integração testada.
+                # inferência parcial declarada, nunca integração testada.
                 supported += 1
-                declared_inference.append(
-                    {"sentence": sentence, "citations": citations,
-                     "anchor_ok": True, "relation_ok": False,
-                     "scope": "documentado (sem teste executado)"})
+                _decl_i = {"sentence": sentence, "citations": citations,
+                           "anchor_ok": True, "relation_ok": False,
+                           "scope": PARTIAL_DECLARED_SCOPE}
+                declared_inference.append(dict(_decl_i))
+                partial_declared.append(dict(_decl_i))
                 continue
             if _capped and _interop_ok:
                 # Teto: âncora+relação ok no overlap, mas a frase nega ou
@@ -1509,11 +1553,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                                     "reason": reason})
             _decl = {"sentence": sentence, "citations": citations,
                      "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
-                     "scope": "partial declarada (complementaridade "
-                              "plausível com premissas em fontes distintas; "
-                              "LACUNA explícita sem prova de integração; "
-                              "limites: janela auditada; nunca integração "
-                              "testada)"}
+                     "scope": PARTIAL_DECLARED_SCOPE}
             declared_inference.append(dict(_decl))
             if _anchor_any_ok:
                 # Premissas sustentadas em fontes distintas contam partial
@@ -1596,12 +1636,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                               "plausível, não integração testada)"})
                 _decl2 = {"sentence": sentence, "citations": citations,
                           "anchor_ok": True, "relation_ok": False,
-                          "scope": "partial declarada (complementaridade "
-                                   "plausível com premissas em fontes "
-                                   "distintas — âncoras em docs separados; "
-                                   "LACUNA explícita sem prova de "
-                                   "integração; limites: janela auditada; "
-                                   "nunca integração testada)"}
+                          "scope": PARTIAL_DECLARED_SCOPE}
                 declared_inference.append(dict(_decl2))
                 partial_declared.append(dict(_decl2))
                 continue
@@ -1616,11 +1651,13 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 if not _meets_test_standard(
                         sentence, [d for _, d in _cited if d]):
                     # Co-mencção ≠ teste (accept42 item 2): sustentada,
-                    # mas sem verbo de teste nem execução no doc.
-                    declared_inference.append(
-                        {"sentence": sentence, "citations": citations,
-                         "anchor_ok": True, "relation_ok": False,
-                         "scope": "documentado (sem teste executado)"})
+                    # mas sem verbo de teste nem execução no doc —
+                    # inferência parcial declarada, nunca integração testada.
+                    _decl_i2 = {"sentence": sentence, "citations": citations,
+                                "anchor_ok": True, "relation_ok": False,
+                                "scope": PARTIAL_DECLARED_SCOPE}
+                    declared_inference.append(dict(_decl_i2))
+                    partial_declared.append(dict(_decl_i2))
                 else:
                     try:
                         _which = []

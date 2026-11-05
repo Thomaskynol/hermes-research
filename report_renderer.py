@@ -1456,13 +1456,17 @@ def _combo_entities(state: dict) -> list[dict]:
 
 
 def _combination_premises(state: dict, synthesis: str) -> list[str]:
-    """Linhas compactas das combinações com ≥2 premissas citadas.
+    """Linhas compactas das combinações com premissa por entidade nomeada.
 
     Extrai da síntese final (já com [N]) as sentenças de combinação
-    (INFERÊNCIA) que citam ≥2 premissas e nomeiam ≥2 exigidos;
-    devolve metadados (par × nº de premissas × refs), nunca a frase
-    verbatim. Sem par válido, lista vazia (o chamador declara LACUNA
-    com alcance).
+    (INFERÊNCIA) que citam ≥2 premissas e nomeiam ≥2 exigidos por forma
+    cheia ou base inequívoca (nunca overlap frouxo de tokens); devolve
+    metadados (par × nº de premissas × refs), nunca a frase verbatim.
+    Cada entidade nomeada precisa de um doc citado que a vincule
+    (mesmo vínculo do verificador); entidade sem fonte é sinalizada
+    na linha ("sem fonte: X"), nunca silenciosamente coberta pela
+    contagem de premissas. Sem par válido, lista vazia (o chamador
+    declara LACUNA com alcance). Vale para N candidatos.
     """
     try:
         import re as _re_c
@@ -1471,37 +1475,64 @@ def _combination_premises(state: dict, synthesis: str) -> list[str]:
             return []
         try:
             import verification_report as _vr
-            _mentioned = _vr._entity_mentioned
         except Exception:
-            _mentioned = None
+            return []
+        try:
+            _num = _numbers(state)
+        except Exception:
+            return []
+        n_to_url = {int(n): u for u, n in (_num or {}).items()
+                    if str(n).isdigit()}
+        try:
+            from entity_identity import source_identity as _sid
+        except Exception:
+            _sid = None
+        emap = {e.get("id"): e for e in (state.get("plan") or {}).get("entities", [])
+                if isinstance(e, dict)}
+        ev = dict(state.get("evidence") or {})
+
+        def _covers(label, eid, url) -> bool:
+            body = ev.get(url) or ""
+            if not body:
+                return False
+            if _sid is not None:
+                try:
+                    proven = _sid(emap.get(eid) or {}, body, url)
+                except Exception:
+                    proven = None
+                if proven is True:
+                    return True
+                if proven is False:
+                    return False
+            try:
+                return bool(_vr._entity_mentioned(label, eid, body))
+            except Exception:
+                return False
+
         out: list[str] = []
         for sent in _re_c.split(r"(?<=[.!?])\s+|\n+",
                                 str(synthesis or "")):
             if "infer" not in sent.lower():
                 continue
-            named: list[str] = []
-            for ent in req:
-                lb = str(ent.get("label") or ent.get("id") or "")
-                if not lb:
-                    continue
-                try:
-                    hit = bool(_mentioned(lb, ent.get("id"), sent)) \
-                        if _mentioned is not None else False
-                    if not hit:
-                        hit = lb.lower() in sent.lower()
-                except Exception:
-                    hit = lb.lower() in sent.lower()
-                if hit and lb not in named:
-                    named.append(lb)
+            named = _vr.strict_named_in_sentence(sent, req)
             if len(named) < 2:
                 continue
-            refs = sorted(set(_re_c.findall(r"\[(\d+)\]", sent)),
-                          key=int)
+            try:
+                refs = sorted({int(n) for n in _re_c.findall(r"\[(\d+)\]", sent)})
+            except Exception:
+                continue
             if len(refs) < 2:
                 continue
-            shown = "[" + "][".join(refs[:4]) + "]"
-            out.append(f"- {' × '.join(named[:3])}: {len(refs)} "
-                       f"premissas citadas {shown}")
+            urls = [n_to_url.get(n) for n in refs]
+            urls = [u for u in urls if u]
+            missing = [lb for lb, eid in named
+                       if not any(_covers(lb, eid, u) for u in urls)]
+            shown = "[" + "][".join(str(n) for n in refs[:4]) + "]"
+            line = (f"- {' × '.join(lb for lb, _ in named[:3])}: "
+                    f"{len(refs)} premissas citadas {shown}")
+            if missing:
+                line += "; sem fonte: " + ", ".join(missing)
+            out.append(line)
         return out
     except Exception:
         return []

@@ -4,9 +4,10 @@
 1. Polaridade: frase interop com negação/limite ou modalidade não-factual
    nunca recebe "integração testada" (teto partial/LACUNA); afirmação
    positiva legítima que cita teste continua "integração testada".
-2. Co-mencção ≠ teste: "integração testada" exige verbo de integração/
-   teste na frase OU evidência de execução no doc; senão "documentado
-   (sem teste executado)" (mera menção ao host + plugin não fecha interop).
+2. Co-menção ≠ teste: "integração testada" exige verbo de integração/
+   teste na frase OU evidência de execução no doc; senão rótulo único de
+   inferência parcial declarada (nunca "documentado", nunca integração
+   testada).
 3. Complementaridade inferida (relation_ok False) nunca vira integração
    testada; enumeração de candidatos do plano nunca entra no canal
    declared_inference.
@@ -87,13 +88,16 @@ SENT_TESTED = ("Widget Alpha e Widget Beta tem integracao testada "
 
 
 class CoMentionVsTestTest(unittest.TestCase):
-    def test_host_mention_without_test_verb_is_documented(self):
+    def test_host_mention_without_test_verb_is_unified_inference(self):
         res = verify.check_support(
             SENT_HOST, {1: URL_P}, {URL_P: DOC_P}, PLAN_HOST)
         scopes = _scopes(res)
-        self.assertNotIn("integração testada", scopes, res)
-        self.assertIn("documentado (sem teste executado)", scopes, res)
+        self.assertNotIn("integração testada (interoperabilidade citada)", scopes, res)
+        self.assertNotIn("documentado (sem teste", scopes, res)
+        self.assertIn("partial declarada", scopes, res)
+        self.assertIn("nunca integração testada", scopes, res)
         self.assertEqual(res["supported"], 1, res)
+        self.assertTrue(res.get("partial_declared"), res)
 
     def test_tested_integration_claim_keeps_scope(self):
         res = verify.check_support(
@@ -117,9 +121,12 @@ class InteropVerbFamilyTest(unittest.TestCase):
             SENT_INTEGRALMENTE, {1: URL_NOVERB}, {URL_NOVERB: DOC_NOVERB},
             PLAN_2)
         scopes = _scopes(res)
-        self.assertNotIn("integração testada", scopes, res)
-        self.assertIn("documentado (sem teste executado)", scopes, res)
+        self.assertNotIn("integração testada (interoperabilidade citada)", scopes, res)
+        self.assertNotIn("documentado (sem teste", scopes, res)
+        self.assertIn("partial declarada", scopes, res)
+        self.assertIn("nunca integração testada", scopes, res)
         self.assertEqual(res["supported"], 1, res)
+        self.assertTrue(res.get("partial_declared"), res)
 
     def test_integracao_keeps_integration_scope(self):
         res = verify.check_support(
@@ -144,9 +151,12 @@ class IncidentalBoilerplateTest(unittest.TestCase):
             SENT_BOILER, {1: URL_BOILER}, {URL_BOILER: DOC_BOILER},
             PLAN_2)
         scopes = _scopes(res)
-        self.assertNotIn("integração testada", scopes, res)
-        self.assertIn("documentado (sem teste executado)", scopes, res)
+        self.assertNotIn("integração testada (interoperabilidade citada)", scopes, res)
+        self.assertNotIn("documentado (sem teste", scopes, res)
+        self.assertIn("partial declarada", scopes, res)
+        self.assertIn("nunca integração testada", scopes, res)
         self.assertEqual(res["supported"], 1, res)
+        self.assertTrue(res.get("partial_declared"), res)
 
 
 URL_A2 = "https://example.com/widget-alpha"

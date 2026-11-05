@@ -737,8 +737,8 @@ class InferencePremisesPairTest(unittest.TestCase):
     """Ponto 1 (positivo declarado) vs ponto 2 (negativo sem premissas).
 
     Positivo: 2 docs de entidades distintas sustentam cada premissa;
-    o auditor declara INFERÊNCIA de complementaridade plausível COM
-    limites e SEM rótulo integração testada (nunca supported por
+    o auditor declara INFERÊNCIA (complementaridade/sobreposição inferida)
+    COM limites e SEM rótulo integração testada (nunca supported por
     âncora). Negativo: sem doc-interop e sem âncora -> rejeição
     (LACUNA/rejeitado, nunca supported). Lado a lado provam que nem
     toda combinação vira o mesmo LACUNA genérico.
@@ -772,7 +772,7 @@ class InferencePremisesPairTest(unittest.TestCase):
         scopes = " | ".join(str((d or {}).get("scope", "")) for d in decl)
         low = scopes.lower()
         # Declarada com limites, sem rótulo positivo de integração testada.
-        self.assertIn("complementaridade plaus", low, scopes)
+        self.assertIn("complementaridade/sobreposição inferida", low, scopes)
         self.assertTrue("limite" in low or "janela" in low, scopes)
         self.assertNotIn("integração testada (interoperabilidade citada)",
                          scopes, scopes)
