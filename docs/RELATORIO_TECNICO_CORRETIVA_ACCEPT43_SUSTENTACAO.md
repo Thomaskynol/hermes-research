@@ -57,10 +57,10 @@ passe anterior em `runs/accept43-corretiva-fix1/`)
 
 ## Cobertura dos 10 do attempt 1 (IDs por arquivo:linha + estado)
 
-O gate attempt 1 citou 10 (2🔴+7🟡+1❓); o spec recebido nomeava 8 com
-file:line — os 2 🟡 restantes não têm ID recuperável (relatório original
-fora de disco; nada além do listado abaixo foi alterado). Attempt 2
-confirmou 2🔴+4🟡 resolvidos; os refinamentos viraram o lote attempt 2.
+O gate attempt 1 citou 10 (2🔴+7🟡+1❓), todos com file:line — a linha
+`tests:78/208` fundia 2 achados distintos numa linha, daí a conta aparente
+8+2. Attempt 2 confirmou 2🔴+4🟡 resolvidos; os refinamentos viraram o lote
+attempt 2. Nenhum pendente de mapeamento.
 
 | ID | Achado attempt 1 | Estado |
 |---|---|---|
@@ -70,9 +70,17 @@ confirmou 2🔴+4🟡 resolvidos; os refinamentos viraram o lote attempt 2.
 | `vr:1409` 🟡 | Premissa frouxa 2-tokens | Resolvido (attempt 1, `_strict_doc`) + refinado veto monorepo (attempt 2 item 4) |
 | `vr:125` 🟡 | Cognatos só-recall | Resolvido (attempt 1, veto positivo) + refinado veto monorepo (attempt 2 item 4); gate direto revertido p/ calibração |
 | `rr:1781` 🟡 | Sha inline quebrava dedup/compare | Resolvido (attempt 1→2: linha separada, texto estável) |
-| `tests:78/208` 🟡 | Cobertura (ordinal/textual/None/2-pacotes/homônimo) | Resolvido (guards + red→green no mesmo arquivo) |
-| `docs:[2]` ❓ | Critério [2] fora de `included_urls` | Resolvido na publicação (tabela acima); promoção pendente (sem re-rank) |
-| `?` 🟡 ×2 | IDs não recuperáveis do spec recebido | Sem alteração correspondente; suíte+replay cobrem o produto inteiro |
+| `tests:78` 🟡 | Cobertura ordinal/textual/None | Resolvido (guards + red→green no mesmo arquivo) |
+| `tests:208` 🟡 | Cobertura T4 + negativos homônimo/multi-doc | Resolvido (guards + red→green no mesmo arquivo) |
+| `docs:55` ❓ | Critério [2] fora de `included_urls` | Resolvido na publicação (tabela acima); promoção pendente (sem re-rank) |
+
+Risco residual aceito pelo orquestrador — `vr:1569` mesma-oração: a isenção
+marca todas as versões exatas da oração com marcador+comparação; oração única
+com 2.1.4 válido + versão inventada isentaria ambas. ACEITO com critério:
+estreitar p/ versão adjacente ao marcador arriscaria falso unsupported em
+frases válidas multi-versão (padrão T2a), e o caso exige versão inventada
+dividindo a oração com comparação numérica válida (probabilidade baixa;
+revisitar se observado em run real).
 
 ## Remediação do gate reviewer (attempt 2)
 
