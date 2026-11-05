@@ -1,6 +1,18 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual — defeitos accept43 corrigidos em mecanismo (2026-11-05 UTC):**
+> **Estado atual — revisão independente exercitada (2026-11-05 UTC):** branch
+> `feat/product-v1`, produto `b671207` + testes (locais, sem push). Os três
+> achados do reviewer foram corrigidos em mecanismo geral e demonstrados por
+> reprodução integrada `runs/accept43-reconciliation/reproduction-b671207-replay/`
+> (12/12 replays idênticos, zero chamadas live — síntese e evidências
+> inalteradas): premises só pares corretos + trio com 3 refs, matriz Octto-revisão
+> em parcial com limite e só [20], rótulo único de inferência, `missing/inferred`
+> vazios, `c_overlap` partial, overall `failed` preservado pelo claim 3 sem relação
+> com estes achados, 53/25/28 explícitos. Suite 887/10 skips + offline 11/11
+> (a revalidar no fechamento). RA8 segue pendente. Próximo passo definido
+> pelo solicitante.
+
+> **Estado anterior — defeitos accept43 corrigidos em mecanismo (2026-11-05 UTC):**
 > branch `feat/product-v1`, produto `c3700bb` + testes `fea9fb7` (locais, sem
 > push). Os dois defeitos materiais foram corrigidos em mecanismo geral
 > (writer guidance + reescrita determinística no renderer) e demonstrados por

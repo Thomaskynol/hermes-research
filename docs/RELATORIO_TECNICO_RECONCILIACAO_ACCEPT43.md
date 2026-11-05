@@ -458,3 +458,53 @@ c_combo/c_overlap volta a "não investigado" (promoção exige
 limitação conhecida de recall de tradução); reconhecedor de LACUNA não cobre
 o novo molde "LACUNA nos excertos enviados" (sentenças válidas caem no
 positivo estrito; sem efeito no veredito aqui).
+
+## Revisão independente sobre reproduction-c3700bb-live (produto `b671207`)
+
+Três achados confirmados nos artefatos, corrigidos em mecanismo geral
+(TDD RED→GREEN, 13 testes em `tests/test_accept43_review_followups.py`
++ 3 atualizados de contrato antigo; controle negativo no pré-fix:
+8 vermelhos pelo motivo esperado, 2 travas de comportamento passam lá e cá):
+
+1. 🔴 `_combination_premises` listava trios com 2 premissas
+  ("OCR × jira × Plannotator: 2 premissas [19][34]",
+  "OCR × Plannotator × Octto: 2 premissas [20][34]") — mesmo contrato da
+  falha 1 noutra superfície: aceitava `len(refs)>=2` para `len(named)==3`
+  e nomeava por overlap frouxo ("code review" genérico fantasiava o
+  terceiro). Fix: nomeação estrita (forma cheia/base inequívoca, mesmo
+  vínculo do verificador) + premissa por entidade citada
+  (`doc_covers_entity` centralizado em `verification_report`, mesma regra
+  do `missing_entity_sources`); entidade sem fonte é sinalizada
+  ("; sem fonte: X"), nunca coberta pela contagem. Vale para N candidatos.
+2. 🔴 Matriz Revisão/Octto dizia "coberto ... Code Review com side-by-side
+  diffs [20],[2]" enquanto a síntese limita Octto a revisão visual de plano
+  "sem base equivalente de code review detalhada". Confronto com os excertos:
+  o excerto de [20] enviado ao writer (2000 chars) contém só "Review the
+  final plan visually"; [2] (blog do autor, com menção "Code Review:
+  side-by-side diffs") nunca chegou ao writer (fora de `included_urls`).
+  Classificação correta pelo excerto: parcial com limite. Fix:
+  `_rescope_cells_to_excerpts` no `_finalize` (pós-escrita; prompt do writer
+  inalterado): célula covered com refs fora dos excertos + sentença-limite
+  da síntese (mesma entidade por nome estrito, dimensão exigida por todas
+  as palavras do rótulo, marcador de limite, só refs de excertos, sem
+  sequestrar LACUNA pura) vira partial com a formulação da síntese e só as
+  refs que sustentam a entidade limitada. Traço interno vai ao anexo, nunca
+  ao corpo (`_DEBUG_NOTE_PREFIXES`).
+3. 🟡 Rótulo único das inferências: "documentado (sem teste executado)"
+  eliminado dos dois ramos de co-menção; tudo vira `PARTIAL_DECLARED_SCOPE`
+  ("complementaridade/sobreposição inferida ... nunca integração testada"),
+  com `partial_declared` correspondente e `supported` preservado (sem
+  rebaixamento de contagem).
+
+Reprodução `runs/accept43-reconciliation/reproduction-b671207-replay/`
+(sobre `b671207`; assessor×2 + escrita×1 + votos×9 todos reaplicados com
+prompts idênticos — síntese e evidências inalteradas, zero chamadas live;
+`module_hashes_unchanged` e `original_unchanged` true): premises só com
+pares corretos + trio com 3 refs, zero "; sem fonte:"; matriz e Achados
+Octto-revisão em parcial com o limite e só [20]; escopo único em toda
+`declared_inference`; `missing/inferred` vazios; `c_overlap` volta a
+partial pela promoção (residual anterior resolvido); `overall failed`
+preservado pelo claim 3 (LACUNA marketplace-planejamento, unsupported
+semântico 2–1 por atribuição indevida, sem relação com estes achados, sem
+reversão); 53/25/28 explícitos, revisão incompleta. Notas §5 de
+reconciliação preservadas (mecanismo inalterado).
