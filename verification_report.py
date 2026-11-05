@@ -66,7 +66,8 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "teste": ("test", "tests"),
     "revisao": ("review",),
     "revisor": ("review", "reviewer"),
-    "revisa": ("review",), "planos": ("plans", "plan"),
+    "revisa": ("review",), "revisar": ("review",),
+    "planos": ("plans", "plan"),
     "codigo": ("code",), "perguntas": ("questions",),
     "interativas": ("interactive",),
     "estruturar": ("structure", "structured"),
@@ -93,6 +94,7 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "instalacao": ("install", "installation"),
     "instalador": ("install", "installer"),
     "instalar": ("install",),
+    "listar": ("list",),
     "atualizar": ("update",),
     "anotacao": ("annotation", "annotate"),
     "auditoria": ("audit", "review"),
@@ -1676,7 +1678,11 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 ordered = sorted(_strict, key=lambda e: _norm_mention(sentence).find(_norm_mention(e[1])))
                 matched_urls = []
                 for entry, clause in zip(ordered, pair.groups()):
-                    terms = {w for w in _content_tokens(clause) if len(w) >= 4}
+                    # "um trata de X": o verbo-suporte da construção não é
+                    # premissa (mesmo papel do glue do ramo 2 abaixo).
+                    terms = {w for w in _content_tokens(clause)
+                             if len(w) >= 4 and w not in ("trata", "tratam",
+                                                          "tratar")}
                     found = None
                     for n in citations:
                         url = n_to_url.get(n); doc = _doc_for(url) if url else ""

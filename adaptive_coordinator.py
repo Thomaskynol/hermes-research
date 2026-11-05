@@ -2257,6 +2257,15 @@ def _criterion_scope(state: dict, crit: dict) -> str:
         evidence = state.get("evidence") or {}
         qualification = state.get("qualification") or {}
         examined = _examined_urls(state)
+        try:
+            # Excertos entregues pelo writer contam como examinados: no
+            # replay congelado assessments pode estar vazio embora a
+            # seleção do writer tenha 12000 chars de excertos no contexto.
+            _sel = ((state.get("report") or {}).get("selection") or {})
+            examined = set(examined) | {
+                str(u) for u in (_sel.get("included_urls") or []) if u}
+        except Exception:
+            pass
         reading = state.get("reading") or {}
         ex_chars = int(reading.get("excerpted_chars") or 0)
         col_chars = int(reading.get("collected_chars") or 0)
