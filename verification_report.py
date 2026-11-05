@@ -118,6 +118,14 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "suporte": ("support",),
     "documentado": ("documented",),
     "publicacao": ("publishing",),
+    # Paráfrase de escopo PT→EN (cognatos literais): sem ponte, limite
+    # "apenas revisão visual de plano" nunca casa "Review the final plan
+    # visually" no overlap lexical. Só cognatos indisputáveis.
+    "visual": ("visual",),
+    "detalhada": ("detailed",),
+    "detalhado": ("detailed",),
+    "equivalente": ("equivalent",),
+    "profundidade": ("depth",),
     "confiavel": ("trusted",),
     "usa": ("uses", "use"),
     "plano": ("plan",),
@@ -198,7 +206,8 @@ _USER_CONTEXT_MARKERS = ("user://", "contexto informado pelo usuário",
                          "contexto informado pelo usuario",
                          "informado pelo usuário", "informado pelo usuario",
                          "user-provided", "versão instalada",
-                         "versao instalada", "installed_opencode_version")
+                         "versao instalada", "installed_opencode_version",
+                         "premissa controlada", "premissa de contexto")
 
 
 #: Comparação numérica contra mínimo declarado (Missão 3, versão-premissa):
@@ -837,6 +846,13 @@ LACUNA_DECLARATION_MARKERS = (
     "não há menção", "nao ha mencao",
     "lacuna permanece", "lacuna em aberto", "lacuna na documentação",
     "lacuna documental", "há uma lacuna", "existe uma lacuna",
+    # Molde "LACUNA nos excertos ... não estabelece/sem trecho/sem fonte":
+    # ausência sobre fontes consultadas, auditada na premissa (S2), nunca
+    # no overlap com a declaração vazia. Exige "lacuna" junto de
+    # "excertos" para não sequestrar inferência que só delimita janela.
+    "lacuna nos excertos", "lacuna no excerto",
+    "sem fonte", "sem trecho",
+    "não estabelece", "nao estabelece",
 )
 
 
@@ -1253,13 +1269,22 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         # cheia na frase. Quando há menção estrita, ela decide quem a frase
         # atribui (evita Beta espúrio via "widget" mascarando erro de
         # atribuição para Alpha).
-        _strict = []
         try:
             _factual_norm = _norm_mention(factual)
-            _strict = [entry for entry in entities
-                       if (form := _norm_mention(entry[1]))
-                       and re.search(r"(?:^| )" + re.escape(form) + r"(?:$| )", _factual_norm)
-                       and _raw_compound_ok(entry[1], factual)]
+            _strict = []
+            for entry in entities:
+                _toks, _label, _eid = entry
+                _full = _norm_mention(_label)
+                _base = _norm_mention(re.sub(r"\([^)]*\)", "", str(_label or "")))
+                _forms = [_full] + ([_base] if _base and alias_counts.get(_base) == 1 else [])
+                _hit = next((_form for _form in _forms
+                             if _form and re.search(r"(?:^| )" + re.escape(_form) + r"(?:$| )",
+                                                    _factual_norm)), None)
+                # Fronteira composta vale para a forma que casou (cheia ou
+                # base inequívoca): decoração ausente na prosa não veta a
+                # base, mas "Widget Alpha" em "Widget Alphabeta" segue fora.
+                if _hit and _raw_compound_ok(_hit, factual):
+                    _strict.append(entry)
             if _strict:
                 named = _strict
         except Exception:
@@ -1406,10 +1431,30 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     _exact_u |= _text_exact_versions(_doc)
                     _fam_u |= _text_family_versions(_doc)
                 if _exact_s and not _exact_s <= _exact_u:
-                    unsupported.append({
-                        "sentence": sentence, "citations": citations,
-                        "reason": "versão exata ausente no doc citado"})
-                    continue
+                    # Premissa numérica isenta só a tag marcada como contexto:
+                    # versão exata adjacente (≤40 chars) a marcador de premissa
+                    # controlada/informada não é exigida no doc; as demais
+                    # tags precisam estar corroboradas no citado. Sem
+                    # comparação numérica + tag marcada, tag inventada segue
+                    # reprovada.
+                    _premise_ok = False
+                    if _is_numeric_comparison(sentence):
+                        try:
+                            _low = str(sentence or "").lower()
+                            _marked = set()
+                            for _m in _EXACT_VERSION_RE.finditer(str(sentence or "")):
+                                _v = _m.group(0).lower().lstrip("v@")
+                                _span = _low[max(0, _m.start() - 40):_m.end() + 40]
+                                if any(k.lower() in _span for k in _USER_CONTEXT_MARKERS):
+                                    _marked.add(_v)
+                            _premise_ok = bool(_marked) and (_exact_s - _marked) <= _exact_u
+                        except Exception:
+                            _premise_ok = False
+                    if not _premise_ok:
+                        unsupported.append({
+                            "sentence": sentence, "citations": citations,
+                            "reason": "versão exata ausente no doc citado"})
+                        continue
                 if _fam_s and not _fam_s <= _fam_u:
                     unsupported.append({
                         "sentence": sentence, "citations": citations,

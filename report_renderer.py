@@ -500,8 +500,12 @@ def _state_label(labels: dict, state_of: str) -> str:
 
 
 def _refs(crit: dict, numbers: dict[str, int], labels: dict,
-          cited: set) -> str:
+          cited: set, included=None) -> str:
     out = []
+    try:
+        _inc = {_norm(u) for u in (included or []) if _norm(u)} if included else None
+    except Exception:
+        _inc = None
     for ref in crit.get("references", []) or []:
         url = (ref or {}).get("url", (ref or {}).get("doc_id", ""))
         if isinstance(url, str) and url.startswith("user://context/") and crit.get("state") in ("covered", "partial"):
@@ -510,7 +514,13 @@ def _refs(crit: dict, numbers: dict[str, int], labels: dict,
         key, num = _lookup_number(url, numbers)
         if num is not None:
             cited.add(key)
-            out.append(f"[{num}]")
+            # Fora-da-janela nunca publicado como excerto nu: ref obtida
+            # mas fora de included_urls carrega o alcance explícito em vez
+            # de figurar como evidência do excerto.
+            if _inc is not None and key not in _inc:
+                out.append(f"[{num}] (fora dos excertos)")
+            else:
+                out.append(f"[{num}]")
         elif url:
             out.append(f"({labels['not_investigated']}: {url})")
     return ", ".join(out)
@@ -1252,7 +1262,8 @@ def _reconciliation_notes(state: dict, synthesis: str,
                     f"Nota: os achados registram cobertura de {elabel} "
                     f"em {crit_label} com {_refs_s} a partir da seleção "
                     f"analisada; a síntese declara lacuna a partir dos "
-                    f"excertos avaliados. Vale o texto integral da fonte.")
+                    f"excertos avaliados. Vale o texto integral da fonte "
+                    f"(síntese {_synth_stamp(synth)}).")
         return notes
     except Exception:
         return []
@@ -1685,7 +1696,11 @@ def _template_section(state: dict, labels: dict, numbers: dict,
                     eid = ent.get("id")
                     ev = (crit.get("entity_evaluations") or {}).get(eid) or {}
                     detail = _cut_at_sentence(str(ev.get("justification") or ""), 210)
-                    refs = _refs(ev, numbers, labels, set())
+                    try:
+                        _inc = ((state.get("report") or {}).get("selection") or {}).get("included_urls")
+                    except Exception:
+                        _inc = None
+                    refs = _refs(ev, numbers, labels, set(), _inc)
                     cells.append((_state_label(labels, _cell_state(crit, eid))
                                   + (f": {detail} {refs}" if detail else "")).replace("|", "/").replace("\n", " "))
                 lines.append(f"| {crit.get('label') or crit.get('id')} | "
@@ -1763,6 +1778,21 @@ def _template_section(state: dict, labels: dict, numbers: dict,
     return lines
 
 
+def _synth_stamp(synthesis: str) -> str:
+    """Identidade curta da síntese reconciliada (alcance histórico).
+
+    As notas §5 reconciliam a síntese entregue com os achados vigentes;
+    quando a síntese vem de outra era (replay preserva o texto original),
+    o carimbo diz qual síntese a nota reconcilia — sem jargão interno.
+    """
+    try:
+        import hashlib as _hl
+        return _hl.sha256(str(synthesis or "").encode("utf-8",
+                                                      "replace")).hexdigest()[:12]
+    except Exception:
+        return "?"
+
+
 def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
     """Pares de combinação da síntese × pares dos achados (§3).
 
@@ -1828,7 +1858,8 @@ def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
                     f"Nota: os achados não registram cobertura conjunta "
                     f"de {a_lb} e {b_lb} na seleção analisada; a "
                     f"combinação na síntese parte dos excertos avaliados. "
-                    f"Vale o texto integral da fonte.")
+                    f"Vale o texto integral da fonte "
+                    f"(síntese {_synth_stamp(synthesis)}).")
         return notes
     except Exception:
         return []

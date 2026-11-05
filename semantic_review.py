@@ -446,6 +446,31 @@ def _refs_hint(refs: list[str]) -> list[str]:
     return list(refs or [])
 
 
+#: Ausência sobre fontes consultadas (LACUNA de janela): auditada nos docs
+#: do próprio pacote, nunca em pacote distinto que só menciona o nome.
+#: "lacuna" pura exige marca líder ("LACUNA: ...") — "a lacuna foi
+#: preenchida" é afirmação positiva e segue o caminho normal.
+_ABSENCE_CLAIM_MARKERS = (
+    "lacuna nos excertos", "lacuna no excerto",
+    "sem trecho", "sem fonte",
+    "não estabelece", "nao estabelece",
+)
+
+
+def _is_absence_claim(sentence: str) -> bool:
+    """True quando a frase declara ausência sobre o pacote (LACUNA)."""
+    try:
+        lowered = str(sentence or "").lower()
+    except Exception:
+        return False
+    if not lowered.strip():
+        return False
+    stripped = lowered.strip().lstrip("-–—*#> \t`\"'")
+    if stripped.startswith("lacuna"):
+        return True
+    return any(m in lowered for m in _ABSENCE_CLAIM_MARKERS)
+
+
 def _evidence_window(anchors: list[str], refs: list[str],
                      qualified_text: dict[str, str] | None = None,
                      budget: int = 9000) -> str:
@@ -992,6 +1017,16 @@ def _select_evidence(pkgs: list[str], sentence: str, evidence: dict,
             unique_anchors.append(u)
             seen_anchors2.add(u)
     anchors = unique_anchors
+
+    # Empacotamento por entidade (anti-fusão): ausência sobre um pacote é
+    # auditada nos documentos do próprio pacote. Documento estranho que só
+    # menciona o nome (ou casa por overlap de tokens genéricos) não vira
+    # premissa da LACUNA — fundir pacotes distintos contamina o voto com
+    # conteúdo alheio (LACUNA isolada verdadeira virando unsupported).
+    if _is_absence_claim(sentence):
+        _own = [u for u in anchors if _is_package_doc(u, pkgs)]
+        if _own:
+            anchors = _own
 
     # Price table: match on figures
     if not anchors:

@@ -8577,6 +8577,149 @@ _RESCOPE_LIMIT_MARKERS = ("apenas", "sem base", "não demonstra",
                           "restrito", "restrita", "não equivale",
                           "nao equivale")
 
+_RESCope_ORDINALS = ("primeiro", "primeira", "segundo", "segunda",
+                     "terceiro", "terceira", "quarto", "quarta",
+                     "quinto", "quinta", "outro", "outra")
+_RESCope_CONSEQUENCE = ("por isso", "portanto", "assim", "logo",
+                        "por conseguinte", "dessa forma", "desta forma")
+_RESCope_LEAD_CONJ = ("porque", "pois", "porquanto", "mas", "enquanto",
+                      "ao passo que", "porém", "contudo", "todavia",
+                      "entretanto")
+
+
+def _rescope_ordinal_order(sent, entities, plan=None):
+    """Map enumeration position -> entity id ("o primeiro/segundo/...").
+
+    Order is textual (match position in the sentence), never plan order:
+    "entre A, B e C ... o terceiro ..." resolves "o terceiro" to C even
+    when the plan lists C first. Only required, non-context candidates
+    take part: the host/platform ("OpenCode" em "OpenCode Code Review")
+    is never "o primeiro" da enumeração de candidatos.
+    Returns ({1: eid, ...}, max_n).
+    """
+    try:
+        import verification_report as _vr
+        import re as _re
+    except Exception:
+        return {}, 0
+    try:
+        from entity_identity import context_entity_ids as _ctx_ids
+        _ctx = set(_ctx_ids(plan if isinstance(plan, dict) else {"entities": entities}) or ())
+    except Exception:
+        _ctx = set()
+    hits: list[tuple[int, object]] = []
+    try:
+        norm = _vr._norm_mention(sent)
+    except Exception:
+        return {}, 0
+    for e in (entities or []):
+        if not isinstance(e, dict):
+            continue
+        eid = e.get("id")
+        if eid in _ctx or not e.get("required", True):
+            continue
+        lb = str(e.get("label") or e.get("id") or "")
+        if not lb:
+            continue
+        base = _re.sub(r"\([^)]*\)", "", lb)
+        for form in dict.fromkeys([f for f in
+                                   (_vr._norm_mention(lb),
+                                    _vr._norm_mention(base)) if f]):
+            m = _re.search(r"(?:^| )" + _re.escape(form) + r"(?:$| )", norm)
+            if m:
+                hits.append((m.start(), eid))
+                break
+    hits.sort(key=lambda h: h[0])
+    order = {i + 1: eid for i, (_pos, eid) in enumerate(hits)}
+    return order, len(order)
+
+
+_RESCope_ORDINAL_N = {"primeiro": 1, "primeira": 1, "segundo": 2,
+                      "segunda": 2, "terceiro": 3, "terceira": 3,
+                      "quarto": 4, "quarta": 4, "quinto": 5, "quinta": 5}
+
+
+def _rescope_sentence_to_entity(sent, target_label, target_eid, entities,
+                                plan=None):
+    """Rewrite a multi-entity limit sentence to one entity's scope.
+
+    A synthesis limit naming N entities ("entre A, B e C, porque o
+    primeiro ... o terceiro tem apenas ...") must not be copied verbatim
+    into a single entity's cell with only that entity's refs. Keep the
+    clause(s) about the target (limit-marked, naming no other entity),
+    resolve a leading ordinal ("o terceiro") to the target label, drop
+    the multi-entity head and the comparative tail. Returns the rewritten
+    clause, the sentence unchanged when it already names only the target,
+    or None when no honest single-entity clause survives.
+    """
+    try:
+        import verification_report as _vr
+    except Exception:
+        return None
+    try:
+        named = _vr.strict_named_in_sentence(sent, entities)
+    except Exception:
+        return None
+    if not any(eid == target_eid for (_lb, eid) in named):
+        return None
+    if not any(eid != target_eid for (_lb, eid) in named):
+        return sent
+    kept: list[str] = []
+    try:
+        order, _n = _rescope_ordinal_order(sent, entities, plan)
+        ordinals = "|".join(_RESCope_ORDINALS)
+        clauses: list[str] = []
+        for _p in re.split(r"[,;]", str(sent or "")):
+            _subs = re.split(r"\s+e\s+(?=(?:o|a)\s+(?:" + ordinals + r")\b)",
+                             _p, flags=re.I)
+            clauses.extend(_subs)
+        for _c in clauses:
+            _c = _c.strip().lstrip("-–—*#> \t")
+            if not _c:
+                continue
+            low = _c.lower()
+            if any(low.startswith(m) for m in _RESCope_CONSEQUENCE):
+                continue
+            try:
+                _cn = _vr.strict_named_in_sentence(_c, entities)
+            except Exception:
+                continue
+            if any(eid != target_eid for (_lb, eid) in _cn):
+                continue
+            _lead = re.sub(
+                r"^(?:" + "|".join(_RESCope_LEAD_CONJ) + r")\s+",
+                "", _c, flags=re.I)
+            _m = re.match(r"^(o|a)\s+(" + ordinals + r")\b\s*", _lead, flags=re.I)
+            if _m:
+                # Ordinal resolve pela posição textual ("o terceiro" é a 3ª
+                # entidade nomeada): cláusula de outra entidade cai fora,
+                # nunca é reescrita como se fosse do alvo. "o outro" vale
+                # como 2º só em enumeração de 2 (um ... o outro).
+                _word = _m.group(2).lower()
+                _pos = _RESCope_ORDINAL_N.get(_word, 0)
+                if _pos == 0 and _word in ("outro", "outra") and len(order) == 2:
+                    _pos = 2
+                if order.get(_pos) != target_eid:
+                    continue
+                _lead = str(target_label) + " " + _lead[_m.end():]
+            elif not any(eid == target_eid for (_lb, eid) in _cn):
+                if not any(m in low for m in _RESCOPE_LIMIT_MARKERS):
+                    continue
+                if not _lead:
+                    continue
+            kept.append(_lead.strip())
+    except Exception:
+        return None
+    if not kept:
+        return None
+    try:
+        out = ", ".join(kept)
+        if not any(m in out.lower() for m in _RESCOPE_LIMIT_MARKERS):
+            return None
+    except Exception:
+        return None
+    return out or None
+
 
 def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
     """Restrict covered cells to the writer-excerpt scope (generic).
@@ -8743,7 +8886,15 @@ def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
                                 state.get("plan") or {})]
                 if not covering:
                     continue
-                just = re.sub(r"\(?\s*\[\d+\]\s*\)?", "", sent)
+                # Frase multi-entidade nunca entra verbatim na célula
+                # uni-entidade: reescreve ao escopo do alvo ou desiste
+                # deste alvo (publicar as 3 entidades com 1 ref exagera o
+                # alcance do excerto).
+                _scoped = _rescope_sentence_to_entity(sent, elabel, eid,
+                                                      entities, plan)
+                if not _scoped:
+                    continue
+                just = re.sub(r"\(?\s*\[\d+\]\s*\)?", "", _scoped)
                 just = re.sub(r"\s+", " ", just).strip()
                 just = re.sub(r"\s+([,.;:])", r"\1", just)
                 ev = fresh.evaluate(cid, "partial", just, "excerpt-scope",
