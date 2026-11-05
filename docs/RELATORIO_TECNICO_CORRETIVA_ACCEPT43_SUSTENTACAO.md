@@ -246,3 +246,27 @@ claim 3 2–1 preservado); leitura: síntese histórica com alcance
 declarado, matriz/Achados/recomendação com `[N] (fora dos excertos)`,
 INFERÊNCIAs com limites sem prometer integração, LACUNAs de
 compatibilidade 2.1.4 explícitas, fontes §7 íntegras.
+
+Addendum reviewer-confirmado (produto `c1d507f`): fallback `_rf` rendia
+refs nuas quando justifications vazias (ramo details já qualificava via
+`_refs`). Fix mínimo em mecanismo geral: `refs` guarda `(num,key)` e `_rf`
+aplica a mesma qualificação com `included_urls` (`_inc_f`); `included=None`
+ou dentro permanece nu (`report_renderer.py:1614`,`:1652`; teste
+`test_recommendation_fallback_rf_marks_outside_when_details_empty`
+red→green: `fontes [2]` nu no baseline → `[2] (fora dos excertos)` pós-fix,
+`[1]` interno segue nu). Re-rodado: focados 30 OK (7 attempt3 + 23
+sustentação), suíte 917 OK/10 skips, offline 11/11, frozen-check OK,
+replay zero-live novo `code_head=c1d507f`,
+`rendered_sha=fb2319bdc8899e01` (anterior `5265f941bf85bdf4`;
+diff só timestamps de geração — conteúdo idêntico, 30× fora-dos-excertos,
+releitura do trecho confirma qualificação); `synthesis_sha` inalterado
+`790a9a06ba346b81`; correspondência fix1==externo / attempt2==atual-parcial
+mantida.
+
+Residuais documentados (não corrigir neste passe):
+- Tests com `make_plan` de 1 entidade cobrem o contrato, não o arranjo real
+de N entidades (cobertura, não defeito de produto).
+- `_CLAUSE_SPLIT_RE` sem split em ponto: cross-sentença ≤40 chars é teórico
+(sem reprodução no corpus atual); split ingênuo em ponto quebraria `2.1.4`.
+- Janela 40-chars não calibrada p/ aposição longa (T2a cobre caso curto; sem
+caso real; calibração futura se observado).
