@@ -1,6 +1,24 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual — reconciliação accept43 (2026-11-04 local):** branch
+> **Estado atual — defeitos accept43 corrigidos em mecanismo (2026-11-05 UTC):**
+> branch `feat/product-v1`, produto `c3700bb` + testes `fea9fb7` (locais, sem
+> push). Os dois defeitos materiais foram corrigidos em mecanismo geral
+> (writer guidance + reescrita determinística no renderer) e demonstrados por
+> reprodução integrada `runs/accept43-reconciliation/reproduction-c3700bb-live/`
+> (assessor ×2 reaplicado, escrita ×1 e votos ×9 novos reais, sem coleta/rede):
+> comparação com premissa por candidato e limites explícitos, zero "Sobreposição
+> parcial/documentada" no `report.md`, `missing_entity_sources` e
+> `inferred_comparisons` vazios no `verification.json`. Verificação corresponde
+> ao texto: overall `failed` preservado por 1 `unsupported` semântico (2–1,
+> atribuição indevida documentada, sem reversão) e revisão incompleta (53/25/28
+> explícitos). Residuais registrados no relatório técnico (promoção de globais,
+> molde novo de LACUNA). 37 adiados do replay anterior seguem intactos em
+> `runs/accept43-reconciliation/reproduction-a210966-replay/`. Técnico:
+> `docs/RELATORIO_TECNICO_RECONCILIACAO_ACCEPT43.md` § final; suite 874/10
+> skips + offline-22 11/11, exit 0. RA8 segue pendente (cobertura parcial).
+> Próximo passo definido pelo solicitante.
+
+> **Estado anterior — reconciliação accept43 (2026-11-04 local):** branch
 > `feat/product-v1`, produto `a210966`, publicado em origin. A missão permanece
 > **parcial**: os mecanismos corrigidos e os casos controlados foram exercitados,
 > mas a comparação final ainda tem uma referência incompleta e uma formulação

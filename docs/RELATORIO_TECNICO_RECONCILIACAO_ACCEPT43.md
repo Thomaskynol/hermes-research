@@ -396,3 +396,65 @@ relações documentadas. Não se editou manualmente o relatório para escondê-l
 Próximo passo: correção geral baseada em fonte e identidade, com positivos e
 negativos, seguida de geração e verificação proporcionais. Não há bloqueio
 externo demonstrado; é trabalho técnico ainda pendente nesta missão.
+
+## Correção dos dois defeitos (produto `c3700bb`, testes `fea9fb7`)
+
+Causa-raiz comum, reproduzida no código atual antes de corrigir: o contrato
+writer→renderer para frases de comparação não impunha redação — o modelo
+emitiu "Sobreposição parcial documentada" para relações que por construção
+não têm trecho de vínculo (c_combo/c_overlap sem doc-interop), e o renderer
+só anexava notas de escopo, deixando o adjetivo contraditório no lugar. O
+verificador já detectava ambos corretamente (`missing_entity_sources`,
+`inferred_comparisons`, "entidade não mencionada no doc" / "inferência sem
+citação de interoperabilidade"); faltava o elo de correção.
+
+Mecanismo geral (sem regra por plugin, sem edição manual de artefato):
+
+- `adaptive_coordinator._writer_complementarity_guidance`: relação apurada de
+  documentos distintos sem vínculo citado redige-se como INFERÊNCIA (nunca
+  "documentada"); "documentada" só para vínculo descrito no documento citado.
+- `report_renderer._reword_inferred_comparison` + aplicação em `render_report`:
+  frase sinalizada em `missing_entity_sources`/`inferred_comparisons` que diga
+  "Sobreposição [parcial] documentada" / "Complementaridade documentada" é
+  reescrita para "INFERÊNCIA de ...", com nota registrada no estado. Relações
+  com vínculo documentado (doc citado menciona ≥2 entidades) nunca entram
+  nessas listas e conservam a redação.
+
+Testes (`tests/test_accept43_comparison_coherence.py`, 6, TDD RED→GREEN):
+(a) comparação com 3 candidatos e fonte para 2 é sinalizada e reescrita, sem
+perder entidade/citações/nota; (b) comparação com fonte real por candidato
+passa sem reescrita; (c) relação com trecho que documenta vínculo conserva
+"documentada" e não gera nota pendente; (d) relação só com funções separadas
+permanece inferência na síntese, na nota, na verificação e na matriz
+(entrada pública integrada até `report.md` + `verification.json` +
+`technical_annex.md` persistidos). Controle negativo: no código pré-fix
+(`801ab02`) 4 dos 6 falham pelo motivo esperado; os 2 de comportamento
+preservado passam lá e cá. Suíte: 874 testes, 10 skips, exit 0;
+`offline-22`: 11/11, exit 0.
+
+Reprodução integrada `runs/accept43-reconciliation/reproduction-c3700bb-live/`
+(sobre `c3700bb`; assessor ×2 reaplicado de `reproduction-8e728c2`, escrita ×1
+e votos ×9 novos reais, `opencode-go/muse-spark-1.3-contributor`, sem coleta/
+rede/embeddings; `module_hashes_unchanged` e `original_unchanged` true): a
+escrita nova obedeceu à orientação — 5 INFERÊNCIAs com 2 premissas cada e
+limites; a frase de 3 candidatos cita [13][34][20] e limita Octto a "revisão
+visual de plano ... sem base equivalente de code review detalhada", premissa
+presente no excerto enviado ao writer ("Review the final plan visually").
+Ausência dos defeitos nos artefatos: zero ocorrências de "Sobreposição
+parcial/documentada" e "documentada entre" em `report.md`;
+`missing_entity_sources: []`, `inferred_comparisons: []` em
+`verification.json` (guarda do renderer dormente, exercitada nos testes).
+
+Leitura como usuário: comparação identificável por fonte por candidato,
+classificação coerente (síntese INFERÊNCIA + limites; matriz e verificação no
+mesmo sentido). Veredito preservado, não aprovação: overall `failed` por 1
+`unsupported` semântico (claim 3, quórum 2–1; maioria atribuiu ao marketplace
+conteúdo de outro projeto no mesmo pacote de evidência — documentado, sem
+reversão de voto); revisão incompleta (53 extraídos, 25 julgados — 19
+sustained, 5 gap — 28 adiados pelo teto, explícitos no estado). Residuais
+fora destes dois defeitos, sem correção nesta missão: matriz global
+c_combo/c_overlap volta a "não investigado" (promoção exige
+`partial_declared` com âncora; paráfrase PT × doc EN não dá overlap —
+limitação conhecida de recall de tradução); reconhecedor de LACUNA não cobre
+o novo molde "LACUNA nos excertos enviados" (sentenças válidas caem no
+positivo estrito; sem efeito no veredito aqui).
