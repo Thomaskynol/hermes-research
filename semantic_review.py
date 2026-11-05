@@ -463,6 +463,11 @@ _ABSENCE_BARE_WINDOW = (
 )
 
 
+#: Template do writer p/ célula insufficient ("sem <dimensão> demonstrada"):
+#: ausência de evidência nos dois gates (alinhado ao verification_report).
+_ABSENCE_WRITER_TEMPLATE_RE = re.compile(r"sem\s+\w+\s+demonstrad[oa]\b")
+
+
 def _is_absence_claim(sentence: str) -> bool:
     """True quando a frase declara ausência sobre o pacote (LACUNA)."""
     try:
@@ -475,6 +480,8 @@ def _is_absence_claim(sentence: str) -> bool:
     if stripped.startswith("lacuna"):
         return True
     if any(m in lowered for m in _ABSENCE_CLAIM_MARKERS):
+        return True
+    if _ABSENCE_WRITER_TEMPLATE_RE.search(lowered):
         return True
     return any(m in lowered for m in _ABSENCE_BARE_WINDOW) \
         and ("lacuna" in lowered or "excerto" in lowered
@@ -509,32 +516,51 @@ def _evidence_window(anchors: list[str], refs: list[str],
     return "\n\n".join(parts) or "(sem evidência)"
 
 
+def _pkg_url_hit(needle: str, url_lower: str) -> bool:
+    """Match de pacote em URL com fronteira (nunca prefixo de slug maior).
+
+    Genérico: "river-market" não casa "…/river-marketplace" (cola
+    alfanumérica), mas casa fim de segmento, "/", "?", "#", "." e
+    variantes com hífen (convenção separador-insensível do repo).
+    """
+    try:
+        for n, u in ((needle or "", url_lower or ""),
+                     ((needle or "").replace("-", ""),
+                      (url_lower or "").replace("-", ""))):
+            if n and re.search(r"(?<![a-z0-9])" + re.escape(n.lower())
+                               + r"(?![a-z0-9])", u.lower()):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _is_package_doc(url: str, packages: list[str]) -> bool:
     """Verifica se uma URL é documentação do pacote (README, tree, blob, etc.)."""
     url_lower = url.lower()
     if "readme" in url_lower:
         for p in packages:
-            if p.lower().replace("-", "") in url_lower.replace("-", ""):
+            if _pkg_url_hit(p, url_lower):
                 return True
             if p in _PKG_ALIASES:
                 for alias in _PKG_ALIASES[p]:
-                    if alias.lower().replace("-", "") in url_lower.replace("-", ""):
+                    if _pkg_url_hit(alias, url_lower):
                         return True
         return False
     if "/tree/" in url_lower or "/blob/" in url_lower:
         for p in packages:
-            if p.lower().replace("-", "") in url_lower.replace("-", ""):
+            if _pkg_url_hit(p, url_lower):
                 return True
             if p in _PKG_ALIASES:
                 for alias in _PKG_ALIASES[p]:
-                    if alias.lower().replace("-", "") in url_lower.replace("-", ""):
+                    if _pkg_url_hit(alias, url_lower):
                         return True
     for p in packages:
-        if p.lower() in url_lower:
+        if _pkg_url_hit(p, url_lower):
             return True
         if p in _PKG_ALIASES:
             for alias in _PKG_ALIASES[p]:
-                if alias.lower() in url_lower:
+                if _pkg_url_hit(alias, url_lower):
                     return True
     return False
 # ═════════════════════════════════════════════════════════════════════════════

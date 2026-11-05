@@ -863,6 +863,24 @@ _LACUNA_BARE_WINDOW = (
 )
 
 
+#: Divisor de orações p/ escopo de molde (itens 2 e 5): molde e alcance
+#: precisam da mesma oração; versão isenta precisa da oração de
+#: comparação numérica junto ao marcador. Sem quebrar "2.1.4" (ponto
+#: nunca separa).
+_CLAUSE_SPLIT_RE = re.compile(
+    r"[;!?\n]+|,\s*(?:e|ou|mas|porém|contudo|todavia|entretanto|porque|pois|"
+    r"enquanto|ao passo que)\s+", re.IGNORECASE)
+
+
+def _clauses_of(lowered: str) -> list[str]:
+    """Orações do texto já em minúsculas (spans preservados p/ versões)."""
+    try:
+        return [c.strip() for c in _CLAUSE_SPLIT_RE.split(str(lowered or ""))
+                if c.strip()]
+    except Exception:
+        return [str(lowered or "")]
+
+
 # A leading explicit mark is a declaration, not prose: the writer
 # convention labels absence/inference FIRST ("LACUNA: ...",
 # "INFERÊNCIA/LACUNA ..."). Bare "lacuna" mid-sentence stays excluded
@@ -897,12 +915,13 @@ def is_lacuna_declaration(sentence: str) -> bool:
     # never on word overlap with the marked absence/inference.
     if _has_leading_declaration_mark(lowered):
         return True
-    # Moldes nus só com coocorrência (lacuna/excertos): sem ela, "X declara
-    # Y sem fonte" é prosa positiva e segue o caminho normal.
-    if any(m in lowered for m in _LACUNA_BARE_WINDOW) \
-            and ("lacuna" in lowered or "excerto" in lowered
-                 or "excerpt" in lowered):
-        return True
+    # Moldes nus só com coocorrência na MESMA oração (lacuna/excertos):
+    # sem ela, "X declara Y sem fonte" é prosa positiva e segue o caminho
+    # normal — alcance em frase inteira desviava incidental.
+    for _c in _clauses_of(lowered):
+        if any(m in _c for m in _LACUNA_BARE_WINDOW) \
+                and ("lacuna" in _c or "excerto" in _c or "excerpt" in _c):
+            return True
     # Template do writer para célula insufficient: "sem <dimensão>
     # demonstrad[o/a]" (ex. accept15 "sem revisão demonstrada") — afirma
     # ausência de evidência, não fato positivo; genérico na dimensão.
@@ -1246,11 +1265,22 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         base inequívoca com fronteira) ou link de identidade própria.
         Doc identifiavelmente de outro dono no plano nunca é premissa,
         mesmo partilhando 2 tokens. Posse indecidida mantém o contrato S2
-        (menção frouxa vale quando nada contradiz a titularidade).
+        (menção frouxa vale quando nada contradiz a titularidade); repo
+        próprio compartilhado (monorepo) vale menção frouxa do próprio doc.
         """
         try:
-            if not _entity_mentioned(label, eid, doc):
+            url = getattr(doc, "source_url", None) or doc_urls.get(doc)
+            cur = repo_key(url) if url else None
+            _own = None
+            if eid in entity_map and isinstance(entity_map[eid], dict):
+                _own = repo_key(entity_map[eid].get("canonical_source_url")
+                                or entity_map[eid].get("source_url"))
+            _mono = bool(cur and _own and cur == _own)
+            _mentioned = bool(_entity_mentioned(label, eid, doc))
+            if not _mentioned and not _mono:
                 return False
+            if _mono and not _mentioned:
+                return bool(original_mention(label, eid, doc))
             _dn = _norm_mention(doc)
             _full = _norm_mention(label)
             _base = _norm_mention(re.sub(r"\([^)]*\)", "", str(label or "")))
@@ -1259,15 +1289,14 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 if _f and re.search(r"(?:^| )" + re.escape(_f) + r"(?:$| )", _dn) \
                         and _raw_compound_ok(_f, doc):
                     return True
-            url = getattr(doc, "source_url", None) or doc_urls.get(doc)
-            cur = repo_key(url) if url else None
             if eid in entity_map:
                 from entity_identity import source_identity
                 if url and source_identity(entity_map[eid], doc, url) is True:
                     return True
                 # Dono estrangeiro decidível: repo do doc é de outra
-                # entidade do plano — nunca premissa desta.
-                if cur:
+                # entidade do plano — nunca premissa desta. Irmãos de
+                # monorepo (cur == repo do requerente) pulam o veto.
+                if cur and cur != _own:
                     for _oid, _oent in entity_map.items():
                         if _oid == eid or not isinstance(_oent, dict):
                             continue
@@ -1286,13 +1315,22 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
         Cognatos/overlap decidem conteúdo; titularidade decide atribuição:
         doc cujo repo é de outra entidade do plano nunca sustenta afirmação
         sobre esta (vale p/ o ramo positivo; inferência tem canal próprio).
+        Repo próprio compartilhado (monorepo) vale menção frouxa.
         """
         try:
-            if not _entity_mentioned(label, eid, doc):
-                return False
             url = getattr(doc, "source_url", None) or doc_urls.get(doc)
             cur = repo_key(url) if url else None
-            if cur and eid in entity_map:
+            _own = None
+            if eid in entity_map and isinstance(entity_map[eid], dict):
+                _own = repo_key(entity_map[eid].get("canonical_source_url")
+                                or entity_map[eid].get("source_url"))
+            _mono = bool(cur and _own and cur == _own)
+            _mentioned = bool(_entity_mentioned(label, eid, doc))
+            if not _mentioned and not _mono:
+                return False
+            if _mono and not _mentioned:
+                return bool(original_mention(label, eid, doc))
+            if cur and cur != _own:
                 for _oid, _oent in entity_map.items():
                     if _oid == eid or not isinstance(_oent, dict):
                         continue
@@ -1507,21 +1545,29 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     _exact_u |= _text_exact_versions(_doc)
                     _fam_u |= _text_family_versions(_doc)
                 if _exact_s and not _exact_s <= _exact_u:
-                    # Premissa numérica isenta só a tag marcada como contexto:
-                    # versão exata adjacente (≤40 chars) a marcador de premissa
-                    # controlada/informada não é exigida no doc; as demais
-                    # tags precisam estar corroboradas no citado. Sem
-                    # comparação numérica + tag marcada, tag inventada segue
-                    # reprovada.
+                    # Premissa numérica isenta só a tag na oração de
+                    # comparação junto ao marcador: versão exata cuja oração
+                    # contém marcador de premissa controlada/informada E
+                    # comparação numérica não é exigida no doc; as demais
+                    # tags precisam estar corroboradas no citado. Janela de
+                    # chars isentava 2ª versão não-relacionada.
                     _premise_ok = False
                     if _is_numeric_comparison(sentence):
                         try:
                             _low = str(sentence or "").lower()
+                            _bounds = [0] + [m.end() for m in
+                                             _CLAUSE_SPLIT_RE.finditer(_low)] \
+                                + [len(_low)]
                             _marked = set()
                             for _m in _EXACT_VERSION_RE.finditer(str(sentence or "")):
                                 _v = _m.group(0).lower().lstrip("v@")
-                                _span = _low[max(0, _m.start() - 40):_m.end() + 40]
-                                if any(k.lower() in _span for k in _USER_CONTEXT_MARKERS):
+                                _cs = _m.start()
+                                _ci = next((_i for _i in range(len(_bounds) - 1)
+                                            if _bounds[_i] <= _cs < _bounds[_i + 1]),
+                                           len(_bounds) - 2)
+                                _span = _low[_bounds[_ci]:_bounds[_ci + 1]]
+                                if any(k.lower() in _span for k in _USER_CONTEXT_MARKERS) \
+                                        and _is_numeric_comparison(_span):
                                     _marked.add(_v)
                             _premise_ok = bool(_marked) and (_exact_s - _marked) <= _exact_u
                         except Exception:

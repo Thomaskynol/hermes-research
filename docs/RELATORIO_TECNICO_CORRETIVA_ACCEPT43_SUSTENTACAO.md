@@ -28,31 +28,65 @@ Controles que continuam rejeitando (regressões verdes no mesmo arquivo de
 teste): tag inventada sem premissa, atribuição a doc estrangeiro, homônimo
 (`Widget Alpha` × `Alphabeta`), integração sem doc-interop.
 
-## Validação (código atual, evidência em `runs/accept43-corretiva-fix1/`)
+## Validação (código atual; passe attempt 2 em `runs/accept43-corretiva-attempt2/`,
+passe anterior em `runs/accept43-corretiva-fix1/`)
 
-- Regressões `tests/test_accept43_corretiva_sustentacao.py` (T1–T4, 8 testes):
-  red no código pré-fix (6 falhas pelos motivos esperados, log `red-T1-T4.log`,
-  exit 1) → green pós-fix (8/8, sem enfraquecer os 2 controles negativos).
-- Suíte: 895 testes, OK, 10 skips, exit 0 (`suite-final.log`). Offline runner:
-  exit 0 (`offline-2.log`).
-- Replay zero-live `replay/` (script `reproduce_frozen_report.py` sem `--model`,
-  exit 0, `replay-run.log`): síntese histórica reprocessada; rescope/renderer/
-  verificação com o código novo; review `not_run` (sem novos votos — claim 3
-  2–1 preservado, sem reversão); overall `partial` (b671207 era `failed` pelo
-  voto claim 3 não re-elicitado aqui). Matriz com 10× `(fora dos excertos)`;
-  notas com carimbo de síntese. Leitura como usuário: células uni-entidade,
-  alcances explícitos, sem prometer integração.
-- Checagem congelada `frozen-b671207-check.log` (só leitura do
-  `reproduction-b671207-replay/`, sem rede/modelo): [13]-positivo → supported
-  sem unsupported (era `entidade não mencionada`); numérica+LACUNA jira →
-  supported+declared (era interop unsupported); anchors claim3 só marketplace;
-  rewrite acima sobre a sentença real.
+- Regressões `tests/test_accept43_corretiva_sustentacao.py` (23 testes: T1–T4 +
+  remediação attempt 1 + attempt 2): red no baseline anterior ao passe
+  (falhas pelos motivos esperados) → green pós-fix.
+- Suíte: 910 testes, OK, 10 skips, exit 0 (`runs/accept43-corretiva-attempt2/suite.log`;
+  passe anterior: 895 em `runs/accept43-corretiva-fix1/suite-final.log`). Offline
+  runner: exit 0 (`runs/accept43-corretiva-attempt2/offline.log`).
+- Replay zero-live (script `reproduce_frozen_report.py` sem `--model`,
+  exit 0, `runs/accept43-corretiva-attempt2/replay-run.log`): síntese histórica
+  reprocessada; rescope/renderer/verificação com o código novo; review `not_run`
+  (sem novos votos — claim 3 2–1 preservado, sem reversão); overall `partial`
+  (b671207 era `failed` pelo voto claim 3 não re-elicitado aqui). Matriz com 10×
+  `(fora dos excertos)`; notas com linha de alcance da síntese. Leitura como
+  usuário: células uni-entidade, alcances explícitos, sem prometer integração.
+- Checagem congelada `runs/accept43-corretiva-attempt2/frozen-check.log`
+  (só leitura do `reproduction-b671207-replay/`, sem rede/modelo, re-executada
+  após cada mudança deste passe): [13]-positivo → supported sem unsupported
+  (era `entidade não mencionada`); numérica+LACUNA jira → supported+declared
+  (era interop unsupported); anchors claim3 só marketplace; rewrite uni-entidade
+  sobre a sentença real.
 - 4 unsupported residuais do replay reauditados contra o código `b671207`
   intacto em /tmp: vereditos idênticos (2 `sem sobreposição` por recall de
   overlap PT×EN, 2 complementaridade sem doc-interop) — pré-existentes, sem
   regressão.
 
-## Remediação do gate reviewer (attempt 1) + aceite [2]
+## Cobertura dos 10 do attempt 1 (IDs por arquivo:linha + estado)
+
+O gate attempt 1 citou 10 (2🔴+7🟡+1❓); o spec recebido nomeava 8 com
+file:line — os 2 🟡 restantes não têm ID recuperável (relatório original
+fora de disco; nada além do listado abaixo foi alterado). Attempt 2
+confirmou 2🔴+4🟡 resolvidos; os refinamentos viraram o lote attempt 2.
+
+| ID | Achado attempt 1 | Estado |
+|---|---|---|
+| `ac:8895` 🔴 | None do rescope mantinha covered | Resolvido (attempt 1; parcial com alcance) |
+| `sr:1026` 🔴 | Ausência sem doc próprio fundia | Resolvido (attempt 1; anchors zerados) + fronteira em `_is_package_doc` (attempt 2 item 1) |
+| `sr:460`+`vr:853` 🟡 | Moldes nus desviavam prosa | Resolvido (attempt 1, condicionados) + refinado mesma-oração (attempt 2 item 2) |
+| `vr:1409` 🟡 | Premissa frouxa 2-tokens | Resolvido (attempt 1, `_strict_doc`) + refinado veto monorepo (attempt 2 item 4) |
+| `vr:125` 🟡 | Cognatos só-recall | Resolvido (attempt 1, veto positivo) + refinado veto monorepo (attempt 2 item 4); gate direto revertido p/ calibração |
+| `rr:1781` 🟡 | Sha inline quebrava dedup/compare | Resolvido (attempt 1→2: linha separada, texto estável) |
+| `tests:78/208` 🟡 | Cobertura (ordinal/textual/None/2-pacotes/homônimo) | Resolvido (guards + red→green no mesmo arquivo) |
+| `docs:[2]` ❓ | Critério [2] fora de `included_urls` | Resolvido na publicação (tabela acima); promoção pendente (sem re-rank) |
+| `?` 🟡 ×2 | IDs não recuperáveis do spec recebido | Sem alteração correspondente; suíte+replay cobrem o produto inteiro |
+
+## Remediação do gate reviewer (attempt 2)
+
+| Achado | Correção (1 por causa) | Arquivo:linha | Teste |
+|---|---|---|---|
+| (1) substring em URL | `_pkg_url_hit` com fronteira alfanumérica (6 checks `in` → 1 helper) | `semantic_review.py:_is_package_doc` | `test_package_doc_match_rejects_longer_sibling_slug` |
+| (2) coocorrência em frase inteira | Molde+alcance na mesma oração (`_clauses_of`; ponto nunca separa versão) | `verification_report.py:_CLAUSE_SPLIT_RE` + `is_lacuna_declaration` | `test_window_cooccurrence_requires_same_clause` |
+| (3) `demonstrad` divergente | Template também ausência no semantic (direção forçada por `test_sem_dimensao_demonstrada`, contrato aprovado) | `semantic_review.py:_ABSENCE_WRITER_TEMPLATE_RE` | `test_demonstrada_template_aligned_across_gates` |
+| (4) veto veta monorepo | Pula veto quando `cur == _own`; repo próprio sem nomeação vale frouxa S2 | `verification_report.py:_strict_doc`, `_vetoed_mention` | `test_monorepo_sibling_doc_is_not_vetoed` (LACUNA + positiva) |
+| (5) janela 40 chars | Isenção só p/ valor com ocorrência em oração com marcador E comparação numérica | `verification_report.py` gate LACUNA | `test_second_unrelated_version_not_exempted` |
+| (6) contagem 895 vs 905 | Atualizado: 910 + logs | técnico § Validação | — |
+| (7) tabela 6/10 | Cobertura acima (8 IDs + 2 declarados não-recuperáveis) | técnico | — |
+
+## Remediação do gate reviewer (attempt 1) + aceite [2] (histórico)
 
 | Achado | Correção (1 por causa) | Arquivo:linha | Teste |
 |---|---|---|---|

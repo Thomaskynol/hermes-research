@@ -396,5 +396,82 @@ class TRemedicaoReviewer(unittest.TestCase):
         self.assertRegex(out, r"reconciliação referem-se à síntese [0-9a-f]+", out)
 
 
+class TRemedicaoAttempt2(unittest.TestCase):
+    """Segundo passe (attempt 2: 0🔴, 6🟡, 1❓) — 1 correção por causa."""
+
+    SIBLING = "https://github.com/team/river-marketplace"
+
+    def test_package_doc_match_rejects_longer_sibling_slug(self):
+        """(1) substring casava URL estrangeira (marketplace vs market) e
+        derrotava o anti-fusão: match com fronteira."""
+        self.assertFalse(sr._is_package_doc(self.SIBLING, ["river-market"]))
+        self.assertTrue(sr._is_package_doc(
+            "https://github.com/team/river-market", ["river-market"]))
+        evidence = {
+            self.SIBLING: ("# river-marketplace\nriver-marketplace extends "
+                           "river-market with hosted plugins."),
+        }
+        anchors, _text = sr._select_evidence(
+            ["river-market"],
+            "LACUNA nos excertos avaliados: river-market documenta apenas instalação.",
+            evidence, [])
+        self.assertEqual(anchors, [], anchors)
+
+    def test_window_cooccurrence_requires_same_clause(self):
+        """(2) `excertos` incidental noutra oração + `sem fonte` desviava
+        prosa positiva: molde e alcance precisam da mesma oração."""
+        self.assertFalse(vr.is_lacuna_declaration(
+            "O River Plan documenta os excertos avaliados na seção 2, "
+            "e declara instalação sem fonte única oficial."))
+        self.assertTrue(vr.is_lacuna_declaration(
+            "O River Plan declara mínimo atendido, sem fonte de "
+            "compatibilidade funcional (LACUNA de integração)."))
+
+    def test_demonstrada_template_aligned_across_gates(self):
+        """(3) `sem <dim> demonstrada` era LACUNA num gate e positivo no
+        outro: gates alinhados."""
+        sent = "`cand-x`: **insufficient** — sem revisão demonstrada [1]."
+        self.assertTrue(vr.is_lacuna_declaration(sent))
+        self.assertTrue(sr._is_absence_claim(sent))
+
+    def test_monorepo_sibling_doc_is_not_vetoed(self):
+        """(4) veto por repo vetava doc próprio de irmãos monorepo (mesmo
+        repo_key do requerente): pula veto quando cur == próprio."""
+        mono = "https://github.com/team/mono"
+        plan = {"plan_id": "p", "version": 1,
+                "entities": [{"id": "ea", "label": "River Alpha",
+                              "source_url": mono, "required": True},
+                             {"id": "eb", "label": "River Beta",
+                              "source_url": mono, "required": True}],
+                "criteria": [{"id": "c0", "label": "planejamento", "required": True,
+                              "description": "Eixo."}]}
+        corpus = {mono: "Alpha river metrics and dashboards."}
+        lac = ("LACUNA nos excertos: River Alpha sem trecho sobre o eixo [1].")
+        res = vr.check_support(lac, {1: mono}, corpus, plan)
+        self.assertEqual(res.get("supported"), 1, res)
+        pos = "River Alpha declara recurso próprio [1]."
+        res2 = vr.check_support(pos, {1: mono}, corpus, plan)
+        self.assertEqual(res2.get("supported"), 1, res2)
+
+    def test_second_unrelated_version_not_exempted(self):
+        """(5) janela de 40 chars isentava 2ª versão não-relacionada: só a
+        versão na oração de comparação numérica junto ao marcador."""
+        url = "https://github.com/team/river-plan"
+        plan = {"plan_id": "p", "version": 1,
+                "entities": [{"id": "e1", "label": "River Plan",
+                              "source_url": url, "required": True}],
+                "criteria": [{"id": "c0", "label": "compatibilidade", "required": True,
+                              "description": "Eixo."}]}
+        corpus = {url: ("River Plan requires RiverHost V2 2.1.2+. "
+                        "Documented plan review.")}
+        sent = ("O River Plan declara mínimo 2.1.2 com mínimo atendido; instalada 2.1.4 "
+                "(premissa controlada), 9.9.9 sem fonte "
+                "(LACUNA de integração [1]).")
+        res = vr.check_support(sent, {1: url}, corpus, plan)
+        self.assertTrue(res.get("unsupported"), res)
+        self.assertIn("versão exata",
+                      str((res.get("unsupported") or [{}])[0].get("reason")), res)
+
+
 if __name__ == "__main__":
     unittest.main()
