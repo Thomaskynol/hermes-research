@@ -187,6 +187,21 @@ class ExcerptRescope(unittest.TestCase):
         self.assertEqual([r.get("url") for r in (ev.get("references") or [])], [C], ev)
         self.assertTrue(any("excerpt-scope" in str(n) for n in st.get("notes", [])), st.get("notes"))
 
+    def test_limit_citing_two_docs_keeps_only_covering_ref(self):
+        st = self._covered_state()
+        md = ("- INFERÊNCIA de sobreposição parcial em revisão entre River Plan e River Deploy, "
+              "porque o primeiro documenta review de código ([1]) e o segundo tem apenas revisão "
+              "visual de plano demonstrada nos excertos enviados e sem base equivalente de code "
+              "review detalhada ([2]), por isso não afirmar mesma profundidade entre eles.")
+        block = ac._rescope_cells_to_excerpts(st, md, {1: B, 2: C, 3: X})
+        self.assertIsNotNone(block, st.get("notes"))
+        cell = next(c for c in block["criteria"] if c["id"] == "review")
+        ev = (cell.get("entity_evaluations") or {}).get("c") or {}
+        self.assertEqual(ev.get("state"), "partial", ev)
+        self.assertEqual([r.get("url") for r in (ev.get("references") or [])], [C], ev)
+        self.assertNotIn("()", ev.get("justification", ""), ev)
+        self.assertIn("apenas revisão visual", ev.get("justification", ""), ev)
+
     def test_cell_without_synthesis_limit_keeps_covered(self):
         st = self._covered_state()
         md = "- INFERÊNCIA de complementaridade entre River Review (acme) e River Plan [1][2]."

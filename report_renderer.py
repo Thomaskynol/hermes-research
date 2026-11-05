@@ -1483,29 +1483,12 @@ def _combination_premises(state: dict, synthesis: str) -> list[str]:
             return []
         n_to_url = {int(n): u for u, n in (_num or {}).items()
                     if str(n).isdigit()}
-        try:
-            from entity_identity import source_identity as _sid
-        except Exception:
-            _sid = None
-        emap = {e.get("id"): e for e in (state.get("plan") or {}).get("entities", [])
-                if isinstance(e, dict)}
         ev = dict(state.get("evidence") or {})
+        _plan = state.get("plan") or {}
 
         def _covers(label, eid, url) -> bool:
-            body = ev.get(url) or ""
-            if not body:
-                return False
-            if _sid is not None:
-                try:
-                    proven = _sid(emap.get(eid) or {}, body, url)
-                except Exception:
-                    proven = None
-                if proven is True:
-                    return True
-                if proven is False:
-                    return False
             try:
-                return bool(_vr._entity_mentioned(label, eid, body))
+                return bool(_vr.doc_covers_entity(label, eid, url, ev, _plan))
             except Exception:
                 return False
 

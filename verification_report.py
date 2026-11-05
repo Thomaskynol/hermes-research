@@ -1090,6 +1090,40 @@ PARTIAL_DECLARED_SCOPE = ("partial declarada (complementaridade/sobreposição "
                           "janela auditada; nunca integração testada)")
 
 
+def doc_covers_entity(label, eid, url, evidence, plan):
+    """A cited doc is a premise for the named entity (generic).
+
+    Same link rule as the verifier's missing-entity check: the doc whose
+    own repository/identity matches covers its entity; a foreign
+    repository doc never borrows another entity's premise; otherwise the
+    entity must be named in the body. Used by renderer lists and by the
+    excerpt rescope so every surface maps each entity to the source
+    that sustains it.
+    """
+    try:
+        from entity_identity import source_identity as _sid
+    except Exception:
+        _sid = None
+    try:
+        body = (evidence or {}).get(url) or ""
+        if not body:
+            return False
+        ent = next((e for e in ((plan or {}).get("entities") or [])
+                    if isinstance(e, dict) and e.get("id") == eid), {})
+        if _sid is not None:
+            try:
+                proven = _sid(ent, body, url)
+            except Exception:
+                proven = None
+            if proven is True:
+                return True
+            if proven is False:
+                return False
+        return bool(_entity_mentioned(label, eid, body))
+    except Exception:
+        return False
+
+
 def check_support(synthesis_text: str, numbers, corpus, plan,
                   selection=None) -> dict:
     """Sentence-level support audit of the synthesis (audit only, no rewrite).

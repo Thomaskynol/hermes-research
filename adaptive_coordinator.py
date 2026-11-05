@@ -8734,10 +8734,20 @@ def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
                 pass
         for cid, eid, sent, urls in targets:
             try:
-                just = re.sub(r"\s+", " ",
-                              re.sub(r"\[\d+\]", "", sent)).strip()
+                elabel = next((str(e.get("label") or e.get("id") or "")
+                               for e in entities if e.get("id") == eid), eid)
+                covering = [u for u in urls
+                            if _vr.doc_covers_entity(
+                                elabel, eid, u,
+                                dict(state.get("evidence") or {}),
+                                state.get("plan") or {})]
+                if not covering:
+                    continue
+                just = re.sub(r"\(?\s*\[\d+\]\s*\)?", "", sent)
+                just = re.sub(r"\s+", " ", just).strip()
+                just = re.sub(r"\s+([,.;:])", r"\1", just)
                 ev = fresh.evaluate(cid, "partial", just, "excerpt-scope",
-                                    [{"url": u} for u in urls], eid)
+                                    [{"url": u} for u in covering], eid)
                 state.setdefault("evaluations", []).append(dict(ev))
                 state.setdefault("notes", []).append(
                     f"excerpt-scope: {cid}x{eid} -> partial "
