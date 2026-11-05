@@ -170,6 +170,64 @@ class PropagationOutsideExcerpts(unittest.TestCase):
         nus = _re.findall(r"\[2\](?!\s*\(fora dos excertos\))", out)
         self.assertEqual(nus, [], out[-3000:])
 
+    def test_recommendation_fallback_rf_marks_outside_when_details_empty(self):
+        """Fallback `_rf` sem justifications rendia refs nuas; deve
+        qualificar fora-dos-excertos como o ramo details."""
+        import adaptive_state as ast
+        st = ast.new_state("Compare RiverHost.")
+        st["plan"] = {
+            "plan_id": "r", "version": 1,
+            "entities": [
+                {"id": "a", "label": "River Review",
+                 "source_url": self.IN, "required": True},
+                {"id": "b", "label": "River Plan",
+                 "source_url": self.OUT, "required": True}],
+            "criteria": [
+                {"id": "review", "label": "Revisão",
+                 "required": True, "description": "Eixo.",
+                 "per_candidate": True,
+                 "applies_to": ["a", "b"],
+                 "entity_states": {"b": "partial"},
+                 "references": [{"url": self.OUT}]},
+            ],
+        }
+        st["evidence"] = {self.IN: "River Review docs.",
+                           self.OUT: "River Plan docs."}
+        st["qualification"] = {u: {"status": "usable", "excluded": False,
+                                    "usable_text": t}
+                                for u, t in st["evidence"].items()}
+        st["question_coverage"] = {
+            "criteria": st["plan"]["criteria"],
+            "status": "partial",
+        }
+        st["report"] = {"selection": {"included_urls": [self.IN]},
+                        "numbers": {"1": self.IN, "2": self.OUT}}
+        numbers = {rr._norm(self.IN): 1, rr._norm(self.OUT): 2}
+        labels = {"not_investigated": "não investigado"}
+        lines = rr._recommendation_fallback(st, labels, numbers)
+        text = "\n".join(lines)
+        # ramo sem details usa _rf: fora deve qualificar
+        self.assertIn("[2] (fora dos excertos)", text, lines)
+        import re as _re
+        nus = _re.findall(r"\[2\](?!\s*\(fora dos excertos\))", text)
+        self.assertEqual(nus, [], text)
+        # dentro da seleção permanece nu: monta variante com ref interna
+        st2 = dict(st)
+        import copy as _copy
+        st2 = _copy.deepcopy(st)
+        st2["plan"]["criteria"][0]["references"] = [{"url": self.IN}]
+        st2["plan"]["criteria"][0]["entity_states"] = {"a": "partial"}
+        st2["plan"]["entities"] = [
+            {"id": "a", "label": "River Review",
+             "source_url": self.IN, "required": True}]
+        st2["report"] = {"selection": {"included_urls": [self.IN]},
+                         "numbers": {"1": self.IN}}
+        numbers2 = {rr._norm(self.IN): 1}
+        lines2 = rr._recommendation_fallback(st2, labels, numbers2)
+        text2 = "\n".join(lines2)
+        self.assertIn("[1]", text2, lines2)
+        self.assertNotIn("(fora dos excertos)", text2, lines2)
+
 
 if __name__ == "__main__":
     unittest.main()

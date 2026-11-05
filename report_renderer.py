@@ -1611,7 +1611,7 @@ def _recommendation_fallback(state: dict, labels: dict,
             cov_l: list[str] = []
             par_l: list[str] = []
             seen: set = set()
-            refs: list[str] = []
+            refs: list[tuple] = []
             for crit in criteria:
                 cell = _cell_state(crit, eid)
                 if cell not in ("covered", "partial"):
@@ -1631,7 +1631,7 @@ def _recommendation_fallback(state: dict, labels: dict,
                         _k, _n = None, None
                     if _k is not None and _n not in seen:
                         seen.add(_n)
-                        refs.append(str(_n))
+                        refs.append((_n, _k))
             details = []
             try:
                 _inc_f = ((state.get("report") or {}).get("selection") or {}).get("included_urls")
@@ -1647,7 +1647,18 @@ def _recommendation_fallback(state: dict, labels: dict,
                 continue
             _cov = ", ".join(cov_l[:3]) if cov_l else "nenhum critério"
             _par = ", ".join(par_l[:3]) if par_l else "nenhum critério"
-            _rf = "[" + "][".join(refs[:4]) + "]" if refs else "—"
+            try:
+                _inc_n = {_norm(u) for u in (_inc_f or []) if _norm(u)} \
+                    if _inc_f else None
+            except Exception:
+                _inc_n = None
+            _rf_parts: list[str] = []
+            for _n, _k in refs[:4]:
+                if _inc_n is not None and _k not in _inc_n:
+                    _rf_parts.append(f"[{_n}] (fora dos excertos)")
+                else:
+                    _rf_parts.append(f"[{_n}]")
+            _rf = ", ".join(_rf_parts) if _rf_parts else "—"
             if details:
                 lines.append(f"- **{lb}**: " + " ".join(details[:2])
                              + " Adoção condicionada às dependências, compatibilidade e limitações abaixo.")
