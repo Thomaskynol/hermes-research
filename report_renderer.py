@@ -1846,6 +1846,26 @@ def render_technical_annex(state: dict,
     return "\n".join(lines)
 
 
+def _reword_inferred_comparison(sentence: str) -> str:
+    """Coerência documentado x inferido (accept43, defeitos 1-2).
+
+    A relação apurada de documentos distintos, sem trecho que documente
+    o vínculo, é INFERÊNCIA — nunca "documentada". Só o verificador
+    decide (missing_entity_sources/inferred_comparisons); aqui só a
+    redação da frase sinalizada muda, sem tocar entidades, citações ou
+    notas. Relações com vínculo documentado nunca chegam aqui.
+    """
+    import re as _re
+    out = _re.sub(r"\b[Ss]obreposiç(?:ão|ões)\s+parcial\s+documentad[ao]s?\b",
+                  "INFERÊNCIA de sobreposição parcial", sentence, count=1)
+    out = _re.sub(r"\b[Ss]obreposiç(?:ão|ões)\s+documentad[ao]s?\b",
+                  "INFERÊNCIA de sobreposição", out, count=1)
+    out = _re.sub(r"\b[Cc]omplementaridade\s+documentad[ao]s?\b",
+                  "INFERÊNCIA de complementaridade", out, count=1)
+    out = out.replace("INFERÊNCIA de INFERÊNCIA de", "INFERÊNCIA de")
+    return out
+
+
 def render_report(state: dict, *, synthesis_text: str,
                   verifications: dict | None = None,
                   quantitative: list | None = None,
@@ -1900,12 +1920,26 @@ def render_report(state: dict, *, synthesis_text: str,
         _scope_check = _verify.check_support(
             synthesis, numbers, dict(state.get("evidence") or {}), state.get("plan") or {})
         _comparison_notes = {}
+        _flagged = [(_item.get("sentence") or "")
+                    for _item in ((_scope_check.get("missing_entity_sources") or [])
+                                  + (_scope_check.get("inferred_comparisons") or []))]
+        for _old in dict.fromkeys(s for s in _flagged if s):
+            _new = _reword_inferred_comparison(_old)
+            if _new != _old and _old in synthesis:
+                synthesis = synthesis.replace(_old, _new, 1)
+                _note = ("comparação reescrita como inferência (relação sem "
+                         "vínculo documentado nas fontes citadas)")
+                if _note not in set(n for n in (state.get("notes") or [])
+                                     if isinstance(n, str)):
+                    state.setdefault("notes", []).append(_note)
         for _item in _scope_check.get("missing_entity_sources") or []:
-            _comparison_notes.setdefault(_item["sentence"], []).append(
+            _sent = _reword_inferred_comparison(_item["sentence"])
+            _comparison_notes.setdefault(_sent, []).append(
                 "**Referência pendente:** " + ", ".join(_item.get("missing_entities") or [])
                 + "; a atribuição nessa comparação não foi confirmada.")
         for _item in _scope_check.get("inferred_comparisons") or []:
-            _comparison_notes.setdefault(_item["sentence"], []).append(
+            _sent = _reword_inferred_comparison(_item["sentence"])
+            _comparison_notes.setdefault(_sent, []).append(
                 "**Escopo da comparação:** a relação comparativa é inferência a partir "
                 "das funções citadas e não demonstra integração testada.")
         for _sentence, _notes in _comparison_notes.items():

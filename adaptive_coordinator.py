@@ -4506,7 +4506,12 @@ def _writer_complementarity_guidance() -> str:
         "resolvidas no eixo funcional); havendo, afirme apenas ausência "
         "de base de combinação/sobreposição, nunca de funcionalidade; "
         "sem evaluations que sustentem funcionalidade, a LACUNA de "
-        "ausência fica preservada, sem forçar covered.")
+        "ausência fica preservada, sem forçar covered; quando a relação "
+        "vier de documentos distintos sem trecho que documente o vínculo "
+        "entre os candidatos, redija-a como INFERÊNCIA (ex.: 'INFERÊNCIA "
+        "de sobreposição parcial entre ...'), nunca 'documentada': "
+        "'documentada' só quando um documento citado documentar o vínculo "
+        "entre eles.")
 
 
 def make_model_writer(model_client, max_chars: int = 12000):
