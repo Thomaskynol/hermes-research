@@ -1,21 +1,56 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
-> **Estado atual (2026-11-04):** missão accept42→accept43 executada. Produto em
+> **Estado atual — reconciliação accept43 (2026-11-04 local):** branch
+> `feat/product-v1`, produto `a210966`, publicado em origin. A missão permanece
+> **parcial**: os mecanismos corrigidos e os casos controlados foram exercitados,
+> mas a comparação final ainda tem uma referência incompleta e uma formulação
+> conflitante sobre sobreposição documentada/inferida, ambas sinalizadas no
+> relatório. Não há base para declarar atendimento integral nem RA8 concluído.
+> Próximo passo: corrigir a atribuição à fonte primária analisada e a redação da
+> relação em mecanismo geral, testar também fontes que documentem uma relação
+> entre projetos, e revalidar o texto e a verificação. Não atribuir uma fonte só
+> porque consta no ledger, nem converter alertas ou votos em aprovação.
+>
+> A reprodução final `runs/accept43-reconciliation/reproduction-a210966-replay/`
+> aplica o produto `a210966` ao corpus congelado: duas respostas do assessor e
+> nove respostas da auditoria reaplicadas com prompts idênticos, escrita real
+> anterior reaplicada com prompt idêntico exceto ID do run, zero novas chamadas
+> nessa reprodução, sem coleta/embeddings. A escrita e os votos foram reais em
+> `reproduction-bbecdc9-2`; as duas avaliações foram reais em
+> `reproduction-8e728c2`. Na reprodução final: 25 itens com quórum, 19 sustained,
+> seis partial, zero unsupported e falhas técnicas, 37 itens adiados; revisão e
+> suporte parciais. O suporte cobre o Markdown final; os votos semânticos cobrem
+> a síntese indicada pelo hash, não todo o Markdown. `accepted:false` permanece.
+> Suite `suite-29.log`: 868 testes, 10 skips; runner `offline-21`: 11/11.
+> O reconhecedor de exclusões de escopo é conservador e pode não reconhecer
+> paráfrases válidas. A descrição de testes no plano histórico é estreita, embora
+> a avaliação atual admita contribuição indireta. A premissa do harness 2.1.4
+> está separada de `opencode v2.2.5` observado no host. Não houve nova prova de
+> funcionamento integrado dos plugins.
+>
+> Técnico: `docs/RELATORIO_TECNICO_RECONCILIACAO_ACCEPT43.md`; evidências:
+> `/home/thomaskyn/Projetos/hermes-research-dev/runs/accept43-reconciliation/`.
+> Origem accept43, produção e Hermes ativo preservados. O plano preexistente e
+> seu seletor foram preservados; não incluídos nos commits de produto.
+
+> **Histórico corrigido (accept42→accept43, UTC 2026-11-04):** missão executada. Produto em
 > 3 commits sobre `4ce8cef` (`a5a37f9` descoberta, `0a4719b` auditoria,
-> `ac7aa6c` relatório) + 3 fixes residuais em workdir da leitura do accept43
+> `ac7aa6c` relatório) + 3 fixes residuais registrados em `a4b2237`
 > (scope frasal, `technical_annex.md`, matriz/recomendação determinísticas).
 > Run accept43 EXIT=0 sobre `d3b081a` (hashes pré==pós): overall `partial`
-> honesto (question 0.122, review julgado-e-reprovado 6/6, support ok, stop
+> (question 0.122, review incompleto por extração, 6/6 com quórum, support ok, stop
 > `time` 1873s≥1800s). RA8 segue PENDENTE. Técnico:
 > `docs/RELATORIO_TECNICO_MISSAO_ACCEPT42_43.md`. Runs:
 > `/home/thomaskyn/hermes-runs/accept42/` (intacto),
 > `/home/thomaskyn/hermes-runs/accept43/`; replays `/tmp/replay-accept43/`,
 > `/tmp/replay-accept43b/`.
 >
-> Pendente: commitar residuais + docs e push; fiação nova (anexo/matriz/
-> recomendação) só tem efeito em run novo.
+> Residuais e docs já registrados em `a4b2237`/`e40e464` e publicados.
+> A reconciliação atual identificou defeitos remanescentes de escopo/identidade;
+> “accepted:false” no original não era reprovação factual: 2 sustained, 3 gap,
+> 1 partial; extração incompleta. Não há aqueles commits a fazer.
 
-> **Estado atual (2026-11-03):** HEAD `747ed29` (docs; produto congelado
+> **Histórico (2026-11-03):** HEAD `747ed29` (docs; produto congelado
 > e validado em `38141b1`), branch `feat/product-v1`, push em dia
 > (`feat/product-v1`=`747ed29`, `main`=`38141b1`). accept42
 > **reconciliado**: 12/55 `partial`, 15/15 critérios avaliados,
@@ -30,7 +65,7 @@
 > deve ser lida do ambiente/artefatos.
 
 
-## Pendências reais
+## Pendências históricas à época (fase 3)
 
 1. **accept42 reconciliado (2026-11-03)** — 12/55 `partial`, 15/15
    critérios avaliados, support `ok`, overall `partial` honesto; ACEITE
@@ -47,7 +82,7 @@
    após ajustes de acento/plural (suite cobre). Registrar como limitação,
    não como aceite.
 
-## Próxima ação (fase 3)
+## Próxima ação histórica (fase 3)
 
 Ler os artefatos do accept42 (relatório, diagnose, verification,
 counters), comparar com accept41 e decidir se a entrega é útil/parcial.
@@ -78,9 +113,9 @@ hipótese nova. Atualizar CONTINUIDADE e commit local dos docs.
   pacotes, releases nem deploy.
 - Orientação vigente: publicar código em desenvolvimento não equivale
   a declarar o produto aprovado. Fazer novos pushes ao concluir
-  marcos validados desta missão. Pendentes de publicação após este
-  push: este próprio `CONTINUIDADE.md` + `.planning/fase-g-selecao/`
-  (commit após a reconciliação do accept42).
+  marcos validados desta missão. A atualização de continuidade e o plano da
+  fase G mencionados naquele momento foram registrados em commits posteriores;
+  essa nota histórica não representa pendência atual de publicação.
 
 
 ## Correções de leitura — contratos vigentes (A1–A6, `test_accept28_causes.py`)

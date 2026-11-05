@@ -6,8 +6,9 @@ resposta coerente e útil. Sem hardcode de nomes/vencedores, sem inflar tetos.
 
 ## Base e congelamento
 - Produto accept43: HEAD `d3b081a` (3 commits: `a5a37f9` descoberta, `0a4719b`
-  auditoria, `ac7aa6c` relatório + `d3b081a` plano). Residuais pós-run em workdir
-  (3 commits a fazer): scope-doc-frasal, annex separado, matriz determinística.
+  auditoria, `ac7aa6c` relatório + `d3b081a` plano). Residuais pós-run registrados
+  em `a4b2237` (scope-doc-frasal, anexo separado, matriz/recomendação) e
+  documentação em `e40e464`, já publicados. Não há esses commits a fazer.
 - Run accept43: `/home/thomaskyn/hermes-runs/accept43/`, EXIT=0, código == `d3b081a`
   (hashes conferem pré/pós), pergunta do aceite, medium, `--max-rounds 12`
   (origem: harness), `2.1.4` = premissa de entrada. 8082 UP; vast 8001 DOWN;
@@ -70,8 +71,13 @@ resposta coerente e útil. Sem hardcode de nomes/vencedores, sem inflar tetos.
 
 ## Run accept43 — leitura como usuário
 - `overall partial` honesto: execution ok, question partial 0.122 (6/49, 7 N/A
-  fora do denominador), review partial (6/6 com quórum, reprovado explícito —
-  julgamento concluído), support ok. Parada por tempo registrada com pendências.
+  fora do denominador), review partial (6/6 com quórum; **extração incompleta**),
+  support ok. Votos originais: 2 sustained, 3 gap e 1 partial, nenhum
+  unsupported, 18 votos válidos e zero falhas técnicas. `accepted:false` e
+  `verdict_state: revisão incompleta` não significam reprovação factual.
+  O texto anterior “reprovado explícito” estava incorreto. Parada por tempo
+  registrada com pendências. Ver a reconciliação atual em
+  `RELATORIO_TECNICO_RECONCILIACAO_ACCEPT43.md`.
 - Utilidade: Plannotator útil; marketplace parcial-restrita; GHA parcial-fraca;
   jira parcial-mínima; Octto nula neste run. Nenhuma célula 'coberto' no §3 com
   LACUNA na síntese; rótulo F3 falso zerado; negações de integração honestas.
