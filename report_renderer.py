@@ -780,6 +780,7 @@ _DEBUG_NOTE_PREFIXES = (
     "boilerplate ignorado", "lote por diversidade",
     "reenvio de quarentena", "proporcional:",
     "per_candidate bound", "resume:",
+    "excerpt-scope", "excerpt rescope",
     "transport failure", "pool reserve", "assessor",
     "fetch failure", "repo minerado", "link-following",
     "rodízio", "op ",

@@ -157,6 +157,11 @@ class InferenceScopeLabel(unittest.TestCase):
         self.assertTrue(res.get("partial_declared"), res)
 
 
+    def test_internal_rescope_trace_stays_out_of_user_notes(self):
+        self.assertTrue(rr._is_debug_note(
+            "excerpt-scope: c_reviewxe13 -> partial (limite da síntese nos excertos)"))
+
+
 class ExcerptRescope(unittest.TestCase):
     def _covered_state(self):
         st = state()
