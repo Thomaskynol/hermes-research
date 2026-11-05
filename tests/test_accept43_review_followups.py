@@ -176,7 +176,7 @@ class ExcerptRescope(unittest.TestCase):
               "River Plan e River Deploy, porque o primeiro documenta revisão automatizada, "
               "o segundo documenta review de código e o terceiro tem apenas revisão visual de "
               "plano demonstrada nos excertos enviados e sem base equivalente de code review "
-              "detalhada [2].")
+              "detalhada [2], por isso não afirmar mesma profundidade entre eles.")
         block = ac._rescope_cells_to_excerpts(st, md, {1: A, 2: C, 3: X})
         self.assertIsNotNone(block, st.get("notes"))
         cell = next(c for c in block["criteria"] if c["id"] == "review")

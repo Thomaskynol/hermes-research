@@ -8638,10 +8638,17 @@ def _rescope_cells_to_excerpts(state, report_markdown, n_to_url=None):
             if not any(m in low for m in _RESCOPE_LIMIT_MARKERS):
                 continue
             try:
-                if _vr.is_lacuna_declaration(_u):
-                    continue
+                _is_lac = bool(_vr.is_lacuna_declaration(_u))
             except Exception:
-                pass
+                _is_lac = False
+            if _is_lac:
+                # Ausência pura é jurisdição das notas de reconciliação;
+                # INFERÊNCIA marcada que limita segue para o rescope.
+                try:
+                    if not _vr._has_inference_marker(_u):
+                        continue
+                except Exception:
+                    continue
             try:
                 cits = [int(n) for n in re.findall(r"\[(\d+)\]", _u)]
             except Exception:
