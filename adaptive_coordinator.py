@@ -893,6 +893,14 @@ _ANCHOR_GROUPS: dict[str, tuple[str, ...]] = {
                             "requirement", "requirements", "prerequisit"),
     "ancora:manutencao": ("maintainer", "mantenedor", "contributors",
                           "contribuidores"),
+    # Seções de revisão vivem no corpo (diffs, exemplos comentados) e o
+    # rótulo PT do critério ("Revisão de código") nunca casa o corpo EN
+    # sem este grupo: sem ele o corte retém config/fragments e perde as
+    # passagens de revisão (show_diff/ask_code) dentro do mesmo limite.
+    "ancora:revisao": ("review", "revisão", "revisao", "diff", "diffs",
+                       "syntax", "sintaxe", "pull", "request", "requests",
+                       "comment", "comments", "feedback", "approve",
+                       "approv"),
 }
 _ANCHOR_FACT_TERMS: tuple[str, ...] = tuple(
     t for _g in _ANCHOR_GROUPS.values() for t in _g)
@@ -962,6 +970,236 @@ def _criterion_groups(plan) -> dict[str, list[str]]:
         groups[f"criterio:{crit['id']}"] = toks
     groups.update({k: list(v) for k, v in _ANCHOR_GROUPS.items()})
     return groups
+
+
+def _second_sources_for_gaps(plan, bodies, floor_urls, gaps):
+    """Second identity source per entity for open-gap dimensions.
+
+    The writer floor keeps one document per required entity. When a
+    (criterion, entity) cell is still open (the assessment already judged
+    the floor insufficient for it) and another corpus document is ABOUT
+    the entity and holds the gap dimension terms, admit one second
+    source, right after the floor entry. Bounded (one per entity); the
+    budget loop still enforces the char ceilings. The open cell itself
+    is the coverage signal (no lexical re-derivation of what the floor
+    "covers"). Returns [(floor_url, second_url)] in floor order.
+    Generic: identity and dimension checks reuse the selection rules.
+    """
+    try:
+        import unicodedata as _ud
+
+        def _low_norm(_s: str) -> str:
+            try:
+                return "".join(c for c in _ud.normalize(
+                    "NFKD", str(_s or "").lower()) if not _ud.combining(c))
+            except Exception:
+                return str(_s or "").lower()
+
+        out: list[tuple[str, str]] = []
+        if not isinstance(floor_urls, list) or not floor_urls:
+            return out
+        try:
+            _generic = _plan_shared_tokens(plan, None) or frozenset()
+        except Exception:
+            _generic = frozenset()
+        try:
+            _texts = [str(bodies.get(u) or "") for u in bodies]
+        except Exception:
+            _texts = []
+        req = [e for e in (plan.get("entities") or [])
+               if isinstance(e, dict) and e.get("required", True)]
+        open_dim: dict[str, set[str]] = {}
+        for g in gaps or []:
+            if not isinstance(g, dict):
+                continue
+            _cid, _eid = g.get("criterion_id"), g.get("entity_id")
+            if not _cid or not _eid:
+                continue
+            crit = next((c for c in (plan.get("criteria") or [])
+                         if isinstance(c, dict) and c.get("id") == _cid),
+                        None)
+            if crit is None:
+                continue
+            try:
+                _dt = {t for t in _norm_tokens(
+                    str(crit.get("label") or ""), min_len=4)}
+                _dt |= set(_expand_terms_en(sorted(_dt)))
+            except Exception:
+                _dt = set()
+            if _dt:
+                open_dim.setdefault(str(_eid), set()).update(_dt)
+        if not open_dim:
+            return out
+        used = set(floor_urls)
+        for ent in req:
+            eid = str(ent.get("id") or "")
+            dims = open_dim.get(eid)
+            if not dims:
+                continue
+            try:
+                _single = _singleton_rare(ent, _texts, _generic)
+            except Exception:
+                _single = True
+            try:
+                _own_toks = set(_norm_tokens(
+                    str(ent.get("label") or ""), min_len=2))
+            except Exception:
+                _own_toks = set()
+            _dims = {d for d in dims if d not in _own_toks}
+            if not _dims:
+                continue
+            _floor_u = None
+            for _u in floor_urls:
+                try:
+                    if _identity_matches(ent, str(bodies.get(_u) or ""),
+                                         single_ok=_single,
+                                         generic=_generic,
+                                         source_url=_u):
+                        _floor_u = _u
+                        break
+                except Exception:
+                    continue
+            if _floor_u is None:
+                continue
+            for _u in (bodies or {}):
+                if _u in used or _u == _floor_u:
+                    continue
+                try:
+                    _body = str(bodies.get(_u) or "")
+                    if not _second_source_matches(
+                            plan, ent, _body, _u, _single, _generic):
+                        continue
+                    if not any(d in _low_norm(_body) for d in _dims):
+                        continue
+                except Exception:
+                    continue
+                out.append((_floor_u, _u))
+                used.add(_u)
+                break
+        return out
+    except Exception:
+        return []
+
+
+def _source_affinity(ent_source: str, cand_url: str) -> bool:
+    """Same owner/site family between entity source and candidate URL.
+
+    A second source must be the entity's OWN material: the candidate
+    shares the owner/site name with the entity source (github owner
+    ``vtemian`` <-> ``blog.vtemian.com``; same registrable domain).
+    A same-slug repo under another owner, or a generic listicle that
+    merely mentions the project, never qualifies — the floor already
+    covers listings; the second source adds the project's own voice.
+    Generic, no product names.
+    """
+    try:
+        from urllib.parse import urlsplit as _us
+        import re as _re3
+        a, b = _us(str(ent_source or "")), _us(str(cand_url or ""))
+        ah, bh = (a.hostname or "").lower(), (b.hostname or "").lower()
+        if not ah or not bh:
+            return False
+        _gen = {"com", "org", "net", "io", "dev", "ai", "github", "www",
+                "blog", "docs", "app", "en", "pt", "br", "page", "pages"}
+        _atoks: set[str] = set()
+        try:
+            _aparts = (a.path or "").strip("/").split("/")
+            if ah in ("github.com", "www.github.com",
+                      "raw.githubusercontent.com") and len(_aparts) >= 2:
+                _atoks.add(_aparts[0].lower())
+        except Exception:
+            pass
+        _atoks |= {t for t in _re3.split(r"[^a-z0-9]+", ah) if t}
+        _btoks = {t for t in _re3.split(r"[^a-z0-9]+", bh) if t}
+        try:
+            _bparts = (b.path or "").strip("/").split("/")
+            if bh in ("github.com", "www.github.com") and len(_bparts) >= 2:
+                _btoks.add(_bparts[0].lower())
+        except Exception:
+            pass
+        if ((_atoks & _btoks) - _gen):
+            return True
+        try:
+            _ra = ah.split(".")[-2:]
+            _rb = bh.split(".")[-2:]
+            if len(_ra) == 2 and _ra == _rb and _ra[0] not in _gen:
+                return True
+        except Exception:
+            pass
+        return False
+    except Exception:
+        return False
+
+
+def _second_source_matches(plan, ent, body, url, single_ok=True,
+                           generic=None):
+    """Text-aboutness for a second source (floor stays repo-strict).
+
+    The floor requires source identity; a second source for an open-gap
+    dimension must be ABOUT the entity AND from its own owner/site
+    family: full label (or base) with boundary in the body, a URL no
+    other required entity owns, and source affinity with the entity's
+    own source (listicles and same-slug foreign repos never qualify).
+    Generic, no product names.
+    """
+    try:
+        _own_src = str((ent or {}).get("canonical_source_url")
+                       or (ent or {}).get("source_url") or "")
+        # Same slug under another github owner is never this entity's
+        # own voice (identity rule), even when the body names it.
+        try:
+            if _own_src and url:
+                from urllib.parse import urlsplit as _us2
+                _oa, _ob = _us2(_own_src), _us2(str(url))
+                if (_oa.hostname or "").lower() in (
+                        "github.com", "www.github.com") and (
+                        _ob.hostname or "").lower() in (
+                        "github.com", "www.github.com"):
+                    _pa = (_oa.path or "").strip("/").split("/")
+                    _pb = (_ob.path or "").strip("/").split("/")
+                    if len(_pa) >= 2 and len(_pb) >= 2 and \
+                            _pa[1].lower() == _pb[1].lower() and \
+                            _pa[0].lower() != _pb[0].lower():
+                        return False
+        except Exception:
+            pass
+        # Owner/site affinity on every path: the floor already covers
+        # listings; the second source must be the entity's own voice.
+        # (A bare text mention in a generic index is not affinity.)
+        if not _source_affinity(_own_src, url):
+            return False
+        if _identity_matches(ent, str(body or ""), single_ok=single_ok,
+                             generic=generic, source_url=url):
+            return True
+    except Exception:
+        pass
+    try:
+        import verification_report as _vr2
+        from entity_identity import repo_key as _rk
+        _label = str((ent or {}).get("label") or "")
+        _base = re.sub(r"\([^)]*\)", "", _label).strip()
+        _forms = {_vr2._norm_mention(_label),
+                  _vr2._norm_mention(_base)} - {""}
+        _doc = _vr2._norm_mention(body)
+        if not any(_f and re.search(
+                r"(?:^| )" + re.escape(_f) + r"(?:$| )", _doc)
+                for _f in _forms):
+            return False
+        _cur = _rk(url)
+        if _cur:
+            for _o in ((plan or {}).get("entities") or []):
+                if not isinstance(_o, dict) or _o.get("id") == ent.get("id"):
+                    continue
+                try:
+                    _okey = _rk((_o or {}).get("canonical_source_url")
+                                or (_o or {}).get("source_url"))
+                except Exception:
+                    _okey = None
+                if _okey and _okey == _cur:
+                    return False
+        return True
+    except Exception:
+        return False
 
 
 def _criterion_terms(plan) -> dict[str, list[str]]:
@@ -2307,16 +2545,22 @@ def _criterion_scope(state: dict, crit: dict) -> str:
         return f"alcance examinado: indisponível ({exc})"
 
 
-def _annotate_examined_scope(state: dict, block: dict) -> None:
+def _annotate_examined_scope(state: dict, block: dict,
+                             force: bool = False) -> None:
     """Attach per-criterion examined scope (doc/trecho vs corpus).
 
-    Idempotent (skips entries already annotated). Called after every
-    block (re)build — including the S1 synthesis-criteria rebuild, which
-    reconstructs entries from evaluations and would otherwise drop it.
+    Idempotent by default (skips entries already annotated). ``force``
+    recomputes every entry: post-write annotations must reflect the
+    writer selection (pre-write annotations with empty assessments would
+    otherwise freeze a stale "0/13" scope over the delivered block).
+    Called after every block (re)build — including the S1
+    synthesis-criteria rebuild, which reconstructs entries from
+    evaluations and would otherwise drop it.
     """
     try:
         for _entry in (block or {}).get("criteria") or []:
-            if isinstance(_entry, dict) and "examined_scope" not in _entry:
+            if isinstance(_entry, dict) and (
+                    force or "examined_scope" not in _entry):
                 _crit = next(
                     (c for c in (state.get("plan") or {}).get("criteria", [])
                      if isinstance(c, dict)
@@ -4665,8 +4909,10 @@ def make_model_writer(model_client, max_chars: int = 12000):
                 _rest.sort(key=lambda u: (-_ref_count.get(u, 0), u))
                 _sem_note = ""
             corpus_urls[:] = _floor + _rest
+            _floor_urls = list(_floor)
         except Exception:
             corpus_urls.sort(key=lambda u: (-_ref_count.get(u, 0), u))
+            _floor_urls = []
         # Relevance terms: plan labels + issued-query tokens fed via hook
         # (same language-mismatch rationale as the assessor: PT labels vs
         # EN corpus). Long documents are windowed around the criteria,
@@ -4693,6 +4939,78 @@ def make_model_writer(model_client, max_chars: int = 12000):
         included, cuts, budget = [], [], int(max_chars)
         if _sem_note:
             cuts.append(_sem_note)
+        # Segunda fonte (item 4): quando o doc do piso não cobre a
+        # dimensão de um gap aberto da entidade e outro doc da entidade
+        # cobre, ele entra logo após o piso (uma por entidade; o teto de
+        # chars continua valendo no loop abaixo). Sem gap aberto ou sem
+        # segunda fonte, a seleção segue idêntica.
+        try:
+            _bodies = {}
+            for _u in corpus_urls:
+                try:
+                    _bodies[_u] = str(
+                        (qualification.get(_u) or {}).get("usable_text")
+                        or evidence.get(_u) or "")
+                except Exception:
+                    _bodies[_u] = str(evidence.get(_u) or "")
+            _gap_cells = []
+            try:
+                _seen_gaps = set()
+                # Células abertas vêm das avaliações (insufficient/
+                # uninvestigated/blocked com entidade): a insuficiência
+                # julgada é o sinal de cobertura, não o léxico do piso.
+                for _e in view.get("evaluations") or []:
+                    if not isinstance(_e, dict):
+                        continue
+                    if not _e.get("entity_id") or not _e.get("criterion_id"):
+                        continue
+                    if str(_e.get("state") or "") not in (
+                            "insufficient", "uninvestigated", "blocked"):
+                        continue
+                    _key = (_e.get("criterion_id"), _e.get("entity_id"))
+                    if _key not in _seen_gaps:
+                        _seen_gaps.add(_key)
+                        _gap_cells.append(
+                            {"criterion_id": _e.get("criterion_id"),
+                             "entity_id": _e.get("entity_id"),
+                             "state": _e.get("state")})
+                try:
+                    _block = (view.get("question_coverage") or {})
+                    for _g in _block.get("gaps") or []:
+                        if isinstance(_g, dict) and _g.get("entity_id") \
+                                and _g.get("criterion_id"):
+                            _st = str(_g.get("state") or "")
+                            if _st in ("", "insufficient",
+                                        "uninvestigated", "blocked"):
+                                _key = (_g.get("criterion_id"),
+                                        _g.get("entity_id"))
+                                if _key not in _seen_gaps:
+                                    _seen_gaps.add(_key)
+                                    _gap_cells.append(_g)
+                except Exception:
+                    pass
+            except Exception:
+                _gap_cells = []
+            try:
+                _floor_only = [u for u in corpus_urls
+                               if u in set(_floor_urls)]
+            except Exception:
+                _floor_only = []
+            if not _floor_only:
+                _floor_only = list(corpus_urls)
+            for _floor_u, _second_u in _second_sources_for_gaps(
+                    plan, _bodies, _floor_only, _gap_cells):
+                if _second_u in corpus_urls:
+                    corpus_urls.remove(_second_u)
+                try:
+                    _pos = corpus_urls.index(_floor_u)
+                except ValueError:
+                    continue
+                corpus_urls.insert(_pos + 1, _second_u)
+                cuts.append(f"segunda fonte {_second_u} após piso "
+                            f"{_floor_u} (gap aberto de dimensão)")
+        except Exception as _exc:
+            cuts.append(f"segunda fonte indisponível: {_exc}")
         parts = []
         excerpts = {}
         total = 0
@@ -8357,7 +8675,9 @@ def _assess_synthesis_criteria(state: dict, block: dict,
     delivered synthesis visibly separates documented/inferred/gap material
     AND cites real corpus sources, the cell becomes partial (never
     covered): the check is on the artifact that actually carries the
-    property. Rebuilds the ledger from state evaluations plus the new
+    property. A partial assessed from an older synthesis is re-derived
+    (refs/justification refreshed, still never covered) when the synthesis
+    changed. Rebuilds the ledger from state evaluations plus the new
     synthesis evaluation(s); returns the recomputed block, or None when
     nothing changed. Never raises (caller records a note).
     """
@@ -8368,11 +8688,37 @@ def _assess_synthesis_criteria(state: dict, block: dict,
                    and c.get("required", True)]
         if not targets or not (synthesis_text or "").strip():
             return None
+        try:
+            _sha = (_content_hash(synthesis_text or "") or "")[:12]
+        except Exception:
+            _sha = ""
         cur = {c.get("id"): c for c in (block.get("criteria") or [])
                if isinstance(c, dict)}
+        try:
+            _seen_sha: dict[str, str] = {}
+            for _ev in state.get("evaluations") or []:
+                if not isinstance(_ev, dict):
+                    continue
+                _org = str(_ev.get("origin") or "")
+                if _org.startswith("synthesis:"):
+                    _seen_sha[_ev.get("criterion_id")] = _org.split(
+                        "synthesis:", 1)[1][:12]
+        except Exception:
+            _seen_sha = {}
+
+
+        def _stale(_cid: str) -> bool:
+            try:
+                return bool(_sha) and _seen_sha.get(_cid) != _sha
+            except Exception:
+                return False
+
+
         need = [c for c in targets
                 if (cur.get(c["id"]) or {}).get("state")
-                in ("insufficient", "uninvestigated")]
+                in ("insufficient", "uninvestigated")
+                or ((cur.get(c["id"]) or {}).get("state") == "partial"
+                    and _stale(c["id"]))]
         if not need:
             return None
         low = synthesis_text.lower()
@@ -8416,13 +8762,17 @@ def _assess_synthesis_criteria(state: dict, block: dict,
         refs = [{"url": u} for u in real[:8]]
         changed = False
         for crit in need:
+            _refresh = ((cur.get(crit["id"]) or {}).get("state") == "partial")
             just = (f"Síntese entregue separa material "
                     f"({len(markers)} marcadores: "
                     f"{', '.join(sorted(markers))}; {len(real)} fonte(s) "
-                    f"do corpus citadas).")
+                    f"do corpus citadas)"
+                    + ("; re-derivada na síntese vigente"
+                       if _refresh else "")
+                    + ".")
             try:
                 ev = fresh.evaluate(crit["id"], "partial", just,
-                                    "synthesis", refs, None)
+                                    f"synthesis:{_sha}", refs, None)
             except (ValueError, KeyError):
                 continue
             state.setdefault("evaluations", []).append(dict(ev))
@@ -8434,6 +8784,437 @@ def _assess_synthesis_criteria(state: dict, block: dict,
     except Exception as exc:
         state.setdefault("notes", []).append(
             f"synthesis criteria check skipped: {exc}")
+        return None
+
+
+#: Dimension words of global relation criteria (combination vs overlap).
+_RELATION_OVERLAP_WORDS = ("sobrepos", "overlap")
+_RELATION_COMBO_WORDS = ("combin", "complement", "integra")
+
+
+def _assess_delivered_relations(state, report_markdown, n_to_url=None,
+                                skip_sentences=None):
+    """Evaluate open global relation criteria on the delivered synthesis.
+
+    Excerpt-based assessment never investigates criteria like "which
+    combine" / "overlapping functions" (no excerpt carries the relation);
+    when the delivered synthesis publishes a declared inference with
+    limits naming >=2 required entities, grounded in >=2 corpus premises
+    (cited on the inference sentence itself, or stated as single-entity
+    premise sentences with citations), the matching global criterion
+    becomes partial (never covered) with the premise refs. Supplements
+    the vote-based promotion path with the exact delivered
+    window/numbering. Premise sentences flagged by the audit as
+    unsupported never ground anything. Never raises (caller records).
+    """
+    try:
+        import verification_report as _vr
+        import coverage_ledger as _ledger
+    except Exception:
+        return None
+    try:
+        plan = state.get("plan") or {}
+        block = state.get("question_coverage") or {}
+        if not str(report_markdown or "").strip():
+            return None
+        try:
+            _sha = (_content_hash(report_markdown or "") or "")[:12]
+        except Exception:
+            _sha = ""
+        by_id = {c.get("id"): c for c in (block.get("criteria") or [])
+                 if isinstance(c, dict)}
+        targets = []
+        for c in plan.get("criteria", []):
+            if not isinstance(c, dict) or not c.get("required", True):
+                continue
+            if c.get("synthesis"):
+                continue
+            if c.get("per_candidate") or c.get("applies_to"):
+                continue
+            try:
+                _lab = _vr._norm_mention(c.get("label") or "")
+            except Exception:
+                _lab = ""
+            if not any(w in _lab for w in
+                       _RELATION_OVERLAP_WORDS + _RELATION_COMBO_WORDS):
+                continue
+            if (by_id.get(c.get("id")) or {}).get("state") not in (
+                    "insufficient", "uninvestigated"):
+                continue
+            _done = False
+            for _ev in state.get("evaluations") or []:
+                if (isinstance(_ev, dict)
+                        and _ev.get("criterion_id") == c.get("id")
+                        and _ev.get("origin") == f"delivered-synthesis:{_sha}"):
+                    _done = True
+                    break
+            if _done:
+                continue
+            targets.append(c)
+        if not targets:
+            return None
+        if n_to_url is None:
+            try:
+                import report_renderer as _rr
+                _ln = getattr(_rr.render_report, "last_numbers", {}) or {}
+            except Exception:
+                _ln = {}
+            try:
+                n_to_url = _vr._n_to_url(_ln)
+            except Exception:
+                n_to_url = {}
+        corpus = state.get("evidence") or {}
+        try:
+            from entity_identity import context_entity_ids as _ctx_ids
+            _contexts = set(_ctx_ids(plan) or ())
+        except Exception:
+            _contexts = set()
+        entities = [e for e in (plan.get("entities") or [])
+                    if isinstance(e, dict)
+                    and e.get("id") not in _contexts]
+        # Unidades da SÍNTESE entregue (nunca linhas de tabela/matriz do
+        # renderer: a matriz repete justificativas do ledger e não é
+        # premissa do writer — usá-la seria o ledger justificando a si
+        # mesmo).
+        units: list[str] = []
+        for _line in str(report_markdown).splitlines():
+            _s = _line.strip()
+            if not _s or _s.startswith("|"):
+                continue
+            for _raw in re.split(r"(?<=[.!?])\s+", _s):
+                if _raw.strip():
+                    units.append(_raw.strip())
+        matched: dict[str, tuple[str, list[str]]] = {}
+        # Premise map: single-entity cited sentences that are neither
+        # absence declarations nor inferences ground the bare inference
+        # sentences ("Premissa de X: ... [N]" + "INFERÊNCIA entre X e Y"
+        # without its own citations). Unsupported premises never ground.
+        try:
+            _skip = set(skip_sentences or ())
+        except Exception:
+            _skip = set()
+        _premise_refs: dict[str, list[str]] = {}
+        for _u in units:
+            if _u in _skip:
+                continue
+            try:
+                if _vr._has_inference_marker(_u):
+                    continue
+                if _vr.is_lacuna_declaration(_u):
+                    continue
+            except Exception:
+                continue
+            try:
+                _cits = [int(n) for n in re.findall(r"\[(\d+)\]", _u)]
+            except Exception:
+                continue
+            if not _cits:
+                continue
+            try:
+                _named = _vr.strict_named_in_sentence(_u, entities)
+            except Exception:
+                _named = []
+            _req_1 = [eid for (_lb, eid) in _named
+                      if any(isinstance(e, dict) and e.get("id") == eid
+                             and e.get("required", True) for e in entities)]
+            if len(set(_req_1)) != 1:
+                continue
+            for _n in _cits:
+                try:
+                    _url = (n_to_url or {}).get(_n)
+                except Exception:
+                    _url = None
+                if isinstance(_url, str) and _url in corpus:
+                    _premise_refs.setdefault(_req_1[0], [])
+                    if _url not in _premise_refs[_req_1[0]]:
+                        _premise_refs[_req_1[0]].append(_url)
+        for _ui, _u in enumerate(units):
+            try:
+                _inf = bool(_vr._has_inference_marker(_u))
+            except Exception:
+                _inf = False
+            if not _inf:
+                continue
+            # Limites podem vir nas 1-2 frases seguintes (parágrafo de
+            # inferência: afirmação, depois "Limites: ..." e "Ausência
+            # de prova ... LACUNA").
+            try:
+                _low = _u.lower()
+                _lim = (bool(_vr._has_polarity_ceiling(_u))
+                        or "limit" in _low or "limite" in _low
+                        or "ausência de prova" in _low
+                        or "ausencia de prova" in _low)
+                if not _lim:
+                    for _nxt in units[_ui + 1:_ui + 3]:
+                        try:
+                            _nl = _nxt.lower()
+                        except Exception:
+                            continue
+                        if (bool(_vr._has_polarity_ceiling(_nxt))
+                                or "limit" in _nl or "limite" in _nl
+                                or "ausência de prova" in _nl
+                                or "ausencia de prova" in _nl):
+                            _lim = True
+                            break
+            except Exception:
+                _lim = False
+            if not _lim:
+                continue
+            try:
+                _cits = [int(n) for n in re.findall(r"\[(\d+)\]", _u)]
+            except Exception:
+                continue
+            _urls: list[str] = []
+            for _n in _cits:
+                try:
+                    _url = (n_to_url or {}).get(_n)
+                except Exception:
+                    _url = None
+                if isinstance(_url, str) and _url in corpus \
+                        and _url not in _urls:
+                    _urls.append(_url)
+            try:
+                _named = _vr.strict_named_in_sentence(_u, entities)
+            except Exception:
+                _named = []
+            _req_named = {eid for (_lb, eid) in _named
+                          if any(isinstance(e, dict)
+                                 and e.get("id") == eid
+                                 and e.get("required", True)
+                                 for e in entities)}
+            if len(_req_named) < 2:
+                continue
+            # Premissas em frases próprias suprem citações ausentes na
+            # frase de inferência (mapa acima). Refs da janela do writer
+            # primeiro (mesma janela da síntese entregue).
+            try:
+                _sel_urls = set(
+                    ((state.get("report") or {}).get("selection") or {})
+                    .get("included_urls") or [])
+            except Exception:
+                _sel_urls = set()
+            for _eid in _req_named:
+                _prem = list(_premise_refs.get(_eid) or [])
+                _prem.sort(key=lambda _u: (0 if _u in _sel_urls else 1, _u))
+                for _pu in _prem:
+                    if _pu not in _urls:
+                        _urls.append(_pu)
+            if len(_urls) < 2:
+                continue
+            try:
+                _low_u = _vr._norm_mention(_u)
+            except Exception:
+                _low_u = ""
+            _overlap = any(w in _low_u for w in _RELATION_OVERLAP_WORDS)
+            _combo = any(w in _low_u for w in _RELATION_COMBO_WORDS)
+            for _t in targets:
+                if _t["id"] in matched:
+                    continue
+                try:
+                    _lab = _vr._norm_mention(_t.get("label") or "")
+                except Exception:
+                    continue
+                _want_overlap = any(
+                    w in _lab for w in _RELATION_OVERLAP_WORDS)
+                _want_combo = any(
+                    w in _lab for w in _RELATION_COMBO_WORDS)
+                if (_overlap and _want_overlap) or (_combo and _want_combo):
+                    _names = "; ".join(dict.fromkeys(
+                        str(_lb) for (_lb, _eid) in _named[:4]))
+                    _just = (f"INFERÊNCIA da síntese entregue ({_names}): "
+                             f"relação inferida a partir de premissas em "
+                             f"{len(_urls)} fonte(s) citadas, com limites "
+                             f"explícitos; nunca integração testada.")
+                    matched[_t["id"]] = (_just, _urls)
+        if not matched:
+            return None
+        fresh = _ledger.Ledger(plan, run_id=state.get("run_id"))
+        fresh.set_corpus(dict(state.get("evidence") or {}),
+                         dict(state.get("qualification") or {}))
+        for prev in state.get("evaluations") or []:
+            try:
+                fresh.evaluate(prev["criterion_id"],
+                               prev.get("state", "insufficient"),
+                               prev.get("justification", ""),
+                               prev.get("origin", ""),
+                               prev.get("references", []),
+                               prev.get("entity_id"))
+            except (ValueError, KeyError):
+                pass
+        for _cid, (_just, _urls) in matched.items():
+            try:
+                ev = fresh.evaluate(_cid, "partial", _just,
+                                    f"delivered-synthesis:{_sha}",
+                                    [{"url": u} for u in _urls[:8]], None)
+            except (ValueError, KeyError):
+                continue
+            state.setdefault("evaluations", []).append(dict(ev))
+            state.setdefault("notes", []).append(
+                f"delivered relation {_cid} -> partial "
+                f"(premissas em {len(_urls)} docs)")
+        return fresh.compute()
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"delivered relations skipped: {exc}")
+        except Exception:
+            pass
+        return None
+
+
+def _reexamine_insufficient_post_write(state, report_markdown):
+    """Re-examine insufficient cells against the writer window (2c).
+
+    For each still-insufficient per-candidate cell whose writer excerpt
+    holds the entity mention plus a dimension word, re-evaluate as
+    partial with the excerpt refs (never covered: no model ran here).
+    Cells whose window lacks entity+dimension keep insufficient, but the
+    justification is scoped ("não re-examinada pós-write") instead of
+    denying the integral document. Returns the recomputed block, or None
+    when nothing changed. Never raises (caller records a note).
+    """
+    try:
+        import verification_report as _vr
+        import coverage_ledger as _ledger
+    except Exception:
+        return None
+    try:
+        plan = state.get("plan") or {}
+        block = state.get("question_coverage") or {}
+        sel = (state.get("report") or {}).get("selection") or {}
+        excerpts = sel.get("excerpts") or {}
+        if not isinstance(excerpts, dict) or not excerpts:
+            return None
+        emap = {e.get("id"): e for e in (plan.get("entities") or [])
+                if isinstance(e, dict)}
+        changed = False
+        fresh = _ledger.Ledger(plan, run_id=state.get("run_id"))
+        fresh.set_corpus(dict(state.get("evidence") or {}),
+                         dict(state.get("qualification") or {}))
+        for prev in state.get("evaluations") or []:
+            try:
+                fresh.evaluate(prev["criterion_id"],
+                               prev.get("state", "insufficient"),
+                               prev.get("justification", ""),
+                               prev.get("origin", ""),
+                               prev.get("references", []),
+                               prev.get("entity_id"))
+            except (ValueError, KeyError):
+                pass
+        for crit in (block.get("criteria") or []):
+            if not isinstance(crit, dict):
+                continue
+            try:
+                _dim = {t for t in _vr._content_tokens(
+                    crit.get("label") or "") if len(t) >= 4}
+                _dim |= set(_expand_terms_en(list(_dim)))
+                # Vocabulário da dimensão: grupos-âncora cujo radical
+                # coincide com o rótulo/id do critério (p.ex. "custo" em
+                # "Custos", "revisao" em "Revisão de código") entram nos
+                # termos da dimensão — o corte do writer usa esses grupos,
+                # então a janela fala a mesma língua do critério.
+                try:
+                    import unicodedata as _ud2
+                    _lab_norm = "".join(
+                        c for c in _ud2.normalize(
+                            "NFKD", (str(crit.get("label") or "") + " "
+                                     + str(crit.get("id") or "")).lower())
+                        if not _ud2.combining(c))
+                    for _gname, _gtoks in _ANCHOR_GROUPS.items():
+                        _suffix = _gname.split("ancora:", 1)[-1]
+                        if _suffix and len(_suffix) >= 4 \
+                                and _suffix in _lab_norm:
+                            _dim |= {str(t).lower() for t in _gtoks
+                                     if len(str(t)) >= 3}
+                except Exception:
+                    pass
+            except Exception:
+                _dim = set()
+            if not _dim:
+                continue
+            states = crit.get("entity_states") or {}
+            evals = crit.get("entity_evaluations") or {}
+            for eid, stt in states.items():
+                if stt != "insufficient":
+                    continue
+                ent = emap.get(eid) or {}
+                elabel = str(ent.get("label") or ent.get("id") or eid)
+                # A janela do writer é indexada pela URL incluída: a fonte
+                # declarada pode ser a página de docs, com o repositório
+                # (canonical) carregando o excerto.
+                _own = str(ent.get("source_url") or "")
+                _win = excerpts.get(_own, "") if _own else ""
+                if not str(_win or "").strip():
+                    _own = str(ent.get("canonical_source_url") or "")
+                    _win = excerpts.get(_own, "") if _own else ""
+                if not str(_win or "").strip():
+                    continue
+                try:
+                    _mentioned = bool(_vr._entity_mentioned(
+                        elabel, eid, str(_win)))
+                except Exception:
+                    _mentioned = False
+                try:
+                    import unicodedata as _udw
+                    _low_win = "".join(
+                        c for c in _udw.normalize(
+                            "NFKD", str(_win).lower())
+                        if not _udw.combining(c))
+                    _dim_hit_terms = sorted(
+                        {d for d in _dim if d in _low_win})[:3]
+                    _dim_hit = bool(_dim_hit_terms)
+                except Exception:
+                    _dim_hit_terms = []
+                    _dim_hit = False
+                try:
+                    _old = str((evals.get(eid) or {}).get(
+                        "justification") or "")
+                except Exception:
+                    _old = ""
+                if _mentioned and _dim_hit:
+                    _just = (f"{elabel}: material sobre a entidade e a "
+                             f"dimensão presente na janela do writer "
+                             f"(excerto avaliado pós-write: "
+                             f"{', '.join(_dim_hit_terms)}); parcial nos "
+                             f"excertos, sem cobertura integral.")
+                    try:
+                        ev = fresh.evaluate(crit.get("id"), "partial",
+                                            _just, "post-write-window",
+                                            [{"url": _own}], eid)
+                    except (ValueError, KeyError):
+                        continue
+                    state.setdefault("evaluations", []).append(dict(ev))
+                    state.setdefault("notes", []).append(
+                        f"post-write window: {crit.get('id')}x{eid} "
+                        f"-> partial (entidade+dimensão no excerto)")
+                    changed = True
+                else:
+                    if "não re-examinada pós-write" in _old:
+                        continue
+                    _just = ((_old + " ") if _old else "") + (
+                        "não re-examinada pós-write (janela do writer sem "
+                        "entidade+dimensão para este critério; sem negar o "
+                        "documento integral).")
+                    try:
+                        _refs = list(((evals.get(eid) or {})
+                                      .get("references") or []))
+                        ev = fresh.evaluate(crit.get("id"), "insufficient",
+                                            _just, "post-write-window",
+                                            _refs, eid)
+                    except (ValueError, KeyError):
+                        continue
+                    state.setdefault("evaluations", []).append(dict(ev))
+                    state.setdefault("notes", []).append(
+                        f"post-write window: {crit.get('id')}x{eid} "
+                        f"mantida insufficient (fora da janela)")
+                    changed = True
+        return fresh.compute() if changed else None
+    except Exception as exc:
+        try:
+            state.setdefault("notes", []).append(
+                f"post-write reexamination skipped: {exc}")
+        except Exception:
+            pass
         return None
 
 
@@ -9230,7 +10011,9 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                 state["question_coverage"] = block
                 # S1 reconstrói o bloco a partir das avaliações: reaplicar
                 # o alcance examinado (doc/trecho vs corpus) para o render.
-                _annotate_examined_scope(state, block)
+                # force: a anotação pré-write congela o escopo sem a seleção
+                # do writer; pós-write o escopo é o material entregue.
+                _annotate_examined_scope(state, block, force=True)
         except Exception as exc:
             state["notes"].append(f"synthesis criteria check failed: {exc}")
         verification = _verify.verify_all(state, ledger=None, audit=semantic,
@@ -9274,7 +10057,7 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
                     try:
                         block = _pledger.compute()
                         state["question_coverage"] = block
-                        _annotate_examined_scope(state, block)
+                        _annotate_examined_scope(state, block, force=True)
                     except Exception as _exc:
                         state.setdefault("notes", []).append(
                             f"partial declarado recompute skipped: {_exc}")
@@ -9291,10 +10074,44 @@ def _finalize(state: dict, resolved: dict, budget, block: dict | None,
             if _rescoped is not None:
                 block = _rescoped
                 state["question_coverage"] = block
-                _annotate_examined_scope(state, block)
+                _annotate_examined_scope(state, block, force=True)
         except Exception as _exc:
             state.setdefault("notes", []).append(
                 f"excerpt rescope skipped: {_exc}")
+        # Delivered relations (2b): global relation criteria the excerpt
+        # assessor never investigates are evaluated against the delivered
+        # synthesis itself (declared inference + limits + >=2 premises).
+        # Partial only, never covered; same window/numbering as delivery.
+        # Unsupported premises (first audit pass) never ground anything.
+        try:
+            try:
+                _skip_sents = {
+                    str(u.get("sentence") or "")
+                    for u in (_check.get("unsupported") or [])
+                    if isinstance(u, dict) and u.get("sentence")}
+            except Exception:
+                _skip_sents = set()
+            _rel = _assess_delivered_relations(state, report_markdown,
+                                               None, _skip_sents)
+            if _rel is not None:
+                block = _rel
+                state["question_coverage"] = block
+                _annotate_examined_scope(state, block, force=True)
+        except Exception as _exc:
+            state.setdefault("notes", []).append(
+                f"delivered relations skipped: {_exc}")
+        # Post-write re-examination (2c): insufficient cells whose writer
+        # window holds entity+dimension gain evaluation+refs; the rest is
+        # marked "não re-examinada pós-write" instead of denying.
+        try:
+            _post = _reexamine_insufficient_post_write(state, report_markdown)
+            if _post is not None:
+                block = _post
+                state["question_coverage"] = block
+                _annotate_examined_scope(state, block, force=True)
+        except Exception as _exc:
+            state.setdefault("notes", []).append(
+                f"post-write reexamination skipped: {_exc}")
         verification["dimensions"]["question"] = _verify.verify_question(state)
         verification["overall"] = _verify.aggregate(verification["dimensions"])
         state["verification"] = verification

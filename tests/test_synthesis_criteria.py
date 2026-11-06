@@ -66,8 +66,10 @@ class SynthesisCriteriaTest(unittest.TestCase):
         self.assertEqual(row["state"], "partial")
         self.assertNotEqual(row["state"], "covered")
         self.assertTrue(any(e.get("criterion_id") == "c1"
-                            and e.get("origin") == "synthesis"
-                            for e in st["evaluations"]))
+                            and str(e.get("origin") or "")
+                            .startswith("synthesis:")
+                            for e in st["evaluations"]),
+                        st["evaluations"])
         # Global criterion untouched.
         self.assertEqual({c["id"]: c for c in out["criteria"]}["c0"]["state"],
                          block["criteria"][0]["state"])

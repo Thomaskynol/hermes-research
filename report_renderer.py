@@ -795,6 +795,7 @@ _DEBUG_NOTE_PREFIXES = (
     "reenvio de quarentena", "proporcional:",
     "per_candidate bound", "resume:",
     "excerpt-scope", "excerpt rescope",
+    "post-write window", "delivered relation",
     "transport failure", "pool reserve", "assessor",
     "fetch failure", "repo minerado", "link-following",
     "rodízio", "op ",
@@ -1232,12 +1233,36 @@ def _reconciliation_notes(state: dict, synthesis: str,
             if not valid_urls:
                 continue
             crit_label = str(crit.get("label") or crit.get("id") or "")
+            try:
+                _cell_evals = crit.get("entity_evaluations") or {}
+            except Exception:
+                _cell_evals = {}
             for eid, st in (es.items() if isinstance(es, dict) else []):
                 if st != "covered":
                     continue
                 elabel = str(_label_by_id.get(eid, eid or ""))
                 if not elabel:
                     continue
+                # Refs da célula da entidade (entity_evaluations), nunca a
+                # referência representativa do critério para todas: a nota
+                # de uma entidade deve citar o doc que a sustenta.
+                _note_urls = valid_urls
+                try:
+                    _cell_refs = ((_cell_evals.get(eid) or {})
+                                  .get("references") or [])
+                    _cell_urls: list[str] = []
+                    for _r in _cell_refs:
+                        _u = (_r.get("url", _r.get("doc_id", ""))
+                              if isinstance(_r, dict) else str(_r or ""))
+                        if not _u:
+                            continue
+                        _k, _nn = _lookup_number(_u, nums)
+                        if _k is not None:
+                            _cell_urls.append(_u)
+                    if _cell_urls:
+                        _note_urls = _cell_urls
+                except Exception:
+                    pass
                 hit = False
                 try:
                     for sent in sents:
@@ -1249,8 +1274,11 @@ def _reconciliation_notes(state: dict, synthesis: str,
                                 _named = bool(_mentioned(
                                     elabel, eid, str(sent or "")))
                                 if not _named:
+                                    _bare_low = _re_s.sub(
+                                        r"https?://[^\s\)\]\"'<>`]+", " ",
+                                        low)
                                     _named = bool(
-                                        elabel.lower() in low)
+                                        elabel.lower() in _bare_low)
                             else:
                                 _named = bool(elabel.lower() in low)
                         except Exception:
@@ -1268,7 +1296,7 @@ def _reconciliation_notes(state: dict, synthesis: str,
                 seen.add(key)
                 try:
                     _rn = [str(nums.get(_norm(u), "?"))
-                           for u in valid_urls[:3]]
+                           for u in _note_urls[:3]]
                     _refs_s = "[" + "][".join(_rn) + "]" if _rn else ""
                 except Exception:
                     _refs_s = ""
@@ -1832,19 +1860,50 @@ def _pair_reconciliation_notes(state: dict, synthesis: str) -> list[str]:
             return []
         try:
             import verification_report as _vr
-            _mentioned = _vr._entity_mentioned
         except Exception:
-            _mentioned = None
+            _vr = None
 
         def _hit(lb: str, eid, sent: str) -> bool:
+            # Nomeação estrita (forma cheia/base inequívoca com fronteira):
+            # overlap frouxo de tokens nunca nomeia ("Open" + "Code Review"
+            # via slug/compound não é menção de "OpenCode Code Review").
+            # Fallback por substring nunca conta slug de URL: o endereço
+            # do documento não é menção da entidade na frase. Par homônimo:
+            # o nome curto só conta fora do vão do nome longo que o contém
+            # ("River Review" em "BigCorp River Review" não nomeia o curto
+            # sozinho) — máscara de spans do rótulo longo, sem literais.
             try:
-                if _mentioned is not None \
-                        and bool(_mentioned(lb, eid, sent)):
-                    return True
+                _bare = _re_p.sub(r"https?://[^\s\)\]\"'<>`]+", " ",
+                                  str(sent or ""))
             except Exception:
-                pass
+                _bare = str(sent or "")
             try:
-                return bool(lb and lb.lower() in sent.lower())
+                _masked = _bare
+                for _other in req:
+                    if not isinstance(_other, dict):
+                        continue
+                    if _other.get("id") == eid:
+                        continue
+                    _ol = str(_other.get("label") or _other.get("id") or "")
+                    if _ol and len(_ol) > len(lb or "") \
+                            and (lb or "").lower() in _ol.lower():
+                        _masked = _re_p.sub(_re_p.escape(_ol), " ",
+                                            _masked, flags=_re_p.I)
+            except Exception:
+                _masked = _bare
+            try:
+                if _vr is None:
+                    return False
+                _norm_m = _vr._norm_mention(_masked)
+                _full = _vr._norm_mention(lb or "")
+                _base = _vr._norm_mention(
+                    _re_p.sub(r"\([^)]*\)", "", str(lb or "")))
+                for _form in dict.fromkeys([_full, _base]):
+                    if _form and _re_p.search(
+                            r"(?:^| )" + _re_p.escape(_form) + r"(?:$| )",
+                            _norm_m):
+                        return True
+                return False
             except Exception:
                 return False
 

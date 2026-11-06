@@ -1400,6 +1400,76 @@ def _extract_factual_justification(s: str) -> str | None:
     return None
 
 
+#: Relation vocabulary: a sentence asserting a link between packages is one
+#: claim (the link), never N per-package claims.
+_ENUM_RELATION_WORDS = ("sobrepos", "overlap", "combin", "complement",
+                        "integra")
+
+
+def _url_slug_name(url: str) -> str:
+    """Package-ish name from a URL (last path segment or bare host)."""
+    try:
+        u = str(url or "").strip().rstrip("/")
+        if "://" in u:
+            u = u.split("://", 1)[1]
+        parts = [p for p in u.split("/") if p]
+        if not parts:
+            return ""
+        last = parts[-1]
+        if last.lower() in ("readme.md", "readme", "index.html",
+                            "index.htm"):
+            last = parts[-2] if len(parts) > 1 else ""
+        last = re.sub(r"\.(git|md|html?|txt)$", "", last, flags=re.I)
+        if len(parts) == 1 and "." in last:
+            last = last.split(".")[0]
+        return last or ""
+    except Exception:
+        return ""
+
+
+def _enum_package_splits(sentence: str) -> list[tuple[str, str]]:
+    """(package name, own URL) pairs of an enumeration sentence.
+
+    A selection sentence fusing N packages ("cada um com fonte própria: A
+    (urlA), B (urlB), ...") becomes N single-package sub-claims, each with
+    its own anchors — fusing them into one claim lets the first documents
+    speak for packages they never describe. Only a colon-led list where
+    every item carries its own URL splits; relation sentences (a link is
+    asserted between the packages) stay whole. Generic, no product names.
+    """
+    try:
+        low = str(sentence or "").lower()
+    except Exception:
+        return []
+    if any(w in low for w in _ENUM_RELATION_WORDS):
+        return []
+    if ":" not in str(sentence or ""):
+        return []
+    _tail = str(sentence).split(":", 1)[1]
+    if "," not in _tail and ";" not in _tail and "·" not in _tail:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for _m in re.finditer(r"https?://[^\s\)\]]+", _tail):
+        _url = _m.group(0).rstrip(".,;:")
+        _before = _tail[:_m.start()]
+        _seg = re.split(r"[,;·\n]|\s+e\s+|\s+and\s+",
+                        _before, flags=re.I)[-1]
+        _seg = re.sub(r"^[\s\-\*#>]*", "", _seg).strip()
+        _seg = re.sub(r"[\(\[]\s*$", "", _seg).strip()
+        _name = _seg.strip(" \t")
+        if _name and _url:
+            pairs.append((_name, _url))
+    _seen_n, _seen_u, _out = set(), set(), []
+    for _name, _url in pairs:
+        _k = _name.lower()
+        if _k in _seen_n or _url in _seen_u:
+            continue
+        _seen_n.add(_k)
+        _seen_u.add(_url)
+        _out.append((_name, _url))
+    return _out if len(_out) >= 2 else []
+
+
 def extract_claims(report: str, evidence: dict[str, str],
                    max_claims: int = 25, generic: bool = False) -> list[dict]:
     """Build review items from the report, each anchored to real evidence.
@@ -1664,6 +1734,61 @@ def extract_claims(report: str, evidence: dict[str, str],
         is_free = bool(_FREE_WORDS.search(s))
         lics = _LIC_RE.findall(s)
 
+        # Multi-package enumeration: one single-package sub-claim per
+        # (name, own URL) pair, each with its own anchors. The sentence
+        # stays verbatim (meaning/links/scope intact); only attribution
+        # is per-package, so no package borrows another's documents.
+        # Relation sentences never reach here (kept whole above).
+        _enum_pairs = _enum_package_splits(s)
+        if _enum_pairs:
+            for _ename, _eurl in _enum_pairs:
+                _slug = _url_slug_name(_eurl)
+                _own_variants = [v for v in (_ename, _slug) if v]
+                _ea, _et = _select_evidence(
+                    _own_variants, s, evidence or {},
+                    _spoken or _last_spoken)
+                _own_anchors: list[str] = []
+                _cands = (([_eurl] if _eurl in (evidence or {}) else [])
+                          + list(_ea or []))
+                for _u in _cands:
+                    if _u in _own_anchors:
+                        continue
+                    if _u != _eurl and not _is_package_doc(
+                            _u, _own_variants):
+                        continue
+                    _foreign = False
+                    for _oname, _ourl in _enum_pairs:
+                        if _ourl == _eurl:
+                            continue
+                        if _u == _ourl or _is_package_doc(
+                                _u, [_oname, _url_slug_name(_ourl)]):
+                            _foreign = True
+                            break
+                    if _foreign:
+                        continue
+                    _own_anchors.append(_u)
+                _etext = _evidence_window(
+                    _own_anchors, _spoken or _last_spoken, None,
+                    budget=6000)
+                _cid = _next_claim_id()
+                _register_claim(_bid, _cid, [_ename],
+                                "enumeração decomposta por pacote", s,
+                                "selected")
+                claims.append({
+                    "id": _cid,
+                    "claim": s,
+                    "packages": [_ename],
+                    "licences": lics,
+                    "free_assertion": is_free,
+                    "priority": ((2 if is_free else 0) + 1 +
+                                 (2 if _has_spoken else 0)),
+                    "anchors": _own_anchors,
+                    "evidence": _etext,
+                    "spoken_refs": (_spoken or _last_spoken),
+                })
+                seen.add(_ename + "|" + re.sub(r"\s+", " ", s).strip())
+            continue
+
         # Editorial-only label: separate justification from preference
         if _is_editorial_only(s) and not pkgs and not lics and not is_free:
             just = _extract_factual_justification(s)
@@ -1827,6 +1952,42 @@ def _load_key() -> str:
         "OPENAI_API_KEY", "")
 
 
+def _payload_chars(items: list[dict]) -> int:
+    """Serialized size of one review payload (transport ceiling input)."""
+    try:
+        return len(json.dumps(
+            [{k: it[k] for k in
+              ("id", "claim", "packages", "licences",
+               "free_assertion", "evidence")} for it in items],
+            ensure_ascii=False))
+    except Exception:
+        return 10 ** 9
+
+
+def _batch_by_budget(items: list[dict], max_items: int = 12,
+                     max_chars: int = 85000) -> list[list[dict]]:
+    """Split review items into transport-safe batches.
+
+    Count cap preserved (quorum/batch protections intact); a batch also
+    closes before exceeding ``max_chars`` of serialized payload, so a
+    longer evidence window never becomes ``prompt_too_large`` +
+    mass ``review_incomplete`` at the transport. A single oversized
+    claim travels alone (never dropped, never truncated here).
+    Deterministic, stdlib only.
+    """
+    chunks: list[list[dict]] = []
+    cur: list[dict] = []
+    for it in items or []:
+        if cur and (len(cur) >= max(1, max_items)
+                    or _payload_chars(cur + [it]) > max_chars):
+            chunks.append(cur)
+            cur = []
+        cur.append(it)
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 async def _review_pass(items: list[dict], model: str,
                        batch_size: int = 12, review_fn=None) -> list[dict]:
     """One full pass over the claims. See _review_batch for why votes exist.
@@ -1849,8 +2010,7 @@ async def _review_pass(items: list[dict], model: str,
         client = openai.AsyncOpenAI(api_key=key,
                                     base_url="https://openrouter.ai/api/v1")
     out: list[dict] = []
-    for i in range(0, len(items), batch_size):
-        chunk = items[i:i + batch_size]
+    for chunk in _batch_by_budget(list(items or []), max_items=batch_size):
         # Teto por lote: sem saldo, nenhum transporte remoto é autorizado.
         if _AUDIT_BUDGET_CHECK is not None:
             try:

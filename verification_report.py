@@ -131,6 +131,28 @@ _PT_EN_SUPPORT: dict[str, tuple[str, ...]] = {
     "confiavel": ("trusted",),
     "usa": ("uses", "use"),
     "plano": ("plan",),
+    # Cognatos de entrega/funcionalidade (fatos positivos com overlap
+    # literal caíam em "sem sobreposição" por falta da ponte).
+    "automatizada": ("automated",), "automatizado": ("automated",),
+    "automatica": ("automatic",), "automatico": ("automatic",),
+    "subagente": ("subagent", "subagents"), "subagentes": ("subagent", "subagents"),
+    "paralelo": ("parallel",), "paralela": ("parallel",),
+    "paralelos": ("parallel",), "paralelas": ("parallel",),
+    "pontuacao": ("scoring", "score"), "limiar": ("threshold",),
+    "verificacao": ("verification",), "verificar": ("verify",),
+    "diretriz": ("guideline",), "diretrizes": ("guidelines",),
+    "agrupada": ("grouped",), "agrupado": ("grouped",),
+    "agrupados": ("grouped",), "agrupadas": ("grouped",),
+    "categoria": ("category",), "categorias": ("categories",),
+    "execucao": ("execution", "runs", "run"),
+    "envio": ("send", "sent", "sending"),
+    "modelo": ("model",), "local": ("local", "locally"),
+    "truncado": ("truncated",), "truncada": ("truncated",),
+    # Cognatos de relato de projeto (fatos sobre o próprio desenvolvimento
+    # vs ajuda ao usuário: overlap literal decidia no vazio sem a ponte).
+    "comandos": ("commands",), "comando": ("commands", "command"),
+    "projeto": ("project",), "proprio": ("own",),
+    "ajuda": ("help", "helps"), "usuario": ("user",),
 }
 
 
@@ -438,9 +460,15 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
     hifen-consciente: o rótulo curto dentro de um composto hifenado
     ("alpha" em "alpha-beta") não é menção da entidade curta, mas a
     forma cheia casa insensível a separador ("alpha-beta" casa
-    "alpha beta").
+    "alpha beta"). Slugs de URL nunca contam como menção (o endereço
+    do documento não é o seu conteúdo).
     """
-    doc = _norm_mention(doc_text)
+    try:
+        _no_urls = re.sub(r"https?://[^\s\)\]\"'<>`]+", " ",
+                          str(doc_text or ""))
+    except Exception:
+        _no_urls = str(doc_text or "")
+    doc = _norm_mention(_no_urls)
     if not doc:
         return False
     padded = f" {doc} "
@@ -472,7 +500,7 @@ def _entity_mentioned(label, eid, doc_text: str) -> bool:
                 continue
     try:
         label_toks = {w for w in _content_tokens(label) if len(w) >= 4}
-        doc_toks = {w for w in _content_tokens(doc_text) if len(w) >= 4}
+        doc_toks = {w for w in _content_tokens(_no_urls) if len(w) >= 4}
         if len(label_toks & doc_toks) >= 2:
             return True
     except Exception:
@@ -751,6 +779,50 @@ def _support_doc_tokens(doc_text: str):
     return frozenset(_content_tokens(doc_text))
 
 
+def _shares_distinctive_bigram(sentence_raw: str, doc_text: str,
+                               title) -> bool:
+    """Um par adjacente distintivo partilhado (via literal).
+
+    Compara pares de tokens de conteúdo adjacentes, sem ordem (PT
+    "licença MIT" vs EN "MIT license"), com expansão PT→EN no lado da
+    frase: um bigrama técnico partilhado ("pull requests", comando
+    citado no excerto, "licença MIT") com a entidade mencionada
+    sustenta a frase. Par genérico de título (ambos os tokens no título
+    do doc) ou curto demais nunca conta — só a força da relação, nunca
+    integração inventada.
+    """
+    try:
+        s_toks = _content_tokens(sentence_raw)
+        d_toks = _content_tokens(doc_text)
+    except Exception:
+        return False
+    if len(s_toks) < 2 or len(d_toks) < 2:
+        return False
+    try:
+        title_set = set(title or ())
+    except Exception:
+        title_set = set()
+    try:
+        doc_pairs = {frozenset(p) for p in zip(d_toks, d_toks[1:])
+                     if len(p[0]) >= 2 and len(p[1]) >= 2}
+        exp = [_expand_support_tokens({t}) or {t} for t in s_toks]
+        for a, b in zip(exp, exp[1:]):
+            for x in a:
+                for y in b:
+                    if len(x) < 2 or len(y) < 2 or x == y:
+                        continue
+                    if frozenset((x, y)) not in doc_pairs:
+                        continue
+                    if max(len(x), len(y)) < 4:
+                        continue
+                    if x in title_set and y in title_set:
+                        continue
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 def _sentence_supported(sentence_tokens: set[str], doc_text: str,
                         named_entities: list,
                         sentence_raw: str = "", identity_fn=None) -> tuple[bool, str]:
@@ -825,6 +897,18 @@ def _sentence_supported(sentence_tokens: set[str], doc_text: str,
     if named and not any(mention(label, eid, doc_text)
                          for label, eid in named):
         return False, "entidade não mencionada no doc"
+    # Via literal (força da relação, nunca integração inventada): par
+    # adjacente distintivo partilhado entre frase e doc, com a entidade
+    # mencionada e ao menos uma palavra rara partilhada fora do título,
+    # sustenta — overlap literal curto (comando citado no excerto,
+    # bigrama técnico) não exige 35% do texto. Coincidência minoritária
+    # sem palavra substantiva partilhada segue reprovada.
+    try:
+        if sentence_raw and rare and _shares_distinctive_bigram(
+                sentence_raw, doc_text, title):
+            return True, ""
+    except Exception:
+        pass
     if ratio < 0.35 and len(rare) < 2:
         return False, "sem sobreposição"
     # The cell entity must be named in full ("opencode" + "agents" via
@@ -853,7 +937,20 @@ LACUNA_DECLARATION_MARKERS = (
     # no overlap com a declaração vazia. Exige "lacuna" junto de
     # "excertos" para não sequestrar inferência que só delimita janela.
     "lacuna nos excertos", "lacuna no excerto",
+    # Molde do writer para célula insufficient ("LACUNA nos trechos
+    # apresentados ..."): ausência sobre fontes consultadas, auditada na
+    # premissa (S2), nunca no overlap com a declaração vazia.
+    "lacuna nos trechos", "lacuna no trecho",
 )
+
+
+#: Ausência delimitada a um eixo ("LACUNA para/em/de X"): gap com escopo
+#: explícito, auditado na premissa — nunca no overlap com a declaração.
+#: Conclusão de preenchimento ("a lacuna de testes foi preenchida") é
+#: prosa positiva e segue o caminho normal.
+_LACUNA_SCOPED_MARKERS = ("lacuna para", "lacuna em", "lacuna de")
+_LACUNA_COMPLETION_RE = re.compile(
+    r"(preenchid|completad|superad|fechad|resolvid|corrigid)[oa]s?\b")
 
 
 #: Moldes nus de janela ("sem fonte/trecho", "não estabelece"): sozinhos
@@ -862,6 +959,36 @@ LACUNA_DECLARATION_MARKERS = (
 _LACUNA_BARE_WINDOW = (
     "sem fonte", "sem trecho",
     "não estabelece", "nao estabelece",
+)
+
+#: Núcleo de ausência (gap declarado): sem ele, é prosa positiva.
+_LACUNA_CORE_MARKERS = (
+    "lacuna", "ausência", "ausencia",
+    "não verificad", "nao verificad",
+    "não demonstrad", "nao demonstrad",
+    "sem demonstração", "sem demonstracao",
+)
+
+#: Delimitadores de alcance (janela ou eixo): sem eles, é ausência global
+#: (fora do contrato da auditoria por janela) ou prosa positiva.
+#: "síntese" sozinha não delimita (meta-prosa sobre o relatório não é gap).
+_LACUNA_SCOPE_WORDS = (
+    "trecho", "excerto", "excerpt", "apresentad", "avaliad",
+    "janela", "material enviado",
+)
+
+#: Janela de excerto apresentada/avaliada ("no trecho apresentado"):
+#: ausência afirmada DENTRO da janela entregue, nunca sobre o integral.
+_LACUNA_WINDOW_PHRASES = (
+    "no trecho apresentado", "nos trechos apresentados",
+    "no trecho avaliado", "nos trechos avaliados",
+    "no excerto apresentado", "nos excertos apresentados",
+)
+
+#: Linguagem de ausência que, junto da janela, delimita o gap.
+_LACUNA_ABSENCE_WORDS = (
+    "sem ", "não ", "nao ", "insufficient", "lacuna", "ausência",
+    "ausencia", "falta", "nenhum", "nenhuma", "não há", "nao ha",
 )
 
 
@@ -917,17 +1044,60 @@ def is_lacuna_declaration(sentence: str) -> bool:
     # never on word overlap with the marked absence/inference.
     if _has_leading_declaration_mark(lowered):
         return True
+    # Núcleo de ausência + delimitador de alcance na frase: gap
+    # delimitado à janela/eixo ("LACUNA ... nos trechos", "não tem X nos
+    # trechos; LACUNA"), auditado na premissa. Núcleo e alcance podem
+    # estar em orações distintas (marcador final "LACUNA [N]" delimita
+    # a oração anterior). Conclusão de preenchimento ("foi preenchida")
+    # é prosa positiva e segue o caminho normal. Sem núcleo (p.ex. "X
+    # declara Y sem fonte"), é prosa positiva.
+    if not _LACUNA_COMPLETION_RE.search(lowered):
+        if any(m in lowered for m in _LACUNA_CORE_MARKERS) \
+                and any(s in lowered for s in _LACUNA_SCOPE_WORDS):
+            return True
     # Moldes nus só com coocorrência na MESMA oração (lacuna/excertos):
     # sem ela, "X declara Y sem fonte" é prosa positiva e segue o caminho
     # normal — alcance em frase inteira desviava incidental.
     for _c in _clauses_of(lowered):
         if any(m in _c for m in _LACUNA_BARE_WINDOW) \
-                and ("lacuna" in _c or "excerto" in _c or "excerpt" in _c):
+                and ("lacuna" in _c or "excerto" in _c or "excerpt" in _c
+                     or "trecho" in _c):
+            return True
+        # Janela apresentada/avaliada + linguagem de ausência na MESMA
+        # oração: gap delimitado à janela entregue ("sem recurso nesses
+        # eixos no trecho apresentado"), nunca fato positivo.
+        if any(m in _c for m in _LACUNA_WINDOW_PHRASES) \
+                and any(m in _c for m in _LACUNA_ABSENCE_WORDS):
             return True
     # Template do writer para célula insufficient: "sem <dimensão>
     # demonstrad[o/a]" (ex. accept15 "sem revisão demonstrada") — afirma
     # ausência de evidência, não fato positivo; genérico na dimensão.
-    return re.search(r"sem\s+\w+\s+demonstrad[oa]\b", lowered) is not None
+    if re.search(r"sem\s+\w+\s+demonstrad[oa]\b", lowered) is not None:
+        return True
+    # Ausência delimitada a um eixo ("LACUNA para/em/de X"): gap com
+    # escopo explícito. Conclusão de preenchimento ("foi preenchida")
+    # é prosa positiva e segue o caminho normal.
+    if any(m in lowered for m in _LACUNA_SCOPED_MARKERS) \
+            and not _LACUNA_COMPLETION_RE.search(lowered):
+        return True
+    return False
+
+
+#: Afirmação de posse de fonte ("tem fonte primária identificada"):
+#: não afirma conteúdo do documento, só que a fonte existe e é própria.
+#: A prova é a titularidade (identidade estrita de repo), nunca overlap.
+_SOURCE_POSSESSION_RE = re.compile(
+    r"fonte primária|fonte propria|fonte própria|fonte identificada|"
+    r"primary source",
+    re.IGNORECASE)
+
+
+def _is_source_possession_claim(sentence: str) -> bool:
+    """True when the sentence only asserts source possession."""
+    try:
+        return bool(_SOURCE_POSSESSION_RE.search(str(sentence or "")))
+    except Exception:
+        return False
 
 
 #: Quoted evidence strings in a LACUNA sentence (accept21): even an
@@ -1025,7 +1195,7 @@ def _window_scope_for(sentence: str) -> str:
         low = str(sentence or "").lower()
     except Exception:
         return "janela (excertos avaliados)"
-    if "excerto" in low or "excerpt" in low:
+    if "excerto" in low or "excerpt" in low or "trecho" in low:
         return "janela (excertos avaliados)"
     if "corpus" in low:
         return "global (corpus integral)"
@@ -1062,7 +1232,8 @@ def _audit_inference(anchor: str, relation: str, doc_text: str,
         anchor_ok, anchor_reason = False, "sem sobreposição"
     else:
         anchor_ok, anchor_reason = _sentence_supported(
-            anchor_tokens, doc_text, named_anchor, anchor, identity_fn=identity_fn)
+            anchor_tokens, doc_text, named_anchor, anchor,
+            identity_fn=identity_fn)
     if not relation_tokens:
         relation_ok, relation_reason = False, "sem sobreposição"
     else:
@@ -1358,15 +1529,24 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
     # versão e a isenção de lacuna. Linha primeiro, frase depois: mesma
     # regra do diagnose (que audita por linha).
     _units: list[str] = []
+    _skipped_provenance = False
     for _line in str(text).splitlines():
         _stripped = _line.strip()
         if not _stripped:
             continue
         for _raw in re.split(r"(?<=[.!?])\s+", _stripped):
             _s = _raw.strip()
-            if _s:
-                _units.append(_s)
-    if not _units and text.strip():
+            if not _s:
+                continue
+            # Nota de procedência (inventário de fontes, não afirmação
+            # factual): mesma doutrina do extrator ("atribuição de fonte"),
+            # nunca entra na auditoria de frases.
+            if re.match(r"^[-*\s]*nota de proced[êe]ncia\s*:",
+                         _s, re.I):
+                _skipped_provenance = True
+                continue
+            _units.append(_s)
+    if not _units and text.strip() and not _skipped_provenance:
         _units = [text.strip()]
     for sentence in _units:
         citations = [int(n) for n in re.findall(r"\[(\d+)\]", sentence)]
@@ -1436,6 +1616,37 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 inferred_comparisons.append({"sentence": sentence, "citations": citations})
             if _has_inference_marker(sentence) and len(named_selected) == 2:
                 _strict = named_selected
+        # Posse de fonte ("X tem fonte primária identificada [N]"): a
+        # própria citação prova a posse quando cada doc citado menciona
+        # uma entidade nomeada na frase sem ser de outro dono (mesma
+        # porta do ramo positivo; sem ela, doc alheio não vira fonte
+        # própria). Não afirma conteúdo do doc — só que a fonte existe
+        # e é sua.
+        try:
+            if _is_source_possession_claim(sentence):
+                _poss_ok = bool(citations)
+                for _n in citations:
+                    _u = n_to_url.get(_n)
+                    _d = _doc_for(_u) if _u else ""
+                    if not _u or not _d:
+                        _poss_ok = False
+                        break
+                    _owned = False
+                    for _toks, _lb, _eid in named_selected or named:
+                        try:
+                            if _vetoed_mention(_lb, _eid, _d):
+                                _owned = True
+                                break
+                        except Exception:
+                            continue
+                    if not _owned:
+                        _poss_ok = False
+                        break
+                if _poss_ok:
+                    supported += 1
+                    continue
+        except Exception:
+            pass
         # Fato do usuario como premissa explicita (sem numero de corpus,
         # nunca LACUNA automatica): isenta o gate de versao da versao
         # vinda do contexto e audita a premissa da entidade.
@@ -1555,7 +1766,23 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     # corroboradas no citado. Sem isenções por
                     # INFERÊNCIA/LACUNA/negação (só _USER_CONTEXT_MARKERS).
                     _premise_ok = False
-                    if _is_numeric_comparison(sentence):
+                    try:
+                        _gate_numeric = bool(
+                            _is_numeric_comparison(sentence))
+                    except Exception:
+                        _gate_numeric = False
+                    # Escopo de premissa em LACUNA declarada: a versão com
+                    # proveniência explícita delimita o gap (não afirma
+                    # fato do doc); a ocorrência no citado é dispensada
+                    # como na comparação numérica.
+                    try:
+                        _gate_lacuna = (
+                            is_lacuna_declaration(sentence)
+                            and any(k.lower() in str(sentence or "").lower()
+                                    for k in _USER_CONTEXT_MARKERS))
+                    except Exception:
+                        _gate_lacuna = False
+                    if _gate_numeric or _gate_lacuna:
                         try:
                             _low = str(sentence or "").lower()
                             _bounds = [0] + [m.end() for m in
@@ -1581,8 +1808,38 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                                             if _bounds[_i] <= _cs < _bounds[_i + 1]),
                                            len(_bounds) - 2)
                                 _span = _low[_bounds[_ci]:_bounds[_ci + 1]]
-                                if not (any(k.lower() in _span for k in _USER_CONTEXT_MARKERS)
-                                        and _is_numeric_comparison(_span)):
+                                _has_marker = any(
+                                    k.lower() in _span
+                                    for k in _USER_CONTEXT_MARKERS)
+                                # Escopo de premissa: a versão delimita uma
+                                # LACUNA declarada (não afirma fato do doc);
+                                # com proveniência explícita, a ocorrência
+                                # no citado é dispensada como na comparação
+                                # numérica.
+                                _lacuna_scoped = (
+                                    "lacuna" in _span
+                                    or "ausência" in _span
+                                    or "ausencia" in _span)
+                                if not (_has_marker
+                                        and (_is_numeric_comparison(_span)
+                                             or _lacuna_scoped)):
+                                    continue
+                                # Versão com negação própria ("9.9.9 sem
+                                # fonte") afirma ausência no doc: nunca
+                                # isenta por escopo de premissa.
+                                try:
+                                    _wing = _low[max(0, _cs - 15):
+                                                _ce + 15]
+                                    _denied = any(
+                                        d in _wing for d in (
+                                            "sem fonte", "sem menção",
+                                            "sem mencao", "sem evidência",
+                                            "sem evidencia", "desconhecid",
+                                            "sem registro", "não consta",
+                                            "nao consta"))
+                                except Exception:
+                                    _denied = False
+                                if _denied:
                                     continue
                                 # shortcut: adjacência ao marcador ≤40 chars
                                 # na mesma oração; qualquer ocorrência vale
@@ -1648,6 +1905,7 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
             _anchor_any_ok = False
             _rel_reasons: list[str] = []
             _std_docs: list[str] = []
+            _anchor_ok_urls: set[str] = set()
             for n in citations:
                 url = n_to_url.get(n)
                 if not url:
@@ -1663,6 +1921,10 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                     identity_fn=_entity_mentioned)
                 if a_ok:
                     _anchor_any_ok = True
+                    try:
+                        _anchor_ok_urls.add(url)
+                    except Exception:
+                        pass
                 if a_ok and r_ok:
                     _interop_ok = True
                     break
@@ -1713,8 +1975,10 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                 if all(m for m, _ in spans):
                     spans.sort(key=lambda item: item[0].start())
                     (first, e1), (second, e2) = spans
+                    _after = re.sub(r"^[,;.\s:]+", "",
+                                    sentence[second.end():])
                     clauses = [sentence[first.end():second.start()],
-                               re.split(r"[,;.:]", sentence[second.end():], maxsplit=1)[0]]
+                               re.split(r"[,;.:]", _after, maxsplit=1)[0]]
                     found_urls = []
                     glue = {"ajuda", "helps", "help", "contribui", "contributes", "permite", "allows",
                             "estruturar", "structure", "organizar", "organize",
@@ -1782,9 +2046,21 @@ def check_support(synthesis_text: str, numbers, corpus, plan,
                           "(complementaridade plausível, não integração "
                           "testada)")
             if not grounded_pair:
-                unsupported.append({"sentence": sentence,
-                                    "citations": citations,
-                                    "reason": reason})
+                # Premissas em fontes distintas + limites explícitos: a
+                # inferência é partial declarada — nunca exige citação de
+                # interop que ela própria nega haver (sem unsupported).
+                # Limites = teto de polaridade (negação/limite/modalidade
+                # que recusa integração testada) ou marca explícita.
+                try:
+                    _low_lim = str(sentence or "").lower()
+                    _limited = ("limit" in _low_lim or "limite" in _low_lim
+                                or bool(_capped))
+                except Exception:
+                    _limited = False
+                if not (_limited and len(_anchor_ok_urls) >= 2):
+                    unsupported.append({"sentence": sentence,
+                                        "citations": citations,
+                                        "reason": reason})
             _decl = {"sentence": sentence, "citations": citations,
                      "anchor_ok": bool(_anchor_any_ok), "relation_ok": False,
                      "scope": PARTIAL_DECLARED_SCOPE}
