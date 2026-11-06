@@ -1,5 +1,34 @@
 # CONTINUIDADE — estado atual primeiro, histórico abaixo (`feat/product-v1`)
 
+> **Estado atual — corretiva attempt5 accept43: itens 1–4 fechados (2026-11-06 UTC):**
+> branch `feat/product-v1`, produto = HEAD + diff lane attempt5 (sem push
+> ainda; push ao fechar). Fonte: `runs/accept43-corretiva-attempt3/replay/`
+> (só leitura); destino exclusivo `runs/accept43-corretiva-attempt5/`
+> (live final + frozen-baseline + 2 intermediários de transiente
+> preservados como evidência; varreduras superadas removidas).
+> Baseline frozen sem `--model` exit 0 (seleção idêntica; efeitos novos:
+> escopo 6/13, c_combo/c_overlap partial, docinf re-derivada). Passe live
+> (`--model opencode-go/muse-spark-1.3-contributor`, `--assessment-calls 0`):
+> assessor 0 novas (81 herdadas revalidadas), writer 1 nova (síntese nova),
+> auditoria 15 novas (5 lotes × 3 votos; 1ª tentativa estourou teto
+> 100000 → fracionamento por orçamento `_batch_by_budget`; 2 transientes
+> `opencode_no_text` em tentativas intermediárias, smoke OK).
+> Review final: 25/25 com quórum — 15 sustained, 6 partial, 4 gap,
+> **0 unsupported**, 0 ties, 0 falhas técnicas (`audited_sha=6a431e5a…`).
+> Claim-0 decomposta em 5 sub-claims single-package (sem unsupported).
+> c_review×e13 e c_cost×e13 → partial teto (janela [20] + 2ª fonte [2]
+> admitida, cortada pelo teto 12000); c_combo/c_overlap partial com 2
+> refs próprias; docinf partial re-derivada (5 refs). `verification.json`
+> corresponde (`rendered_sha=bd9b93e3…` == sha256 do report). Overall
+> `partial` HONESTO (16 pendentes; sem reversão, sem edição de artefato;
+> 1 unsupported na revisão? Não — 0; support tem 3 residuais honestos:
+> abstração writer, recomendação não-marcada, versão sem premissa).
+> Suite 961 OK/10 skips + offline 10/10 exit 0. ZIP:
+> `runs/accept43-corretiva-attempt5/REVISAO_ACCEPT43_ATTEMPT5.zip` (report
+> + verification + annex + RELATORIO_VALIDACAO, mesma execução). Técnico
+> atualizado com adendo attempt5. Próximo passo: push feat/product-v1
+> (sem force) + validação do orquestrador.
+
 > **Estado atual — resposta attempt4 accept43: síntese NOVA + revisão NOVA (2026-11-05 UTC):**
 > branch `feat/product-v1`, produto `10cb10d` + diff lane-1 (sem reedição;
 > sem push ainda). Fonte: `runs/accept43-corretiva-attempt3/replay/` (só

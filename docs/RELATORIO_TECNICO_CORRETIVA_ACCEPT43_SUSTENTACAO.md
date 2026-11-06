@@ -331,3 +331,70 @@ de N entidades (cobertura, não defeito de produto).
 (sem reprodução no corpus atual); split ingênuo em ponto quebraria `2.1.4`.
 - Janela 40-chars não calibrada p/ aposição longa (T2a cobre caso curto; sem
 caso real; calibração futura se observado).
+
+## Attempt 5 — itens 1–4 (mecanismo geral, TDD RED→GREEN)
+
+Proveniência (replay + live, corpus congelado attempt3, sem nova coleta):
+fonte `runs/accept43-corretiva-attempt3/replay/` (só leitura);
+destino exclusivo `runs/accept43-corretiva-attempt5/` (`frozen-baseline/`
++ `live/` + `RELATORIO_VALIDACAO.md` +
+`REVISAO_ACCEPT43_ATTEMPT5.zip`; intermediários de transiente preservados,
+varreduras superadas removidas). `code_head=5fdec47` + diff lane attempt5.
+Assessor 0 chamadas novas (81 herdadas revalidadas); writer 1 nova
+(síntese nova); auditoria 15 novas (5 lotes × 3 votos, 16/16 `returned`
+no passe final; 1 tentativa com lote >100KB motivou fracionamento por
+orçamento, 2 transientes `opencode_no_text` em tentativas intermediárias).
+`module_hashes_unchanged=true`, `original_unchanged=true`.
+
+Causa-raiz por item (1 correção por causa, 41 testes novos em
+`tests/test_accept43_corretiva_attempt5.py`, todos RED antes de GREEN;
+negativos conservados — 961 OK/10 skips + offline 10/10):
+
+1. claim-0: extração fundia N pacotes num claim com anchors truncados
+   ([:3]) e pacotes não detectados (Plannotator/Octto fora do `_PKG_RE`).
+   FIX: decomposição interna em sub-claims single-package (sentenças de
+   enumeração com URL/[n] próprio por pacote, sem verbo de relação),
+   cada um com packages/anchors/evidence próprios; relação preservada
+   inteira. Live: 5 sub-claims julgados por pacote (gap/partial,
+   0 unsupported em seleção).
+2a. `_annotate_examined_scope` idempotente congelava `0/13` pré-write.
+   FIX: `force=True` pós-write e rebuilds → `6/13 (11983 chars)`.
+2b. `_assess_synthesis_criteria` só agia em insufficient/uninvestigated;
+   `c_combo`/`c_overlap` (não-`synthesis:true`) jamais avaliados. FIX:
+   re-derivação de partial com `synthesis:<sha>` (nunca covered) +
+   `_assess_delivered_relations` (inferência + limites + ≥2 premissas
+   citadas, entidades exigidas, tabela/contexto excluídos como premissa,
+   lookahead de limites): combo/overlap partial, docinf re-derivada.
+2c. insufficient herdado vs janela do writer. FIX:
+   `_reexamine_insufficient_post_write` (entidade+dimensão na janela →
+   partial com refs, teto respeitado; senão "não re-examinada
+   pós-write" em vez de negar; canonical fallback p/ source_url de
+   docs). Live: 8 células → partial (incl. todo o eixo Octto).
+2d. Notas §5 com refs representativas p/ todas as entidades + matching
+   por tokens vindos de slug. FIX: `entity_evaluations[eid].references`;
+   strip de URLs em `_entity_mentioned`; `_pair_reconciliation_notes`
+   exige forma cheia com fronteira + máscara de homônimo (0 notas
+   Alibaba neste passe); debug interno fora do corpo §5.
+3. LACUNA delimitada ("nos trechos apresentados", "LACUNA para/em/de",
+   "no trecho apresentado/avaliado" + ausência, "Não verificado:"
+   líder) ia ao overlap (falso-negativo por construção) → canal
+   declarado com premissa verificada. Positivos com overlap literal:
+   pontes PT→EN (automatizada/subagentes/paralelos/agrupada/categoria/
+   comandos/projeto/...) + bigrama distintivo não-título com palavra
+   rara. Inferência com 2 premissas + limites nunca exige interop
+   (skip do unsupported; fabricated/homônimo/foreign seguem
+   rejeitados). Posse de fonte provada pela citação do próprio doc
+   (veto a doc alheio). Procedência não é claim.
+4. Octto: 2ª fonte admitida por gap aberto + afinidade de sítio/owner
+   + dimensão (blog [2] admitido e cortado pelo teto 12000 — registrado
+   em cuts; listões e fork same-slug rejeitados); corte com
+   `ancora:revisao` retém show_diff/diff/syntax; e13 re-avaliado na
+   nova janela (teto partial).
+
+Revisão exercitada (25/25 quórum, 0 falhas técnicas): 15 sustained,
+6 partial, 4 gap, 0 unsupported. `verification.json` corresponde
+(`rendered_sha=bd9b93e3…`). Overall `partial` honesto. Residuais
+documentados no RELATORIO_VALIDACAO (R1–R6): recomendação sem marca,
+evidência fora da janela mostrada, abstração writer vs léxico,
+versão sem premissa marcada, notas cross-dimensão, blog cortado pelo
+teto, meta-linguagem pontual do modelo.
